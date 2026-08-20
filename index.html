@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pen Experiment Engine</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #09090b;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      #toolbar {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 100;
+        display: flex;
+        gap: 12px;
+        background: rgba(24, 24, 27, 0.85);
+        backdrop-filter: blur(12px);
+        padding: 8px 14px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      }
+      button, select {
+        background: #27272a;
+        color: #f4f4f5;
+        border: 1px solid #3f3f46;
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+        outline: none;
+      }
+      button:hover, select:hover {
+        background: #3f3f46;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="toolbar">
+      <input type="file" id="fileInput" accept=".pen,.json" style="display: none" />
+      <button id="openBtn">📂 Open .pen File</button>
+      <select id="fixtureSelect">
+        <option value="">Load Fixture...</option>
+        <option value="A_control_r1">Factory Control Panel (A1)</option>
+        <option value="B_contract_r1">Design System Contract (B1)</option>
+        <option value="C_verify_r1">Verification Layout (C1)</option>
+        <option value="D_hires_r1">High-Res Layout (D1)</option>
+      </select>
+    </div>
+    <canvas id="viewport"></canvas>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
