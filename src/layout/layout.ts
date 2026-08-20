@@ -21,22 +21,26 @@ import {
  * 2. Arrange (Top-Down): Places nodes and resolves fill_container sizing.
  */
 
+import { resolveInstances } from "../model/instance";
+
 export function layoutDocument(doc: Document): LayoutNode[] {
-  return doc.children.map(layoutRootNode);
+  const resolved = resolveInstances(doc);
+  return resolved.children.map((child) => layoutRootNode(child, resolved.variables));
 }
 
-function layoutRootNode(node: PenNode): LayoutNode {
-  const measured = measureNode(node);
+
+function layoutRootNode(node: PenNode, variables?: Record<string, any>): LayoutNode {
+  const measured = measureNode(node, variables);
   const rootBox: Box = {
     x: node.x ?? 0,
     y: node.y ?? 0,
     width: measured.measuredWidth,
     height: measured.measuredHeight
   };
-  return arrangeNode(measured, rootBox);
+  return arrangeNode(measured, rootBox, variables);
 }
 
-export function arrangeNode(measured: MeasuredNode, box: Box): LayoutNode {
+export function arrangeNode(measured: MeasuredNode, box: Box, variables?: Record<string, any>): LayoutNode {
   const { node, children } = measured;
 
   if (children.length === 0) {
@@ -56,7 +60,7 @@ export function arrangeNode(measured: MeasuredNode, box: Box): LayoutNode {
         width: child.measuredWidth,
         height: child.measuredHeight
       };
-      return arrangeNode(child, childBox);
+      return arrangeNode(child, childBox, variables);
     });
     return { id: node.id, type: node.type, box, rotation: node.rotation, children: layoutChildren };
   }
@@ -98,29 +102,23 @@ export function arrangeNode(measured: MeasuredNode, box: Box): LayoutNode {
         width: child.measuredWidth,
         height: child.measuredHeight
       };
-      layoutChildren.push(arrangeNode(child, childBox));
+      layoutChildren.push(arrangeNode(child, childBox, variables));
     } else {
-      const mainSize = flowMainSizes[flowIdx];
-      const mainPos = flowMainPositions[flowIdx];
+      const mainSize = flowMainSizes[flowIdx] ?? 0;
+      const mainPos = flowMainPositions[flowIdx] ?? 0;
 
-      // Cross-axis sizing:
-      // Note on Pen Spec: When width/height is omitted on a child frame, Pen strictly defaults to "fit_content" (hug).
-      // Even if a frame has justifyContent: "space_between", without an explicit width: "fill_container",
-      // Pen keeps it tightly hugged to children, leaving 0px extra space (placing children adjacent).
-      // We strictly match Pen's specification here. We will re-evaluate auto-promotion at project completion.
+      // Omitted cross-axis size is hug (fit_content), not fill. Pen does not stretch.
       const crossSizing = parseSizing(isHoriz ? child.node.height : child.node.width);
       const isCrossFill = crossSizing.mode === "fill_container";
       const crossSize = isCrossFill
         ? Math.max(0, contentCross)
         : (isHoriz ? child.measuredHeight : child.measuredWidth);
 
-
-
       let childW = isHoriz ? mainSize : crossSize;
       let childH = isHoriz ? crossSize : mainSize;
 
       if (child.node.type === "text" && (child.node as TextNode).textGrowth === "fixed-width") {
-        const textMetrics = measureTextNode(child.node as TextNode, childW);
+        const textMetrics = measureTextNode(child.node as TextNode, childW, variables);
         childH = textMetrics.height;
       }
 
@@ -139,7 +137,7 @@ export function arrangeNode(measured: MeasuredNode, box: Box): LayoutNode {
         height: childH
       };
 
-      layoutChildren.push(arrangeNode(child, childBox));
+      layoutChildren.push(arrangeNode(child, childBox, variables));
       flowIdx++;
     }
   }

@@ -22,13 +22,6 @@ export interface LayoutNode {
 }
 
 /**
- * Axis abstraction:
- * - In "horizontal" layout: main = X axis (width), cross = Y axis (height)
- * - In "vertical" layout: main = Y axis (height), cross = X axis (width)
- */
-export type Axis = "main" | "cross";
-
-/**
  * Standardised four-edge padding structure.
  */
 export interface Padding {

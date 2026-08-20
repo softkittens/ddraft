@@ -1,8 +1,10 @@
-import type { LayoutNode, Box } from "../layout/types";
-import type { PenNode, PathNode, PolygonNode, TextNode } from "../model/types";
+import type { LayoutNode } from "../layout/types";
+import type { PenNode, PathNode, PolygonNode, TextNode, IconNode } from "../model/types";
+
+
 import { resolveFill, resolveVariable } from "./fills";
 import { paintStroke } from "./strokes";
-import { applyEffects, clearEffects } from "./effects";
+import { applyEffects, clearEffects, type Effect } from "./effects";
 
 export function setupCanvas(
   canvas: HTMLCanvasElement,
@@ -10,10 +12,19 @@ export function setupCanvas(
   cssHeight: number,
   dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1
 ): CanvasRenderingContext2D | null {
-  canvas.width = Math.floor(cssWidth * dpr);
-  canvas.height = Math.floor(cssHeight * dpr);
-  canvas.style.width = `${cssWidth}px`;
-  canvas.style.height = `${cssHeight}px`;
+  const bufferW = Math.floor(cssWidth * dpr);
+  const bufferH = Math.floor(cssHeight * dpr);
+  if (canvas.style) {
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+  }
+
+  if (canvas.width === bufferW && canvas.height === bufferH) {
+    return canvas.getContext("2d");
+  }
+
+  canvas.width = bufferW;
+  canvas.height = bufferH;
 
   const ctx = canvas.getContext("2d");
   if (ctx) ctx.scale(dpr, dpr);
@@ -28,9 +39,9 @@ export function drawShape(
 ): void {
   const { box } = layoutNode;
   const fillStyle = resolveFill(ctx, data?.fill, box, variables);
-  const effects = (data as any)?.effects;
+  const effects = data?.effects as Effect[] | undefined;
 
-  if (effects) applyEffects(ctx, effects);
+  if (effects) applyEffects(ctx, effects, variables);
 
   ctx.beginPath();
   switch (layoutNode.type) {
@@ -89,6 +100,33 @@ export function drawShape(
       }
       break;
     }
+    case "icon": {
+      const iconNode = data as IconNode;
+      const cr = 4;
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(0, 0, box.width, box.height, cr);
+      } else {
+        ctx.rect(0, 0, box.width, box.height);
+      }
+      if (fillStyle) {
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+      }
+      ctx.strokeStyle = resolveVariable(iconNode?.fill || "$muted", variables) || "#64748b";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      const iconName = (iconNode?.icon || "IC").slice(0, 2).toUpperCase();
+      ctx.fillStyle = resolveVariable(iconNode?.fill || "$text", variables) || "#94a3b8";
+      ctx.font = `600 ${Math.max(8, Math.min(box.width, box.height) * 0.45)}px 'Geist Mono', monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(iconName, box.width / 2, box.height / 2);
+      ctx.textAlign = "start";
+      ctx.textBaseline = "alphabetic";
+      break;
+    }
+
     default: {
       const cr = data?.cornerRadius;
       if (cr && typeof ctx.roundRect === "function") {
@@ -111,19 +149,19 @@ export function drawShape(
   if (effects) clearEffects(ctx);
 }
 
-import { getAnimatedPosition } from "../interaction/animate";
-
 export function paintNode(
   ctx: CanvasRenderingContext2D,
   layoutNode: LayoutNode,
   nodeDataMap?: Map<string, PenNode>,
   variables?: Record<string, any>,
-  dimmedId?: string
+  dimmedId?: string,
+  animPositions?: Map<string, { x: number; y: number }>
 ): void {
   const { box, rotation, children } = layoutNode;
   const data = nodeDataMap?.get(layoutNode.id);
-  const animPos = getAnimatedPosition(layoutNode.id);
+  if (data?.enabled === false) return;
 
+  const animPos = animPositions?.get(layoutNode.id);
   const posX = animPos ? animPos.x : box.x;
   const posY = animPos ? animPos.y : box.y;
 
@@ -131,15 +169,19 @@ export function paintNode(
   ctx.translate(posX, posY);
   if (rotation) ctx.rotate((-rotation * Math.PI) / 180);
 
+  if (data?.opacity != null) ctx.globalAlpha *= data.opacity;
+  if (dimmedId && layoutNode.id === dimmedId) ctx.globalAlpha *= 0.25;
 
-  if (dimmedId && layoutNode.id === dimmedId) {
-    ctx.globalAlpha = 0.25;
+  if (data?.clip) {
+    ctx.beginPath();
+    ctx.rect(0, 0, box.width, box.height);
+    ctx.clip();
   }
 
   drawShape(ctx, layoutNode, data, variables);
 
   for (const child of children) {
-    paintNode(ctx, child, nodeDataMap, variables, dimmedId);
+    paintNode(ctx, child, nodeDataMap, variables, dimmedId, animPositions);
   }
 
   ctx.restore();

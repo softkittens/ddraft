@@ -11,7 +11,7 @@ export interface NodeBoundsTruth {
 
 export interface BoundsDiff {
   id: string;
-  field: "x" | "y" | "width" | "height";
+  field: "x" | "y" | "width" | "height" | "missing";
   expected: number;
   actual: number;
   diff: number;
@@ -32,6 +32,24 @@ export function flattenLayoutTree(nodes: LayoutNode[]): Map<string, LayoutNode> 
   return map;
 }
 
+export function parseBoundsFile(text: string): NodeBoundsTruth[] {
+  const rows: NodeBoundsTruth[] = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const [id, x, y, width, height] = trimmed.split("|");
+    if (!id) continue;
+    rows.push({
+      id,
+      x: Number(x),
+      y: Number(y),
+      width: Number(width),
+      height: Number(height)
+    });
+  }
+  return rows;
+}
+
 /**
  * Compares layout output against recorded ground truth bounds.
  * Accepts tolerance of 1.0 per Section B7.
@@ -46,17 +64,36 @@ export function compareWithTruth(
 
   for (const t of truth) {
     const node = nodeMap.get(t.id);
-    if (!node) continue;
+    if (!node) {
+      diffs.push({ id: t.id, field: "missing", expected: 1, actual: 0, diff: 1 });
+      continue;
+    }
+
+    const isGroup = node.type === "group";
+    // Why: A group's layout box sits at its authored origin or flex slot (e.g. 0, 0),
+    // while Pen's reported ctx.bounds adds the union minimum child offset to the position.
+    // The children stay positioned relative to the authored origin.
+    let groupMinX = 0;
+    let groupMinY = 0;
+    if (isGroup && node.children.length > 0) {
+      groupMinX = node.children.reduce((min, c) => Math.min(min, c.box.x), Infinity);
+      groupMinY = node.children.reduce((min, c) => Math.min(min, c.box.y), Infinity);
+      if (groupMinX === Infinity) groupMinX = 0;
+      if (groupMinY === Infinity) groupMinY = 0;
+    }
 
     const fields: ("x" | "y" | "width" | "height")[] = ["x", "y", "width", "height"];
     for (const field of fields) {
       const expected = t[field];
-      const actual = node.box[field];
+      let actual = node.box[field];
+      if (field === "x") actual += groupMinX;
+      if (field === "y") actual += groupMinY;
       const diff = Math.abs(expected - actual);
       if (diff > tolerance) {
         diffs.push({ id: t.id, field, expected, actual, diff });
       }
     }
+
   }
 
   return diffs;

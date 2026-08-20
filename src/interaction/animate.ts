@@ -53,25 +53,32 @@ export function trackLayoutTransitions(
 
 /**
  * Returns the animated local position (x, y) if animating, or null if stationary.
+ * Does not mutate the animation table.
  */
-export function getAnimatedPosition(nodeId: string): { x: number; y: number } | null {
-  const anim = activeAnimations.get(nodeId);
-  if (!anim) return null;
-
-  const now = performance.now();
-  const elapsed = now - anim.startTime;
-  const progress = Math.min(1, elapsed / anim.duration);
-
-  if (progress >= 1) {
-    activeAnimations.delete(nodeId);
-    return null;
+export function getAnimatedPositions(now = performance.now()): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  for (const [id, anim] of activeAnimations) {
+    const progress = Math.min(1, (now - anim.startTime) / anim.duration);
+    if (progress >= 1) continue;
+    const eased = easeOutCubic(progress);
+    out.set(id, {
+      x: anim.from.x + (anim.to.x - anim.from.x) * eased,
+      y: anim.from.y + (anim.to.y - anim.from.y) * eased
+    });
   }
+  return out;
+}
 
-  const eased = easeOutCubic(progress);
-  return {
-    x: anim.from.x + (anim.to.x - anim.from.x) * eased,
-    y: anim.from.y + (anim.to.y - anim.from.y) * eased
-  };
+export function pruneFinishedAnimations(now = performance.now()): void {
+  for (const [id, anim] of activeAnimations) {
+    if ((now - anim.startTime) / anim.duration >= 1) {
+      activeAnimations.delete(id);
+    }
+  }
+}
+
+export function getAnimatedPosition(nodeId: string): { x: number; y: number } | null {
+  return getAnimatedPositions().get(nodeId) ?? null;
 }
 
 export function hasActiveAnimations(): boolean {

@@ -10,3 +10,5 @@ dist/
 
 /fixtures
 /probes
+!/probes/*.bounds.txt
+*.md

@@ -3,6 +3,12 @@ import type { LayoutNode, Box } from "../layout/types";
 import type { Point } from "./camera";
 import { paintNode } from "../render/paint";
 
+export const DRAG_THRESHOLD_PX = 3;
+
+export function pastDragThreshold(start: Point, current: Point, threshold = DRAG_THRESHOLD_PX): boolean {
+  return Math.hypot(current.x - start.x, current.y - start.y) >= threshold;
+}
+
 export interface DragSession {
   nodeId: string;
   startWorld: Point;

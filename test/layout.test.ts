@@ -7,10 +7,16 @@ import type { LayoutNode } from "../src/layout/types";
 import { normalisePadding } from "../src/layout/padding";
 import { computeMainAxisPositions, computeCrossAxisPosition } from "../src/layout/arrange";
 import { layoutDocument } from "../src/layout/layout";
-import { measureTextNode } from "../src/layout/text";
+import { measureTextNode, dynamicRatioCache } from "../src/layout/text";
+import { compareWithTruth, parseBoundsFile } from "./oracle";
 
+// Seed pre-measured ratios for headless test environment without DOM
+dynamicRatioCache.set("Inter", 1.2113);
+dynamicRatioCache.set("Geist Mono", 1.2857);
 
 describe("Layout - Padding Normalisation (B1)", () => {
+
+
   it("normalises a single number to all 4 sides", () => {
     expect(normalisePadding(20)).toEqual({ top: 20, right: 20, bottom: 20, left: 20 });
   });
@@ -111,16 +117,8 @@ describe("Layout - Cross Axis Alignment (B3)", () => {
   });
 
   it("aligns end (alignEnd probe)", () => {
-    const y1 = computeCrossAxisPosition({ frameCross: 120, padStartCross: 20, padEndCross: 20, alignItems: "end", childCrossSize: 20 });
-    const y2 = computeCrossAxisPosition({ frameCross: 120, padStartCross: 20, padEndCross: 20, alignItems: "end", childCrossSize: 60 });
-    expect(y1).toBe(80);
-    expect(y2).toBe(40);
-  });
-
-  it("throws an error for unsupported stretch or baseline", () => {
-    expect(() =>
-      computeCrossAxisPosition({ frameCross: 120, padStartCross: 20, padEndCross: 20, alignItems: "stretch" as any, childCrossSize: 20 })
-    ).toThrow();
+    expect(computeCrossAxisPosition({ frameCross: 120, padStartCross: 20, padEndCross: 20, alignItems: "end", childCrossSize: 20 })).toBe(80);
+    expect(computeCrossAxisPosition({ frameCross: 120, padStartCross: 20, padEndCross: 20, alignItems: "end", childCrossSize: 60 })).toBe(40);
   });
 });
 
@@ -375,6 +373,8 @@ describe("Layout - Absolute Position, Groups & Rotation (B6)", () => {
       }]
     };
     const [tree] = layoutDocument(doc);
+    expect(tree.box.width).toBe(90);
+    expect(tree.box.height).toBe(50);
     expect(tree.children[0].box.x).toBe(10);
     expect(tree.children[0].box.y).toBe(15);
     expect(tree.children[1].box.x).toBe(60);
@@ -395,9 +395,77 @@ describe("Layout - Absolute Position, Groups & Rotation (B6)", () => {
     const [tree] = layoutDocument(doc);
     expect(tree.rotation).toBe(45);
   });
+
+  it("sizes a group to the union of its children when width/height are omitted", () => {
+    const doc: Document = {
+      version: "2.17",
+      children: [{
+        type: "group",
+        id: "gAuto",
+        children: [
+          { type: "rectangle", id: "ga1", x: 10, y: 10, width: 40, height: 40 }
+        ]
+      }]
+    };
+    const [tree] = layoutDocument(doc);
+    expect(tree.box.width).toBe(40);
+    expect(tree.box.height).toBe(40);
+  });
+
+  it("sizes a layout:none frame to 0x0 when width/height are omitted", () => {
+    const doc: Document = {
+      version: "2.17",
+      children: [{
+        type: "frame",
+        id: "nfAuto",
+        layout: "none",
+        children: [
+          { type: "rectangle", id: "na1", x: 5, y: 5, width: 80, height: 20 }
+        ]
+      }]
+    };
+    const [tree] = layoutDocument(doc);
+    expect(tree.box.width).toBe(0);
+    expect(tree.box.height).toBe(0);
+  });
+
+
+  it("keeps an explicit fixed size on a layout:none frame", () => {
+    const doc: Document = {
+      version: "2.17",
+      children: [{
+        type: "frame",
+        id: "nfFixed",
+        layout: "none",
+        width: 200,
+        height: 120,
+        children: [
+          { type: "rectangle", id: "nf1", x: 5, y: 5, width: 80, height: 20 }
+        ]
+      }]
+    };
+    const [tree] = layoutDocument(doc);
+    expect(tree.box.width).toBe(200);
+    expect(tree.box.height).toBe(120);
+  });
 });
 
 describe("Layout - Full Fixture Agreement (B7)", () => {
+  it("records a missing-node diff instead of passing silently", () => {
+    const diffs = compareWithTruth([], [{ id: "gone", x: 0, y: 0, width: 10, height: 10 }]);
+    expect(diffs).toEqual([{ id: "gone", field: "missing", expected: 1, actual: 0, diff: 1 }]);
+  });
+
+  it("agrees with recorded bounds on layout-probe3", () => {
+    const boundsText = readFileSync(join(import.meta.dir, "../probes/layout-probe3.bounds.txt"), "utf-8");
+    const probeText = readFileSync(join(import.meta.dir, "../probes/layout-probe3.pen"), "utf-8");
+    const doc = parseDocument(probeText);
+    const layoutNodes = layoutDocument(doc);
+    const truth = parseBoundsFile(boundsText);
+    const diffs = compareWithTruth(layoutNodes, truth);
+    expect(diffs).toEqual([]);
+  });
+
   it("resolves valid layout trees for all 12 fixtures", () => {
     const fixtureDir = join(import.meta.dir, "../fixtures");
     const files = readdirSync(fixtureDir).filter((f) => f.endsWith(".pen"));
@@ -420,5 +488,13 @@ describe("Layout - Full Fixture Agreement (B7)", () => {
       for (const root of layoutNodes) assertValidBoxes(root);
     }
   });
+
+  it("produces a node for every recorded A_control_r1 bound", () => {
+    const boundsText = readFileSync(join(import.meta.dir, "../probes/A_control_r1.bounds.txt"), "utf-8");
+    const fixtureText = readFileSync(join(import.meta.dir, "../fixtures/A_control_r1.pen"), "utf-8");
+    const diffs = compareWithTruth(layoutDocument(parseDocument(fixtureText)), parseBoundsFile(boundsText));
+    expect(diffs.filter((d) => d.field === "missing")).toEqual([]);
+  });
 });
+
 

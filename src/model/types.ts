@@ -1,24 +1,40 @@
-/**
- * Sizing modes supported by the Pen specification.
- * - fixed: Explicit pixel value (e.g. 300)
- * - fit_content: Hugs the node's children/content (calculated during measure stage)
- * - fill_container: Stretches across remaining space in parent (calculated during arrange stage)
- */
-export type SizingMode = "fit_content" | "fill_container" | "fixed";
-
 export type ParsedSizing =
+  | { mode: "auto" }
   | { mode: "fit_content"; fallback?: number }
   | { mode: "fill_container"; fallback?: number }
   | { mode: "fixed"; value: number };
 
-/**
- * Padding can be defined as a single number (uniform), 2-tuple [v, h], or 4-tuple [t, r, b, l].
- */
 export type PaddingValue = number | [number, number] | [number, number, number, number];
 
-/**
- * Common properties shared by all node types in the document tree.
- */
+export type ColorStop = { offset: number; color: string };
+
+export type Fill =
+  | string
+  | { type: "color"; color: string }
+  | {
+      type: "gradient";
+      gradientType?: "linear" | "radial";
+      rotation?: number;
+      stops: ColorStop[];
+    }
+  | { type: "image"; src: string; mode?: "fill" | "fit" | "tile" };
+
+export interface ShadowEffect {
+  type: "shadow" | "inner_shadow";
+  color?: string;
+  x?: number;
+  y?: number;
+  blur?: number;
+  spread?: number;
+}
+
+export interface BlurEffect {
+  type: "blur";
+  radius?: number;
+}
+
+export type Effect = ShadowEffect | BlurEffect | { type: "background_blur"; radius?: number };
+
 export interface BaseNode {
   id: string;
   type: string;
@@ -27,16 +43,17 @@ export interface BaseNode {
   y?: number;
   width?: number | string;
   height?: number | string;
-  fill?: any;
-  stroke?: any;
+  fill?: Fill;
+  stroke?: Fill;
   strokeWidth?: number | { top?: number; right?: number; bottom?: number; left?: number };
   cornerRadius?: number | [number, number, number, number];
-  rotation?: number;       // In degrees, counter-clockwise around top-left origin
+  rotation?: number;
   opacity?: number;
-  layoutPosition?: "absolute"; // When set to absolute, node leaves normal flex flow
+  layoutPosition?: "absolute";
   clip?: boolean;
-  reusable?: boolean;      // Marks a component definition
+  reusable?: boolean;
   enabled?: boolean;
+  effects?: Effect[];
 }
 
 export interface FrameNode extends BaseNode {

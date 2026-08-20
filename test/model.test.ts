@@ -19,7 +19,7 @@ describe("Model Parser & Schema", () => {
   it("parses all probe files without error", () => {
     const probeDir = join(import.meta.dir, "../probes");
     const files = readdirSync(probeDir).filter((f) => f.endsWith(".pen"));
-    expect(files.length).toBe(2);
+    expect(files.length).toBeGreaterThanOrEqual(2);
     for (const file of files) {
       const content = readFileSync(join(probeDir, file), "utf-8");
       const doc = parseDocument(content);
@@ -48,5 +48,22 @@ describe("Model Parser & Schema", () => {
     expect(parseSizing("fit_content(100)")).toEqual({ mode: "fit_content", fallback: 100 });
     expect(parseSizing("fill_container")).toEqual({ mode: "fill_container", fallback: undefined });
     expect(parseSizing(240)).toEqual({ mode: "fixed", value: 240 });
+    expect(parseSizing(undefined)).toEqual({ mode: "auto" });
+    expect(parseSizing(0)).toEqual({ mode: "fixed", value: 0 });
+  });
+
+  it("accepts effects on a node without throwing", () => {
+    const json = JSON.stringify({
+      version: "2.17",
+      children: [{
+        type: "rectangle",
+        id: "r1",
+        width: 10,
+        height: 10,
+        effects: [{ type: "shadow", color: "$shadow", y: 4 }]
+      }]
+    });
+    const doc = parseDocument(json);
+    expect(doc.children[0]).toMatchObject({ id: "r1" });
   });
 });

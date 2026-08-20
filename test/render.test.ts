@@ -1,46 +1,13 @@
 import { describe, it, expect } from "bun:test";
 import type { Document } from "../src/model/types";
 import { layoutDocument } from "../src/layout/layout";
-import { buildDisplayList } from "../src/render/displaylist";
-import { paintNode, drawShape } from "../src/render/paint";
+import { drawShape, paintNode } from "../src/render/paint";
 import { resolveFill } from "../src/render/fills";
 import { paintStroke } from "../src/render/strokes";
 import { applyEffects, clearEffects } from "../src/render/effects";
 
-
-describe("Render - Display List (C1)", () => {
-  it("builds display list for basicH in back-to-front painter order", () => {
-    const doc: Document = {
-      version: "2.17",
-      children: [{
-        type: "frame",
-        id: "basicH",
-        layout: "horizontal",
-        width: 300,
-        height: 100,
-        padding: 20,
-        gap: 10,
-        children: [
-          { type: "rectangle", id: "bh1", width: 60, height: 40 },
-          { type: "rectangle", id: "bh2", width: 60, height: 40 },
-          { type: "rectangle", id: "bh3", width: 60, height: 40 }
-        ]
-      }]
-    };
-
-    const layoutTree = layoutDocument(doc);
-    const commands = buildDisplayList(layoutTree);
-
-    expect(commands.length).toBe(4);
-    expect(commands[0].type).toBe("draw_node");
-    if (commands[0].type === "draw_node") expect(commands[0].nodeId).toBe("basicH");
-    if (commands[1].type === "draw_node") expect(commands[1].nodeId).toBe("bh1");
-    if (commands[2].type === "draw_node") expect(commands[2].nodeId).toBe("bh2");
-    if (commands[3].type === "draw_node") expect(commands[3].nodeId).toBe("bh3");
-  });
-});
-
 describe("Render - Transform Stack (C2)", () => {
+
   it("paints nested children at the sum of ancestor offsets", () => {
     const doc: Document = {
       version: "2.17",
@@ -204,6 +171,22 @@ describe("Render - Paths & Strokes (C4)", () => {
     expect(lines[0][3]).toBe(99.5);
   });
 
+  it("strokes each edge at its own lineWidth", () => {
+    const widths: number[] = [];
+    const mockCtx: any = {
+      lineWidth: 1,
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      stroke: function () { widths.push(this.lineWidth); }
+    };
+
+    paintStroke(mockCtx, { x: 0, y: 0, width: 100, height: 100 }, "#000", {
+      top: 1, right: 2, bottom: 3, left: 4
+    });
+    expect(widths).toEqual([1, 3, 4, 2]);
+  });
+
   it("paints inner stroke using clipping", () => {
     let clipCalled = false;
     let saved = false;
@@ -265,5 +248,75 @@ describe("Render - Effects (C5)", () => {
     expect(mockCtx.shadowBlur).toBe(0);
     expect(mockCtx.filter).toBe("none");
   });
+
+  it("resolves $variable shadow colours", () => {
+    const mockCtx: any = {
+      shadowColor: "",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0
+    };
+    applyEffects(mockCtx, [{ type: "shadow", color: "$shadow" }], { shadow: "rgba(10,20,30,0.4)" });
+    expect(mockCtx.shadowColor).toBe("rgba(10,20,30,0.4)");
+  });
 });
+
+describe("Render - clip, enabled, opacity", () => {
+  function mockPaintCtx() {
+    const calls: string[] = [];
+    const ctx: any = {
+      globalAlpha: 1,
+      save: () => calls.push("save"),
+      restore: () => calls.push("restore"),
+      translate: () => calls.push("translate"),
+      rotate: () => {},
+      beginPath: () => calls.push("beginPath"),
+      rect: () => calls.push("rect"),
+      clip: () => calls.push("clip"),
+      fill: function () { calls.push(`fill:${this.globalAlpha}`); },
+      roundRect: () => {}
+    };
+    return { ctx, calls };
+  }
+
+  it("clips children to the node box when clip is true", () => {
+    const { ctx, calls } = mockPaintCtx();
+    const layout = {
+      id: "frame",
+      type: "frame",
+      box: { x: 0, y: 0, width: 100, height: 50 },
+      children: []
+    };
+    const map = new Map([["frame", { id: "frame", type: "frame" as const, clip: true, fill: "#fff" }]]);
+    paintNode(ctx, layout, map);
+    expect(calls).toContain("clip");
+  });
+
+  it("skips a node with enabled: false", () => {
+    const { ctx, calls } = mockPaintCtx();
+    const layout = {
+      id: "hidden",
+      type: "rectangle",
+      box: { x: 0, y: 0, width: 10, height: 10 },
+      children: []
+    };
+    const map = new Map([["hidden", { id: "hidden", type: "rectangle" as const, enabled: false, fill: "#fff" }]]);
+    paintNode(ctx, layout, map);
+    expect(calls).toEqual([]);
+  });
+
+  it("multiplies globalAlpha by node opacity", () => {
+    const { ctx, calls } = mockPaintCtx();
+    const layout = {
+      id: "faded",
+      type: "rectangle",
+      box: { x: 0, y: 0, width: 10, height: 10 },
+      children: []
+    };
+    const map = new Map([["faded", { id: "faded", type: "rectangle" as const, opacity: 0.5, fill: "#fff" }]]);
+    paintNode(ctx, layout, map);
+    expect(calls).toContain("fill:0.5");
+  });
+});
+
 

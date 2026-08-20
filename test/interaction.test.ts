@@ -10,7 +10,7 @@ import {
 } from "../src/interaction/camera";
 import { hitTestScene } from "../src/interaction/hittest";
 import { createSelectionState, paintSelectionOverlay } from "../src/interaction/selection";
-import { handleDragMove, commitDragDrop, type DragSession } from "../src/interaction/drag";
+import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../src/interaction/drag";
 import { trackLayoutTransitions, hasActiveAnimations, getAnimatedPosition } from "../src/interaction/animate";
 
 
@@ -94,6 +94,18 @@ describe("Interaction - Hit Testing (D2)", () => {
     const miss = hitTestScene(rotatedTree, { x: 180, y: 180 });
     expect(miss).toBeNull();
   });
+
+  it("hits children inside a group whose box covers them", () => {
+    const tree: LayoutNode[] = [{
+      id: "g1",
+      type: "group",
+      box: { x: 0, y: 0, width: 50, height: 50 },
+      children: [
+        { id: "ga1", type: "rectangle", box: { x: 10, y: 10, width: 40, height: 40 }, children: [] }
+      ]
+    }];
+    expect(hitTestScene(tree, { x: 30, y: 30 })?.id).toBe("ga1");
+  });
 });
 
 describe("Interaction - Selection & Dragging (D3)", () => {
@@ -106,6 +118,11 @@ describe("Interaction - Selection & Dragging (D3)", () => {
     expect(state.selectedIds.has("nodeA")).toBe(true);
     expect(state.selectedIds.has("nodeB")).toBe(true);
     expect(state.selectedIds.size).toBe(2);
+  });
+
+  it("promotes a press to a drag only after the pointer moves 3px", () => {
+    expect(pastDragThreshold({ x: 0, y: 0 }, { x: 2, y: 2 })).toBe(false);
+    expect(pastDragThreshold({ x: 0, y: 0 }, { x: 3, y: 0 })).toBe(true);
   });
 
   it("applies drag delta to update node coordinates for free nodes", () => {

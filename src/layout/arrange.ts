@@ -1,7 +1,5 @@
-import type { FrameNode, PenNode } from "../model/types";
+import type { FrameNode } from "../model/types";
 import { parseSizing } from "../model/parse";
-import type { Box, LayoutNode } from "./types";
-import { normalisePadding } from "./padding";
 import type { MeasuredNode } from "./measure";
 
 export interface MainAxisOptions {
@@ -75,11 +73,6 @@ export function computeMainAxisPositions(options: MainAxisOptions): number[] {
  */
 export function computeCrossAxisPosition(options: CrossAxisOptions): number {
   const { frameCross, padStartCross, padEndCross, alignItems = "start", childCrossSize } = options;
-
-  if (alignItems === ("stretch" as any) || alignItems === ("baseline" as any)) {
-    throw new Error(`Pen layout error: "${alignItems}" is not supported for alignItems.`);
-  }
-
   const contentCross = frameCross - padStartCross - padEndCross;
 
   switch (alignItems) {
@@ -89,10 +82,9 @@ export function computeCrossAxisPosition(options: CrossAxisOptions): number {
       return padStartCross + (contentCross - childCrossSize) / 2;
     case "end":
       return padStartCross + (contentCross - childCrossSize);
-    default:
-      throw new Error(`Unsupported alignItems: ${alignItems}`);
   }
 }
+
 
 /**
  * Distributes available main space among fill_container flow children.
@@ -108,22 +100,17 @@ export function distributeFlowMainSizes(
     return flow.map(() => 1);
   }
 
-  const fixedSum = flow.reduce((sum, c) => {
-    const s = parseSizing(isHoriz ? c.node.width : c.node.height);
-    return s.mode !== "fill_container" ? sum + (isHoriz ? c.measuredWidth : c.measuredHeight) : sum;
-  }, 0);
+  const sizes = flow.map((c) => ({
+    s: parseSizing(isHoriz ? c.node.width : c.node.height),
+    measured: isHoriz ? c.measuredWidth : c.measuredHeight
+  }));
 
-  const fillCount = flow.filter((c) => {
-    const s = parseSizing(isHoriz ? c.node.width : c.node.height);
-    return s.mode === "fill_container";
-  }).length;
+  const fixedSum = sizes.reduce((sum, { s, measured }) => (s.mode !== "fill_container" ? sum + measured : sum), 0);
+  const fillCount = sizes.filter(({ s }) => s.mode === "fill_container").length;
 
   const gapTotal = flow.length > 1 ? gap * (flow.length - 1) : 0;
   const free = contentMain - fixedSum - gapTotal;
   const fillUnit = fillCount > 0 ? Math.max(0, free / fillCount) : 0;
 
-  return flow.map((c) => {
-    const s = parseSizing(isHoriz ? c.node.width : c.node.height);
-    return s.mode === "fill_container" ? fillUnit : (isHoriz ? c.measuredWidth : c.measuredHeight);
-  });
+  return sizes.map(({ s, measured }) => (s.mode === "fill_container" ? fillUnit : measured));
 }

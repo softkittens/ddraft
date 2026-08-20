@@ -1,7 +1,4 @@
-import type { LayoutNode, Box } from "../layout/types";
-import type { PenNode } from "../model/types";
-import type { Camera, Point } from "./camera";
-import { worldToScreen } from "./camera";
+import type { LayoutNode } from "../layout/types";
 
 export interface SelectionState {
   selectedIds: Set<string>;
@@ -10,7 +7,7 @@ export interface SelectionState {
 
 export function createSelectionState(): SelectionState {
   return {
-    selectedIds: new Set<string>(),
+    selectedIds: new Set(),
     hoveredId: null
   };
 }
@@ -32,19 +29,18 @@ export function paintSelectionOverlay(
   const isSelected = selectedIds.has(layoutNode.id);
   const isHovered = hoveredId === layoutNode.id && !isSelected;
 
-  if (isSelected || isHovered) {
-    ctx.save();
-    ctx.translate(layoutNode.box.x, layoutNode.box.y);
-    if (layoutNode.rotation) {
-      ctx.rotate((-layoutNode.rotation * Math.PI) / 180);
-    }
+  ctx.save();
+  ctx.translate(layoutNode.box.x, layoutNode.box.y);
+  if (layoutNode.rotation) {
+    ctx.rotate((-layoutNode.rotation * Math.PI) / 180);
+  }
 
+  if (isSelected || isHovered) {
     const { width: w, height: h } = layoutNode.box;
     ctx.strokeStyle = isSelected ? "#0ea5e9" : "rgba(14, 165, 233, 0.4)";
     ctx.lineWidth = (isSelected ? 2 : 1) / zoom;
     ctx.strokeRect(0, 0, w, h);
 
-    // Draw 4 corner handles for selected nodes
     if (isSelected) {
       const handleSize = 6 / zoom;
       const half = handleSize / 2;
@@ -58,16 +54,8 @@ export function paintSelectionOverlay(
         ctx.strokeRect(cx - half, cy - half, handleSize, handleSize);
       }
     }
-
-    ctx.restore();
   }
 
-  // Paint selection on children inside their local coordinates
-  ctx.save();
-  ctx.translate(layoutNode.box.x, layoutNode.box.y);
-  if (layoutNode.rotation) {
-    ctx.rotate((-layoutNode.rotation * Math.PI) / 180);
-  }
   for (const child of layoutNode.children) {
     paintSelectionOverlay(ctx, child, selectedIds, hoveredId, zoom);
   }

@@ -18,22 +18,23 @@ export function parseDocument(text: string): Document {
  * 1. Fixed numbers (e.g. 300) -> Used directly in measure/arrange
  * 2. "fit_content" or "fit_content(fallback)" -> Sized in measure pass
  * 3. "fill_container" or "fill_container(fallback)" -> Sized in arrange pass
+ * 4. undefined -> { mode: "auto" } for groups and unconstrained frames
  */
 export function parseSizing(value: number | string | undefined): ParsedSizing {
+  if (value === undefined) {
+    return { mode: "auto" };
+  }
+
   if (typeof value === "number") {
     return { mode: "fixed", value };
   }
 
-  if (typeof value === "string") {
-    // Regex extracts mode and optional numeric fallback e.g. "fit_content(100)"
-    const match = value.match(/^(fit_content|fill_container)(?:\((\d+(?:\.\d+)?)\))?$/);
-    if (match) {
-      const mode = match[1] as "fit_content" | "fill_container";
-      const fallback = match[2] !== undefined ? parseFloat(match[2]) : undefined;
-      return { mode, fallback };
-    }
+  const match = value.match(/^(fit_content|fill_container)(?:\((\d+(?:\.\d+)?)\))?$/);
+  if (match) {
+    const mode = match[1] as "fit_content" | "fill_container";
+    const fallback = match[2] !== undefined ? parseFloat(match[2]) : undefined;
+    return { mode, fallback };
   }
 
-  // Default fallback if dimension is missing or 0
   return { mode: "fixed", value: 0 };
 }

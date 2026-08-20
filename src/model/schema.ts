@@ -6,6 +6,46 @@ const paddingSchema = z.union([
   z.tuple([z.number(), z.number(), z.number(), z.number()])
 ]);
 
+export const colorStopSchema = z.object({
+  offset: z.number(),
+  color: z.string()
+}).strict();
+
+export const fillSchema = z.union([
+  z.string(),
+  z.object({ type: z.literal("color"), color: z.string() }).strict(),
+  z.object({
+    type: z.literal("gradient"),
+    gradientType: z.enum(["linear", "radial"]).optional(),
+    rotation: z.number().optional(),
+    stops: z.array(colorStopSchema)
+  }).strict(),
+  z.object({
+    type: z.literal("image"),
+    src: z.string(),
+    mode: z.enum(["fill", "fit", "tile"]).optional()
+  }).strict()
+]);
+
+export const effectSchema = z.union([
+  z.object({
+    type: z.enum(["shadow", "inner_shadow"]),
+    color: z.string().optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    blur: z.number().optional(),
+    spread: z.number().optional()
+  }).strict(),
+  z.object({
+    type: z.literal("blur"),
+    radius: z.number().optional()
+  }).strict(),
+  z.object({
+    type: z.literal("background_blur"),
+    radius: z.number().optional()
+  }).strict()
+]);
+
 const baseProps = {
   id: z.string(),
   name: z.string().optional(),
@@ -13,8 +53,8 @@ const baseProps = {
   y: z.number().optional(),
   width: z.union([z.number(), z.string()]).optional(),
   height: z.union([z.number(), z.string()]).optional(),
-  fill: z.any().optional(),
-  stroke: z.any().optional(),
+  fill: fillSchema.optional(),
+  stroke: fillSchema.optional(),
   strokeWidth: z.union([
     z.number(),
     z.object({ top: z.number().optional(), right: z.number().optional(), bottom: z.number().optional(), left: z.number().optional() }).strict()
@@ -25,7 +65,8 @@ const baseProps = {
   layoutPosition: z.enum(["absolute"]).optional(),
   clip: z.boolean().optional(),
   reusable: z.boolean().optional(),
-  enabled: z.boolean().optional()
+  enabled: z.boolean().optional(),
+  effects: z.array(effectSchema).optional()
 };
 
 export const penNodeSchema: z.ZodType<any> = z.lazy(() =>
