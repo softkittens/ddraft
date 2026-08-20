@@ -52,6 +52,49 @@ export function trackLayoutTransitions(
 }
 
 /**
+ * Cheaply captures {id → {x,y}} from a layout tree — no deep clone needed.
+ */
+export function snapshotPositions(tree: LayoutNode[]): Map<string, { x: number; y: number }> {
+  const map = new Map<string, { x: number; y: number }>();
+  function collect(nodes: LayoutNode[]) {
+    for (const n of nodes) {
+      map.set(n.id, { x: n.box.x, y: n.box.y });
+      collect(n.children);
+    }
+  }
+  collect(tree);
+  return map;
+}
+
+/**
+ * Like trackLayoutTransitions but accepts a pre-captured position snapshot
+ * instead of a full cloned tree, avoiding expensive JSON serialization.
+ */
+export function trackLayoutTransitionsFromSnapshot(
+  oldPositions: Map<string, { x: number; y: number }>,
+  newTree: LayoutNode[],
+  duration = 200
+): void {
+  const now = performance.now();
+  function checkNew(nodes: LayoutNode[]) {
+    for (const n of nodes) {
+      const old = oldPositions.get(n.id);
+      if (old && (Math.abs(old.x - n.box.x) > 1 || Math.abs(old.y - n.box.y) > 1)) {
+        activeAnimations.set(n.id, {
+          id: n.id,
+          from: old,
+          to: { x: n.box.x, y: n.box.y },
+          startTime: now,
+          duration
+        });
+      }
+      checkNew(n.children);
+    }
+  }
+  checkNew(newTree);
+}
+
+/**
  * Returns the animated local position (x, y) if animating, or null if stationary.
  * Does not mutate the animation table.
  */

@@ -1,40 +1,187 @@
-import { documentSchema } from "./schema";
+import { z } from "zod";
 import type { Document, ParsedSizing } from "./types";
+import { telemetry } from "../telemetry/logger";
 
-/**
- * Parses raw JSON string into a strictly validated Document structure.
- * Throws ZodError if the schema encounters unknown properties or invalid types.
- */
+const paddingSchema = z.union([
+  z.number(),
+  z.tuple([z.number(), z.number()]),
+  z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  z.array(z.number())
+]);
+
+export const colorStopSchema = z.object({
+  offset: z.number(),
+  color: z.string()
+}).passthrough();
+
+export const colorFillSchema = z.object({
+  type: z.literal("color"),
+  color: z.string().optional(),
+  enabled: z.boolean().optional(),
+  opacity: z.number().optional()
+}).passthrough();
+
+export const gradientFillSchema = z.object({
+  type: z.literal("gradient"),
+  gradientType: z.string().optional(),
+  rotation: z.number().optional(),
+  stops: z.array(colorStopSchema).optional(),
+  enabled: z.boolean().optional(),
+  opacity: z.number().optional()
+}).passthrough();
+
+export const imageFillSchema = z.object({
+  type: z.literal("image"),
+  url: z.string().optional(),
+  src: z.string().optional(),
+  mode: z.string().optional(),
+  enabled: z.boolean().optional(),
+  opacity: z.number().optional()
+}).passthrough();
+
+export const fillSchema = z.union([
+  z.string(),
+  colorFillSchema,
+  gradientFillSchema,
+  imageFillSchema,
+  z.record(z.any())
+]);
+
+export const effectSchema = z.object({
+  type: z.string(),
+  color: z.string().optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  blur: z.number().optional(),
+  spread: z.number().optional(),
+  radius: z.number().optional(),
+  enabled: z.boolean().optional()
+}).passthrough();
+
+const baseProps = {
+  id: z.string(),
+  name: z.string().optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  width: z.union([z.number(), z.string()]).optional(),
+  height: z.union([z.number(), z.string()]).optional(),
+  fill: z.union([fillSchema, z.array(fillSchema)]).optional(),
+  fills: z.array(fillSchema).optional(),
+  stroke: z.union([fillSchema, z.array(fillSchema)]).optional(),
+  strokes: z.array(fillSchema).optional(),
+  strokeWidth: z.union([
+    z.number(),
+    z.object({
+      top: z.number().optional(),
+      right: z.number().optional(),
+      bottom: z.number().optional(),
+      left: z.number().optional()
+    }).passthrough()
+  ]).optional(),
+  cornerRadius: z.union([
+    z.number(),
+    z.tuple([z.number(), z.number(), z.number(), z.number()]),
+    z.array(z.number())
+  ]).optional(),
+  rotation: z.number().optional(),
+  opacity: z.number().optional(),
+  layoutPosition: z.enum(["absolute"]).optional(),
+  clip: z.boolean().optional(),
+  reusable: z.boolean().optional(),
+  enabled: z.boolean().optional(),
+  effect: z.union([effectSchema, z.array(effectSchema)]).optional(),
+  effects: z.array(effectSchema).optional(),
+  metadata: z.record(z.any()).optional()
+};
+
+export const penNodeSchema: z.ZodType<any> = z.lazy(() =>
+  z.discriminatedUnion("type", [
+    z.object({
+      ...baseProps,
+      type: z.literal("frame"),
+      layout: z.enum(["horizontal", "vertical", "none"]).optional(),
+      gap: z.number().optional(),
+      padding: paddingSchema.optional(),
+      justifyContent: z.enum(["start", "center", "end", "space_between", "space_around"]).optional(),
+      alignItems: z.enum(["start", "center", "end"]).optional(),
+      children: z.array(penNodeSchema).optional()
+    }).passthrough(),
+    z.object({
+      ...baseProps,
+      type: z.literal("group"),
+      children: z.array(penNodeSchema).optional()
+    }).passthrough(),
+    z.object({ ...baseProps, type: z.literal("rectangle") }).passthrough(),
+    z.object({
+      ...baseProps,
+      type: z.literal("ellipse"),
+      innerRadius: z.number().optional(),
+      startAngle: z.number().optional(),
+      sweepAngle: z.number().optional()
+    }).passthrough(),
+    z.object({
+      ...baseProps,
+      type: z.literal("polygon"),
+      points: z.array(z.any()).optional()
+    }).passthrough(),
+    z.object({
+      ...baseProps,
+      type: z.literal("path"),
+      geometry: z.string().optional(),
+      viewBox: z.string().optional()
+    }).passthrough(),
+    z.object({
+      ...baseProps,
+      type: z.literal("text"),
+      content: z.string().optional(),
+      fontFamily: z.string().optional(),
+      fontSize: z.number().optional(),
+      fontWeight: z.union([z.string(), z.number()]).optional(),
+      letterSpacing: z.number().optional(),
+      lineHeight: z.number().optional(),
+      textAlign: z.string().optional(),
+      textGrowth: z.enum(["auto", "fixed-width", "fixed-width-height"]).optional()
+    }).passthrough(),
+    z.object({ ...baseProps, type: z.literal("note"), content: z.string().optional() }).passthrough(),
+    z.object({ ...baseProps, type: z.literal("prompt"), content: z.string().optional() }).passthrough(),
+    z.object({ ...baseProps, type: z.literal("context"), content: z.string().optional() }).passthrough(),
+    z.object({ ...baseProps, type: z.literal("icon"), icon: z.string().optional(), library: z.string().optional() }).passthrough(),
+    z.object({ ...baseProps, type: z.literal("script"), code: z.string().optional() }).passthrough(),
+    z.object({
+      ...baseProps,
+      type: z.literal("ref"),
+      ref: z.string().optional(),
+      descendants: z.record(z.any()).optional()
+    }).passthrough()
+  ])
+);
+
+export const documentSchema = z.object({
+  version: z.string().optional().default("2.17"),
+  children: z.array(penNodeSchema).optional().default([]),
+  variables: z.record(z.any()).optional(),
+  fileToken: z.string().optional(),
+  metadata: z.record(z.any()).optional()
+}).passthrough();
+
 export function parseDocument(text: string): Document {
   const json = JSON.parse(text);
   return documentSchema.parse(json) as Document;
 }
 
-/**
- * Parses width or height values into a structured ParsedSizing object.
- *
- * Why:
- * The engine needs to easily distinguish between:
- * 1. Fixed numbers (e.g. 300) -> Used directly in measure/arrange
- * 2. "fit_content" or "fit_content(fallback)" -> Sized in measure pass
- * 3. "fill_container" or "fill_container(fallback)" -> Sized in arrange pass
- * 4. undefined -> { mode: "auto" } for groups and unconstrained frames
- */
 export function parseSizing(value: number | string | undefined): ParsedSizing {
-  if (value === undefined) {
+  if (value === undefined || value === "auto") {
     return { mode: "auto" };
   }
-
   if (typeof value === "number") {
     return { mode: "fixed", value };
   }
-
   const match = value.match(/^(fit_content|fill_container)(?:\((\d+(?:\.\d+)?)\))?$/);
   if (match) {
     const mode = match[1] as "fit_content" | "fill_container";
     const fallback = match[2] !== undefined ? parseFloat(match[2]) : undefined;
     return { mode, fallback };
   }
-
+  telemetry.warn("model", `Unrecognized sizing expression: "${value}"`, { value });
   return { mode: "fixed", value: 0 };
 }

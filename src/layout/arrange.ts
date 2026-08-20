@@ -82,6 +82,8 @@ export function computeCrossAxisPosition(options: CrossAxisOptions): number {
       return padStartCross + (contentCross - childCrossSize) / 2;
     case "end":
       return padStartCross + (contentCross - childCrossSize);
+    default:
+      return padStartCross;
   }
 }
 

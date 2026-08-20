@@ -1,7 +1,6 @@
 import type { Document, PenNode } from "../model/types";
 import type { LayoutNode, Box } from "../layout/types";
 import type { Point } from "./camera";
-import { paintNode } from "../render/paint";
 
 export const DRAG_THRESHOLD_PX = 3;
 
@@ -19,6 +18,7 @@ export interface DragSession {
   dimensions: { width: number; height: number };
   targetContainerId?: string;
   targetContainerBox?: Box;
+  targetContainerWorldPos?: Point;
   insertIndex?: number;
   dropIndicator?: { x1: number; y1: number; x2: number; y2: number };
 }
@@ -90,6 +90,7 @@ export function handleDragMove(
   session.currentWorld = currentWorld;
   session.targetContainerId = undefined;
   session.targetContainerBox = undefined;
+  session.targetContainerWorldPos = undefined;
   session.dropIndicator = undefined;
   session.insertIndex = undefined;
 
@@ -110,16 +111,24 @@ export function handleDragMove(
       const targetNode = findNodeContext(doc, targetCtx.layoutNode.id)?.node;
 
       if (targetNode && "children" in targetNode && Array.isArray(targetNode.children)) {
-        const isHoriz = (targetNode.type === "frame" ? targetNode.layout || "horizontal" : "horizontal") === "horizontal";
-        const siblings = targetCtx.layoutNode.children.filter((c) => c.id !== session.nodeId);
-
         session.targetContainerId = targetCtx.layoutNode.id;
+        session.targetContainerWorldPos = targetCtx.worldPos;
         session.targetContainerBox = {
           x: targetCtx.worldPos.x,
           y: targetCtx.worldPos.y,
           width: targetCtx.layoutNode.box.width,
           height: targetCtx.layoutNode.box.height
         };
+
+        const targetLayout = targetNode.type === "frame" ? targetNode.layout || "horizontal" : "none";
+
+        // For layout: "none" freeform frames, no flex insertion index or line is computed
+        if (targetLayout === "none") {
+          return;
+        }
+
+        const isHoriz = targetLayout === "horizontal";
+        const siblings = targetCtx.layoutNode.children.filter((c) => c.id !== session.nodeId);
 
         let insertIdx = siblings.length;
         for (let i = 0; i < siblings.length; i++) {
@@ -136,7 +145,7 @@ export function handleDragMove(
         }
         session.insertIndex = insertIdx;
 
-        // Draw dashed blue insertion line
+        // Draw dashed blue insertion line for flex containers
         if (siblings.length > 0) {
           const ref = siblings[Math.min(insertIdx, siblings.length - 1)];
           const linePos = isHoriz
@@ -167,7 +176,10 @@ export function commitDragDrop(doc: Document, session: DragSession): void {
   if (!ctx) return;
   const { node, parent, index } = ctx;
 
-  if (session.targetContainerId && session.insertIndex !== undefined) {
+  const dx = session.currentWorld.x - session.startWorld.x;
+  const dy = session.currentWorld.y - session.startWorld.y;
+
+  if (session.targetContainerId) {
     const targetCtx = findNodeContext(doc, session.targetContainerId);
     if (targetCtx && "children" in targetCtx.node && Array.isArray(targetCtx.node.children)) {
       // Remove from old parent
@@ -177,71 +189,39 @@ export function commitDragDrop(doc: Document, session: DragSession): void {
         const rIdx = doc.children.findIndex((c) => c.id === node.id);
         if (rIdx !== -1) doc.children.splice(rIdx, 1);
       }
-      // Insert into target container at computed index
-      const insertAt = Math.min(session.insertIndex, targetCtx.node.children.length);
-      targetCtx.node.children.splice(insertAt, 0, node);
+
+      const targetLayout = targetCtx.node.type === "frame" ? targetCtx.node.layout || "horizontal" : "none";
+
+      if (targetLayout === "none") {
+
+        // Freeform frame drop: convert drop world coordinates to frame local space
+        const origin = session.targetContainerWorldPos || { x: targetCtx.node.x ?? 0, y: targetCtx.node.y ?? 0 };
+        const dropWorldX = session.worldOffset.x + dx;
+        const dropWorldY = session.worldOffset.y + dy;
+        node.x = Math.round(dropWorldX - origin.x);
+        node.y = Math.round(dropWorldY - origin.y);
+        targetCtx.node.children.push(node);
+      } else {
+        // Flex frame drop: strip explicit coordinates and insert at computed index
+        delete (node as any).x;
+        delete (node as any).y;
+        const insertAt = session.insertIndex !== undefined ? Math.min(session.insertIndex, targetCtx.node.children.length) : targetCtx.node.children.length;
+        targetCtx.node.children.splice(insertAt, 0, node);
+      }
+      return;
     }
   }
-}
 
-/**
- * Paints the Pen-style dashed insertion line, target container frame highlight, and floating ghost.
- */
-export function paintDragGhost(
-  ctx: CanvasRenderingContext2D,
-  layoutNode: LayoutNode,
-  session: DragSession,
-  nodeMap: Map<string, PenNode>,
-  variables?: Record<string, any>,
-  zoom = 1
-): void {
-  // 1. Highlight target container frame with a blue border
-  if (session.targetContainerBox) {
-    const b = session.targetContainerBox;
-    ctx.save();
-    ctx.strokeStyle = "#38bdf8";
-    ctx.lineWidth = 2 / zoom;
-    ctx.strokeRect(b.x, b.y, b.width, b.height);
-    ctx.restore();
+  if (parent !== null) {
+    // Dropped outside any container frame -> Reparent to root canvas
+    if ("children" in parent && Array.isArray(parent.children)) {
+      parent.children.splice(index, 1);
+    }
+    node.x = Math.round(session.worldOffset.x + dx);
+    node.y = Math.round(session.worldOffset.y + dy);
+    if (node.layoutPosition === "absolute") {
+      delete (node as any).layoutPosition;
+    }
+    doc.children.push(node);
   }
-
-  // 2. Draw dashed blue insertion line
-  if (session.dropIndicator) {
-    const { x1, y1, x2, y2 } = session.dropIndicator;
-    ctx.save();
-    ctx.strokeStyle = "#38bdf8";
-    ctx.lineWidth = 2.5 / zoom;
-    ctx.setLineDash([6 / zoom, 4 / zoom]);
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // 3. Draw floating elevated ghost
-  const dx = session.currentWorld.x - session.startWorld.x;
-  const dy = session.currentWorld.y - session.startWorld.y;
-
-  const ghostX = session.worldOffset.x + dx;
-  const ghostY = session.worldOffset.y + dy;
-
-  ctx.save();
-  ctx.globalAlpha = 0.92;
-  ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
-  ctx.shadowBlur = 24 / zoom;
-  ctx.shadowOffsetY = 12 / zoom;
-
-  const ghostLayoutNode: LayoutNode = {
-    ...layoutNode,
-    box: { ...layoutNode.box, x: ghostX, y: ghostY }
-  };
-
-  paintNode(ctx, ghostLayoutNode, nodeMap, variables);
-
-  ctx.strokeStyle = "#38bdf8";
-  ctx.lineWidth = 2 / zoom;
-  ctx.strokeRect(ghostX, ghostY, layoutNode.box.width, layoutNode.box.height);
-
-  ctx.restore();
 }

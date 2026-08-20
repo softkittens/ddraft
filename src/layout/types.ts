@@ -17,8 +17,9 @@ export interface LayoutNode {
   id: string;
   type: string;
   box: Box;
-  rotation?: number; // In degrees, counter-clockwise around top-left (0, 0)
+  rotation?: number; // In degrees, clockwise around top-left (0, 0) in screen coordinates
   children: LayoutNode[];
+
 }
 
 /**

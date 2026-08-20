@@ -8,32 +8,60 @@ export type PaddingValue = number | [number, number] | [number, number, number, 
 
 export type ColorStop = { offset: number; color: string };
 
+export interface ColorFill {
+  type: "color";
+  color?: string;
+  enabled?: boolean;
+  opacity?: number;
+  [key: string]: any;
+}
+
+export interface GradientFill {
+  type: "gradient";
+  gradientType?: "linear" | "radial" | string;
+  rotation?: number;
+  stops?: ColorStop[];
+  enabled?: boolean;
+  opacity?: number;
+  [key: string]: any;
+}
+
+export interface ImageFill {
+  type: "image";
+  url?: string;
+  src?: string;
+  mode?: "fill" | "fit" | "tile" | "stretch" | "crop" | string;
+  enabled?: boolean;
+  opacity?: number;
+  [key: string]: any;
+}
+
 export type Fill =
   | string
-  | { type: "color"; color: string }
-  | {
-      type: "gradient";
-      gradientType?: "linear" | "radial";
-      rotation?: number;
-      stops: ColorStop[];
-    }
-  | { type: "image"; src: string; mode?: "fill" | "fit" | "tile" };
+  | ColorFill
+  | GradientFill
+  | ImageFill
+  | Record<string, any>;
 
 export interface ShadowEffect {
-  type: "shadow" | "inner_shadow";
+  type: "shadow" | "inner_shadow" | string;
   color?: string;
   x?: number;
   y?: number;
   blur?: number;
   spread?: number;
+  enabled?: boolean;
+  [key: string]: any;
 }
 
 export interface BlurEffect {
-  type: "blur";
+  type: "blur" | "background_blur" | string;
   radius?: number;
+  enabled?: boolean;
+  [key: string]: any;
 }
 
-export type Effect = ShadowEffect | BlurEffect | { type: "background_blur"; radius?: number };
+export type Effect = ShadowEffect | BlurEffect | { type: string; enabled?: boolean; [key: string]: any };
 
 export interface BaseNode {
   id: string;
@@ -43,8 +71,10 @@ export interface BaseNode {
   y?: number;
   width?: number | string;
   height?: number | string;
-  fill?: Fill;
-  stroke?: Fill;
+  fill?: Fill | Fill[];
+  fills?: Fill[];
+  stroke?: Fill | Fill[];
+  strokes?: Fill[];
   strokeWidth?: number | { top?: number; right?: number; bottom?: number; left?: number };
   cornerRadius?: number | [number, number, number, number];
   rotation?: number;
@@ -53,7 +83,10 @@ export interface BaseNode {
   clip?: boolean;
   reusable?: boolean;
   enabled?: boolean;
+  effect?: Effect | Effect[];
   effects?: Effect[];
+  metadata?: Record<string, any>;
+  [key: string]: any;
 }
 
 export interface FrameNode extends BaseNode {
@@ -72,7 +105,12 @@ export interface GroupNode extends BaseNode {
 }
 
 export interface RectangleNode extends BaseNode { type: "rectangle" }
-export interface EllipseNode extends BaseNode { type: "ellipse" }
+export interface EllipseNode extends BaseNode {
+  type: "ellipse";
+  innerRadius?: number;
+  startAngle?: number;
+  sweepAngle?: number;
+}
 export interface PolygonNode extends BaseNode { type: "polygon"; points?: number[] }
 export interface PathNode extends BaseNode { type: "path"; geometry?: string; viewBox?: string }
 export interface TextNode extends BaseNode {
@@ -83,6 +121,7 @@ export interface TextNode extends BaseNode {
   fontWeight?: string | number;
   letterSpacing?: number;
   lineHeight?: number;
+  textAlign?: "left" | "center" | "right" | "justify" | string;
   textGrowth?: "auto" | "fixed-width" | "fixed-width-height";
 }
 export interface NoteNode extends BaseNode { type: "note"; content?: string }
@@ -106,4 +145,6 @@ export interface Document {
   children: PenNode[];
   variables?: Record<string, any>;
   fileToken?: string;
+  metadata?: Record<string, any>;
+  [key: string]: any;
 }

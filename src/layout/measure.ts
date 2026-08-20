@@ -63,7 +63,6 @@ export function measureNode(node: PenNode, variables?: Record<string, any>): Mea
     return { node, measuredWidth: metrics.width, measuredHeight: metrics.height, children };
   }
 
-
   if (node.type === "group") {
     const extent = contentExtent(children);
     return {

@@ -9,6 +9,22 @@ import {
   computeCrossAxisPosition,
   distributeFlowMainSizes
 } from "./arrange";
+import { resolveInstances } from "../model/instance";
+
+/**
+ * Flattens a LayoutNode hierarchy into a map keyed by node id.
+ */
+export function flattenLayoutTree(nodes: LayoutNode[]): Map<string, LayoutNode> {
+  const map = new Map<string, LayoutNode>();
+  function visit(node: LayoutNode) {
+    map.set(node.id, node);
+    for (const child of node.children) {
+      visit(child);
+    }
+  }
+  for (const root of nodes) visit(root);
+  return map;
+}
 
 /**
  * # Layout Pipeline
@@ -21,15 +37,17 @@ import {
  * 2. Arrange (Top-Down): Places nodes and resolves fill_container sizing.
  */
 
-import { resolveInstances } from "../model/instance";
+export function layoutResolvedDocument(resolved: Document): LayoutNode[] {
+  return resolved.children.map((child) => layoutRootNode(child, resolved.variables));
+}
 
 export function layoutDocument(doc: Document): LayoutNode[] {
-  const resolved = resolveInstances(doc);
-  return resolved.children.map((child) => layoutRootNode(child, resolved.variables));
+  return layoutResolvedDocument(resolveInstances(doc));
 }
 
 
 function layoutRootNode(node: PenNode, variables?: Record<string, any>): LayoutNode {
+
   const measured = measureNode(node, variables);
   const rootBox: Box = {
     x: node.x ?? 0,
@@ -81,6 +99,21 @@ export function arrangeNode(measured: MeasuredNode, box: Box, variables?: Record
 
   // Flow children participate in flex distribution; absolute children leave the flow
   const flow = children.filter((c) => c.node.layoutPosition !== "absolute");
+
+  // In vertical layouts, resolve cross-axis width and recompute wrapped text height
+  // BEFORE computing main-axis flow positions, ensuring siblings never overlap.
+  if (!isHoriz) {
+    for (const child of flow) {
+      if (child.node.type === "text" && (child.node as TextNode).textGrowth === "fixed-width") {
+        const crossSizing = parseSizing(child.node.width);
+        const isCrossFill = crossSizing.mode === "fill_container";
+        const childW = isCrossFill ? Math.max(0, contentCross) : child.measuredWidth;
+        const textMetrics = measureTextNode(child.node as TextNode, childW, variables);
+        child.measuredHeight = textMetrics.height;
+      }
+    }
+  }
+
   const flowMainSizes = distributeFlowMainSizes(flow, contentMain, gap, isHoriz, !!measured.isCircularMain);
   const flowMainPositions = computeMainAxisPositions({
     frameMain,
@@ -90,6 +123,7 @@ export function arrangeNode(measured: MeasuredNode, box: Box, variables?: Record
     justifyContent: frame?.justifyContent,
     childMainSizes: flowMainSizes
   });
+
 
   let flowIdx = 0;
   const layoutChildren: LayoutNode[] = [];

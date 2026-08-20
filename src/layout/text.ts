@@ -1,11 +1,21 @@
 import type { TextNode } from "../model/types";
-import { resolveVariable } from "../render/fills";
+import { resolveVariable } from "../model/variables";
+
+import {
+  measureKey,
+  lookupWidth,
+  lookupLineHeightRatio,
+  noteMeasurement,
+  noteLineHeightRatio
+} from "./metrics";
 
 export interface TextMetricsResult {
   width: number;
   height: number;
+  lineHeight: number;
   lines: string[];
 }
+
 
 let cachedCanvasCtx: CanvasRenderingContext2D | null = null;
 
@@ -36,13 +46,21 @@ export function measureTextWidth(
   letterSpacing = 0,
   variables?: Record<string, any>
 ): number {
-  const ctx = getCanvasContext();
   const resolvedFam = resolveFontFamily(fontFamily, variables);
   const weight = fontWeight || "normal";
+  const key = measureKey(text, fontSize, resolvedFam, weight, letterSpacing);
 
+  // A recording, when present, is the authority. It holds what a real font engine
+  // reported, so a headless run gets the same widths as the browser.
+  const replayed = lookupWidth(key);
+  if (replayed !== undefined) return replayed;
+
+  const ctx = getCanvasContext();
   if (ctx) {
     ctx.font = `${weight} ${fontSize}px ${resolvedFam}`;
-    return Math.ceil(ctx.measureText(text).width + text.length * letterSpacing);
+    const measured = Math.ceil(ctx.measureText(text).width + text.length * letterSpacing);
+    noteMeasurement(key, measured);
+    return measured;
   }
 
   const isMono = resolvedFam.includes("Mono") || resolvedFam.includes("monospace");
@@ -51,13 +69,20 @@ export function measureTextWidth(
   return Math.round(text.length * fontSize * charWidthRatio * boldFactor);
 }
 
+/** Inter's "normal" line-height ratio, used when no font engine is reachable. */
+export const DEFAULT_LINE_HEIGHT_RATIO = 1.2113;
+
 export const dynamicRatioCache = new Map<string, number>();
 
 export function getDynamicLineHeightRatio(fontFamily: string): number {
   const baseFam = fontFamily.replace(/['"]/g, "").split(",")[0].trim();
+  const replayed = lookupLineHeightRatio(baseFam);
+  if (replayed !== undefined) return replayed;
   const cached = dynamicRatioCache.get(baseFam);
-  if (cached) return cached;
-
+  if (cached) {
+    noteLineHeightRatio(baseFam, cached);
+    return cached;
+  }
 
   if (typeof document !== "undefined" && document.body) {
     const span = document.createElement("span");
@@ -73,11 +98,13 @@ export function getDynamicLineHeightRatio(fontFamily: string): number {
     document.body.removeChild(span);
     if (ratio > 0.5 && ratio < 3.0) {
       dynamicRatioCache.set(baseFam, ratio);
+      noteLineHeightRatio(baseFam, ratio);
       return ratio;
     }
   }
 
-  return 1.2113;
+  noteLineHeightRatio(baseFam, DEFAULT_LINE_HEIGHT_RATIO);
+  return DEFAULT_LINE_HEIGHT_RATIO;
 }
 
 export function getLineHeight(node: TextNode, variables?: Record<string, any>): number {
@@ -87,7 +114,6 @@ export function getLineHeight(node: TextNode, variables?: Record<string, any>): 
   const ratio = getDynamicLineHeightRatio(resolved);
   return Math.round(size * ratio);
 }
-
 
 export function measureTextNode(
   node: TextNode,
@@ -103,12 +129,10 @@ export function measureTextNode(
   const canWrap = containerWidth !== undefined || typeof node.width === "number";
   if (growth === "auto" || !canWrap) {
     const width = measureTextWidth(content, fontSize, fontFamily, fontWeight, node.letterSpacing ?? 0, variables);
-    return { width, height: lineHeight, lines: [content] };
+    return { width, height: lineHeight, lineHeight, lines: [content] };
   }
 
   const targetWidth = containerWidth ?? (typeof node.width === "number" ? node.width : 200);
-
-
 
   const words = content.split(" ");
   const lines: string[] = [];
@@ -129,6 +153,8 @@ export function measureTextNode(
   return {
     width: targetWidth,
     height: Math.max(1, lines.length) * lineHeight,
+    lineHeight,
     lines
   };
 }
+

@@ -32,20 +32,22 @@ export function paintSelectionOverlay(
   ctx.save();
   ctx.translate(layoutNode.box.x, layoutNode.box.y);
   if (layoutNode.rotation) {
-    ctx.rotate((-layoutNode.rotation * Math.PI) / 180);
+    ctx.rotate((layoutNode.rotation * Math.PI) / 180);
   }
+
+
 
   if (isSelected || isHovered) {
     const { width: w, height: h } = layoutNode.box;
-    ctx.strokeStyle = isSelected ? "#0ea5e9" : "rgba(14, 165, 233, 0.4)";
-    ctx.lineWidth = (isSelected ? 2 : 1) / zoom;
+    ctx.strokeStyle = isSelected ? "#0d99ff" : "rgba(13, 153, 255, 0.4)";
+    ctx.lineWidth = (isSelected ? 1.5 : 1) / zoom;
     ctx.strokeRect(0, 0, w, h);
 
     if (isSelected) {
       const handleSize = 6 / zoom;
       const half = handleSize / 2;
       ctx.fillStyle = "#ffffff";
-      ctx.strokeStyle = "#0ea5e9";
+      ctx.strokeStyle = "#0d99ff";
       ctx.lineWidth = 1.5 / zoom;
 
       const corners = [[0, 0], [w, 0], [w, h], [0, h]];
@@ -54,6 +56,7 @@ export function paintSelectionOverlay(
         ctx.strokeRect(cx - half, cy - half, handleSize, handleSize);
       }
     }
+
   }
 
   for (const child of layoutNode.children) {
