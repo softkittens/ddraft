@@ -1,15 +1,7 @@
-/**
- * What an agent test needs before it can assert anything: a provider that
- * answers, a request to hand the server, and a way to read the stream back.
- *
- * All three used to be written out per test — twenty copies of `new
- * Request(url, { method: "POST", body: JSON.stringify(...) })`, and four
- * spellings of "a provider that returns this JSON". Setup was most of every
- * case, so a test read as thirty lines of scaffolding with one assertion at the
- * bottom, and the thing under test was the hardest part to find.
- */
 import { handleAgentRequest, type AgentHttpDeps } from "../src/agent/http";
-import type { FetchFn } from "../src/agent/provider";
+import type { FetchFn, Provider } from "../src/agent/provider";
+import { runSession, type AgentEvent } from "../src/agent/session";
+import type { Document } from "../src/model/types";
 
 /** A 1x1 PNG. Enough to pass the data-URL check; a fake provider never looks. */
 export const PNG =
@@ -77,9 +69,6 @@ export interface FakeProvider {
 
 /**
  * A provider that records what it was asked and replies with `answer`.
- *
- * Return a plain value for a 200 JSON body; return a Response to control the
- * status or stream, which is how the failure and handoff cases are written.
  */
 export function fakeProvider(answer: (body: any, url: string) => unknown): FakeProvider {
   const calls: { url: string; body: any }[] = [];
@@ -122,3 +111,61 @@ export function agentPost(
 /** A review request with the fields every case needs already filled in. */
 export const reviewPost = (body: Record<string, unknown>, deps: AgentHttpDeps) =>
   agentPost("review", { brief: "A reading site", screenshot: PNG, digest: "title Cover", ...body }, deps);
+
+export type TestStep = Response | string | [string, unknown];
+
+export const defaultTestProvider: Provider = {
+  id: "test",
+  baseUrl: "https://example.test/v1",
+  model: "test-model",
+  apiKey: "sk-test"
+};
+
+/**
+ * Declaratively runs an agent session through a sequence of steps.
+ * Steps can be:
+ * - A tool tuple: ["insert_node", { ... }]
+ * - A string reply: "All done!"
+ * - A custom Response: streamed(...)
+ */
+export async function runTestSequence(
+  initialDoc: Document,
+  steps: TestStep[],
+  options: {
+    prompt?: string;
+    provider?: Provider;
+    maxTurns?: number;
+  } = {}
+): Promise<{
+  events: AgentEvent[];
+  calls: number;
+  finalDoc: Document;
+}> {
+  let callIndex = 0;
+  const events: AgentEvent[] = [];
+  const provider = options.provider ?? defaultTestProvider;
+  const prompt = options.prompt ?? "edit canvas";
+
+  const fetchImpl: FetchFn = async () => {
+    const step = steps[Math.min(callIndex, steps.length - 1)];
+    callIndex++;
+    if (step instanceof Response) return step;
+    if (typeof step === "string") return saysSse(step);
+    if (Array.isArray(step)) return callsSse(step[0], step[1], `c_${callIndex}`);
+    return saysSse("done");
+  };
+
+  for await (const ev of runSession(
+    provider,
+    [{ role: "user", content: prompt }],
+    initialDoc,
+    { fetch: fetchImpl, maxTurns: options.maxTurns }
+  )) {
+    events.push(ev);
+  }
+
+  const lastDone = events.find((e) => e.type === "done");
+  const finalDoc = lastDone && lastDone.type === "done" ? lastDone.doc : initialDoc;
+
+  return { events, calls: callIndex, finalDoc };
+}

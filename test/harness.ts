@@ -1,11 +1,11 @@
 import { expect } from "bun:test";
 import type { Document, FrameNode, PenNode, TextNode } from "../src/model/types";
 import type { LayoutNode, Box } from "../src/layout/types";
-import { flattenLayoutTree, layoutResolvedDocument } from "../src/layout/layout";
+import { flattenLayoutTree, layoutResolvedDocument, layoutDocument } from "../src/layout/layout";
 import { indexDocument, cloneDocument } from "../src/model/tree";
 import { parseDocument } from "../src/model/parse";
 import { resolveInstances } from "../src/model/instance";
-import { createCamera, screenToWorld, worldToScreen, zoomAtScreenPoint, panCamera, type Camera, type Point } from "../src/interaction/camera";
+import { createCamera, screenToWorld, zoomAtScreenPoint, panCamera, type Camera } from "../src/interaction/camera";
 import { hitTestScene } from "../src/interaction/hittest";
 import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../src/interaction/drag";
 import { duplicateNode } from "../src/model/edit";
@@ -14,9 +14,9 @@ import { paintNode } from "../src/render/paint";
 import { paintSelectionOverlay } from "../src/interaction/selection";
 import { inspectorFields } from "../src/ui/inspector";
 import type { ToolMode } from "../src/ui/store";
+import { createDocumentTools } from "../src/agent/tools";
 
 export const makeDoc = (...children: PenNode[]): Document => ({
-
   version: "2.17",
   children
 });
@@ -32,6 +32,22 @@ export const frame = (
   id,
   width,
   height,
+  children,
+  ...props
+});
+
+export const screen = (
+  id: string,
+  children: PenNode[] = [],
+  props: Partial<FrameNode> = {}
+): FrameNode => ({
+  type: "frame",
+  id,
+  width: 390,
+  height: 844,
+  clip: true,
+  layout: "vertical",
+  metadata: { screenKind: "mobile" },
   children,
   ...props
 });
@@ -80,6 +96,20 @@ export function assertBoxes(nodes: LayoutNode[], expected: Record<string, [numbe
       expect(Math.round(box.height)).toBe(h);
     }
   }
+}
+
+export function expectLayout(doc: Document, expected: Record<string, [number, number, number, number]>): void {
+  assertBoxes(layoutDocument(doc), expected);
+}
+
+export async function execTool(
+  name: string,
+  args: Record<string, any>,
+  doc: Document
+): Promise<{ result: string; doc: Document }> {
+  const tools = createDocumentTools(cloneDocument(doc));
+  const result = await tools.execute(name, args);
+  return { result, doc: tools.doc };
 }
 
 export function createMockCanvas() {
@@ -149,24 +179,22 @@ export class EditorDriver {
   // Pointer Gestures (in Screen Pixel Coordinates)
   pointerDown(screenX: number, screenY: number, modifiers: { alt?: boolean; meta?: boolean } = {}) {
     const world = screenToWorld({ x: screenX, y: screenY }, this.camera);
-    if (this.toolMode !== "select") return;
-
     const hit = hitTestScene(this.layoutTree, world);
+
     if (hit) {
-      if (!modifiers.meta) {
-        this.selectedIds = new Set([hit.id]);
-      } else {
+      if (modifiers.meta) {
         if (this.selectedIds.has(hit.id)) this.selectedIds.delete(hit.id);
         else this.selectedIds.add(hit.id);
+      } else {
+        this.selectedIds = new Set([hit.id]);
       }
 
-      const docNode = this.nodeMap.get(hit.id);
       this.pendingPress = {
         nodeId: hit.id,
         startWorld: world,
         currentWorld: world,
-        initialNodeX: docNode?.x !== undefined ? docNode.x : hit.box.x,
-        initialNodeY: docNode?.y !== undefined ? docNode.y : hit.box.y,
+        initialNodeX: hit.box.x,
+        initialNodeY: hit.box.y,
         worldOffset: { x: hit.box.x, y: hit.box.y },
         dimensions: { width: hit.box.width, height: hit.box.height }
       };
@@ -254,33 +282,21 @@ export class EditorDriver {
     }
   }
 
-  // Executes Full 2D View Render Pass
+  getInspector() {
+    return inspectorFields(this.doc, this.layoutTree, Array.from(this.selectedIds));
+  }
+
   renderView(): { calls: string[] } {
     const { ctx, calls } = createMockCanvas();
-
-    // 1. Viewport Transform
+    ctx.save();
     ctx.translate(this.camera.x, this.camera.y);
     ctx.scale(this.camera.zoom, this.camera.zoom);
 
-    // 2. Draw Scene
     for (const root of this.layoutTree) {
       paintNode(ctx, root, this.nodeMap, this.doc.variables);
-    }
-
-    // 3. Draw Selection Overlays
-    for (const root of this.layoutTree) {
       paintSelectionOverlay(ctx, root, this.selectedIds, this.hoveredId, this.camera.zoom);
     }
-
+    ctx.restore();
     return { calls };
-  }
-
-  getInspector(ids?: string[]) {
-    const targetIds = ids || Array.from(this.selectedIds);
-    return inspectorFields(this.doc, this.layoutTree, targetIds);
-  }
-
-  toScreen(worldX: number, worldY: number): Point {
-    return worldToScreen({ x: worldX, y: worldY }, this.camera);
   }
 }

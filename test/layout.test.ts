@@ -3,11 +3,11 @@ import { normalisePadding } from "../src/layout/padding";
 import { computeMainAxisPositions, computeCrossAxisPosition } from "../src/layout/arrange";
 import { layoutDocument } from "../src/layout/layout";
 import { measureTextNode, dynamicRatioCache } from "../src/layout/text";
-import { makeDoc, frame, rect, txt, assertBoxes, flattenBoxes } from "./harness";
+import { makeDoc, frame, rect, txt, expectLayout, flattenBoxes } from "./harness";
 import { auditDesign } from "../src/design/evaluator";
 
 dynamicRatioCache.set("Inter", 1.2113);
-dynamicRatioCache.set("Geist Mono", 1.3); // measured in Chrome, see probes/text-metrics.json
+dynamicRatioCache.set("Geist Mono", 1.3);
 
 describe("Layout Subsystem (Unit B)", () => {
   it("normalises padding formats (single, pair, 4-tuple, undefined)", () => {
@@ -27,27 +27,31 @@ describe("Layout Subsystem (Unit B)", () => {
 
     expect(computeCrossAxisPosition({ frameCross: 100, padStartCross: 10, padEndCross: 10, childCrossSize: 40, alignItems: "center" })).toBe(30);
     expect(computeCrossAxisPosition({ frameCross: 100, padStartCross: 10, padEndCross: 10, childCrossSize: 40, alignItems: "end" })).toBe(50);
-
   });
 
   it("resolves two-stage sizing (fit_content, fill_container, circular dependency)", () => {
-    // 1. fit_content shrinks to content + padding
-    const fitDoc = makeDoc(frame("f", "fit_content", "fit_content", [rect("c1", 80, 40), rect("c2", 60, 30)], { padding: 15, gap: 10, layout: "horizontal" }));
-    assertBoxes(layoutDocument(fitDoc), { f: [0, 0, 180, 70], c1: [15, 15, 80, 40], c2: [105, 15, 60, 30] });
+    // 1. fit_content
+    expectLayout(
+      makeDoc(frame("f", "fit_content", "fit_content", [rect("c1", 80, 40), rect("c2", 60, 30)], { padding: 15, gap: 10, layout: "horizontal" })),
+      { f: [0, 0, 180, 70], c1: [15, 15, 80, 40], c2: [105, 15, 60, 30] }
+    );
 
-    // 2. fill_container fills remaining available space
-    const fillDoc = makeDoc(frame("f", 300, 100, [rect("c1", 100, 50), rect("c2", "fill_container" as any, 50)], { padding: 10, gap: 10, layout: "horizontal" }));
-    assertBoxes(layoutDocument(fillDoc), { f: [0, 0, 300, 100], c1: [10, 10, 100, 50], c2: [120, 10, 170, 50] });
+    // 2. fill_container
+    expectLayout(
+      makeDoc(frame("f", 300, 100, [rect("c1", 100, 50), rect("c2", "fill_container" as any, 50)], { padding: 10, gap: 10, layout: "horizontal" })),
+      { f: [0, 0, 300, 100], c1: [10, 10, 100, 50], c2: [120, 10, 170, 50] }
+    );
 
-    // 3. Circular dependency: parent fit_content containing fill_container child resolves safely (frame w=0, child w=1)
-    const circDoc = makeDoc(frame("f", "fit_content", 100, [rect("c1", "fill_container" as any, 50)], { padding: 0, gap: 0, layout: "horizontal" }));
-    assertBoxes(layoutDocument(circDoc), { f: [0, 0, 0, 100], c1: [0, 0, 1, 50] });
+    // 3. Circular dependency resolution
+    expectLayout(
+      makeDoc(frame("f", "fit_content", 100, [rect("c1", "fill_container" as any, 50)], { padding: 0, gap: 0, layout: "horizontal" })),
+      { f: [0, 0, 0, 100], c1: [0, 0, 1, 50] }
+    );
   });
 
   it("measures text growth modes accurately", () => {
     const autoNode = txt("t1", "Single line text", 16, { textGrowth: "auto" } as any);
-    const mAuto = measureTextNode(autoNode, 50);
-    expect(mAuto.width).toBeGreaterThan(100);
+    expect(measureTextNode(autoNode, 50).width).toBeGreaterThan(100);
 
     const fixedNode = txt("t2", "A very long line of text that wraps into multiple lines", 16, { textGrowth: "fixed-width", width: 100 } as any);
     const mFixed = measureTextNode(fixedNode, 100);
@@ -56,35 +60,25 @@ describe("Layout Subsystem (Unit B)", () => {
   });
 
   it("positions absolute children, groups, and rotated nodes", () => {
-    const doc = makeDoc(frame("f", 200, 200, [
-      rect("free", 50, 50, { x: 30, y: 40 } as any),
-      rect("abs", 40, 40, { layoutPosition: "absolute", x: 80, y: 90 } as any)
-    ], { layout: "none" }));
-
-    assertBoxes(layoutDocument(doc), {
-      f: [0, 0, 200, 200],
-      free: [30, 40, 50, 50],
-      abs: [80, 90, 40, 40]
-    });
+    expectLayout(
+      makeDoc(frame("f", 200, 200, [
+        rect("free", 50, 50, { x: 30, y: 40 } as any),
+        rect("abs", 40, 40, { layoutPosition: "absolute", x: 80, y: 90 } as any)
+      ], { layout: "none" })),
+      { f: [0, 0, 200, 200], free: [30, 40, 50, 50], abs: [80, 90, 40, 40] }
+    );
   });
 
   it("hugs absolute children when a layout:none frame asks to fit its content", () => {
-    // It answered 0, which is right for an unauthored size and wrong for one
-    // the author wrote down. A hero built as an image with a sheet under it
-    // collapsed to 390x0 and showed nothing, and because checkOverflow skips a
-    // parent measuring zero the audit had nothing to say about it either.
-    const doc = makeDoc(frame("screen", 390, 844, [
-      frame("hero", "fill_container" as any, "fit_content" as any, [
-        rect("photo", 390, 400),
-        rect("sheet", 390, 192, { y: 400 } as any)
-      ], { layout: "none" })
-    ], { layout: "vertical" }));
-
-    assertBoxes(layoutDocument(doc), {
-      hero: [0, 0, 390, 592],
-      photo: [0, 0, 390, 400],
-      sheet: [0, 400, 390, 192]
-    });
+    expectLayout(
+      makeDoc(frame("screen", 390, 844, [
+        frame("hero", "fill_container" as any, "fit_content" as any, [
+          rect("photo", 390, 400),
+          rect("sheet", 390, 192, { y: 400 } as any)
+        ], { layout: "none" })
+      ], { layout: "vertical" })),
+      { hero: [0, 0, 390, 592], photo: [0, 0, 390, 400], sheet: [0, 400, 390, 192] }
+    );
   });
 
   it("leaves an unauthored layout:none frame at zero, which is what nothing asked for", () => {
@@ -94,7 +88,6 @@ describe("Layout Subsystem (Unit B)", () => {
 
   it("lays out vertical wrapping text without sibling overlap", () => {
     const longText = "This is a very long text paragraph designed to wrap onto multiple lines in a container.";
-    // 1. fill_container width vertical wrapping
     const fillDoc = makeDoc(frame("col", 100, 200, [
       rect("top", "fill_container" as any, 20),
       txt("mid", longText, 14, { textGrowth: "fixed-width", width: "fill_container" as any }),
@@ -104,14 +97,10 @@ describe("Layout Subsystem (Unit B)", () => {
     const fillTree = layoutDocument(fillDoc);
     const midBox = fillTree[0].children[1].box;
     const botBox = fillTree[0].children[2].box;
-
     expect(midBox.height).toBeGreaterThan(20);
     expect(midBox.y + midBox.height).toBeLessThanOrEqual(botBox.y);
     expect(botBox.y).toBe(midBox.y + midBox.height + 10);
 
-
-
-    // 2. Numeric-width vertical wrapping
     const numDoc = makeDoc(frame("col2", 200, 300, [
       rect("top2", 100, 20),
       txt("mid2", longText, 14, { textGrowth: "fixed-width", width: 100 }),
@@ -125,14 +114,8 @@ describe("Layout Subsystem (Unit B)", () => {
   });
 });
 
-
-/* Widths resolve downward, heights upward. Without the first half a text node
- * set to fill its container had no width to wrap against during measure, so it
- * reported one line, its parent sized to one line, and the arrange pass then
- * wrapped it to three — two of them outside the box. */
 describe("available width reaches text during measure", () => {
-  const prose =
-    "A long paragraph that has to wrap onto several lines before it fits inside a narrow column.";
+  const prose = "A long paragraph that has to wrap onto several lines before it fits inside a narrow column.";
 
   function doc(frameHeight?: number | string) {
     return makeDoc(
@@ -148,8 +131,8 @@ describe("available width reaches text during measure", () => {
     const boxes = flattenBoxes(layoutDocument(doc()));
     const text = boxes.get("body")!;
     const card = boxes.get("card")!;
-    expect(text.height).toBeGreaterThan(20); // more than a single line
-    expect(card.height).toBeGreaterThanOrEqual(text.height + 20); // plus its padding
+    expect(text.height).toBeGreaterThan(20);
+    expect(card.height).toBeGreaterThanOrEqual(text.height + 20);
   });
 
   it("leaves the text inside its parent, which is what the auditor checks", () => {
@@ -159,19 +142,13 @@ describe("available width reaches text during measure", () => {
   });
 
   it("still reports a clip when the parent height really is too small", () => {
-    // The rule has to stay able to fail. A 24px box cannot hold three lines.
     const d = doc(24);
     const clipped = auditDesign(layoutDocument(d), d).filter((f) => f.rule === "clipped");
     expect(clipped.length).toBeGreaterThan(0);
   });
 
   it("does not wrap text in a horizontal row, where the split is not known yet", () => {
-    const d = makeDoc(
-      frame("row", 320, 60, [
-        txt("a", "left", 14),
-        txt("b", "right", 14)
-      ], { layout: "horizontal", gap: 8 })
-    );
+    const d = makeDoc(frame("row", 320, 60, [txt("a", "left", 14), txt("b", "right", 14)], { layout: "horizontal", gap: 8 }));
     const boxes = flattenBoxes(layoutDocument(d));
     expect(boxes.get("a")!.height).toBeLessThan(30);
   });
