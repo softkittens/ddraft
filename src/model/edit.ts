@@ -130,7 +130,7 @@ export function duplicateNode(doc: Document, id: string): { doc: Document; newId
           if (rightEdge > maxX) maxX = rightEdge;
         }
         if (maxX > 0) cloneNode.x = maxX + 80;
-        if (cloneNode.y === undefined && orig.y !== undefined) cloneNode.y = orig.y;
+        cloneNode.y = orig.y ?? 0;
       }
       list.splice(idx + 1, 0, cloneNode);
       return newRootId;

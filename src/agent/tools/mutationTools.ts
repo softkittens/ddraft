@@ -1,0 +1,359 @@
+import type { PenNode } from "../../model/types";
+import { insertChild, moveNode, removeNode, setProperty, duplicateNode, getNextNodeId } from "../../model/edit";
+import { childrenOf, findNode, maxNumericId } from "../../model/tree";
+import { digest, digestSubtree } from "../../digest/digest";
+import { buildScreen, type ScreenSpec, type TabSpec } from "../../design/scaffold";
+import { insertionNote } from "../../design/evaluator";
+import {
+  type DocumentToolDefinition,
+  WHOLE_DOC_ALIASES,
+  digestId,
+  parentIdOf,
+  resolveIconGeometry
+} from "./types";
+import { normalizeNodeTree, describeNormalization, type NormalizeReport } from "./normalize";
+
+export const createScreenTool: DocumentToolDefinition = {
+  name: "create_screen",
+  description:
+    "Build a mobile or desktop screen frame on the canvas with optional tab bar. Mobile screens are fixed at 390x844 with standard top/bottom insets and status bar.",
+  parameters: {
+    type: "object",
+    properties: {
+      name: {
+        type: "string",
+        description: "Screen name, e.g. 'Feed', 'Profile', 'Settings'"
+      },
+      kind: {
+        type: "string",
+        enum: ["mobile", "desktop"],
+        description: "Screen form factor"
+      },
+      tabs: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            label: {
+              type: "string"
+            },
+            icon: {
+              type: "string",
+              description: "Lucide icon name, e.g. 'home', 'compass', 'user', 'bell', 'settings'"
+            },
+            active: {
+              type: "boolean",
+              description: "True for the currently active tab"
+            }
+          },
+          required: ["label", "icon"]
+        },
+        description: "Bottom tab bar destinations. Mobile only."
+      }
+    },
+    required: ["name", "kind"]
+  },
+  execute: (ctx, a) => {
+    let doc = ctx.doc;
+    const name = typeof a.name === "string" ? a.name.trim() : "";
+    if (!name) return "error: name is required";
+    if (a.kind !== "mobile" && a.kind !== "desktop") return "error: kind must be 'mobile' or 'desktop'";
+
+    let activeFound = false;
+    const tabs: TabSpec[] = Array.isArray(a.tabs)
+      ? (a.tabs as any[])
+          .filter((t) => t && typeof t.label === "string" && typeof t.icon === "string")
+          .map((t) => {
+            const isActive = t.active === true && !activeFound;
+            if (isActive) activeFound = true;
+            return { label: t.label, icon: t.icon, active: isActive };
+          })
+      : [];
+    if (tabs.length > 0 && !activeFound) tabs[0].active = true;
+
+    const spec: ScreenSpec = { name, kind: a.kind, tabs: tabs.length > 0 ? tabs : undefined };
+    let counter = 0;
+    const base = getNextNodeId(doc, "n").split("_")[1];
+    const scaffold = buildScreen(spec, () => `n${Number(base) + counter++}`);
+    resolveIconGeometry(scaffold.node);
+
+    let maxX = 0;
+    for (const root of doc.children) {
+      const right = (root.x ?? 0) + (typeof root.width === "number" ? root.width : 1200);
+      if (right > maxX) maxX = right;
+    }
+    (scaffold.node as any).x = doc.children.length > 0 ? maxX + 80 : 0;
+    (scaffold.node as any).y = doc.children[0]?.y ?? 0;
+
+    doc = insertChild(doc, undefined, scaffold.node as PenNode);
+    ctx.setDoc(doc);
+
+    const slots = Object.entries(scaffold.slots)
+      .map(([role, id]) => `  ${role}: ${id}`)
+      .join("\n");
+    const screenNote = insertionNote(doc, scaffold.node.id);
+    return [
+      `ok: built ${spec.kind} screen "${name}" (${scaffold.node.id}). Slots:`,
+      slots,
+      "",
+      digestSubtree(doc, scaffold.node.id),
+      ...(screenNote ? ["", screenNote] : [])
+    ].join("\n");
+  }
+};
+
+export const insertNodeTool: DocumentToolDefinition = {
+  name: "insert_node",
+  description:
+    "Insert a node (frame, text, rectangle, ellipse, polygon, path, icon, ref) with all its children. Omit parentId to insert as a top-level canvas frame.",
+  parameters: {
+    type: "object",
+    properties: {
+      parentId: {
+        type: "string",
+        description: "Target parent frame ID. Omit to insert as a top-level frame."
+      },
+      node: {
+        type: "object",
+        description: "Complete node definition with all children"
+      },
+      index: {
+        type: "number",
+        description: "Zero-based child index. Omit to append at the end."
+      }
+    },
+    required: ["node"]
+  },
+  execute: (ctx, a) => {
+    let doc = ctx.doc;
+    if (!a.node || typeof a.node !== "object") return "error: node is required";
+    const rawParentId = typeof a.parentId === "string" ? a.parentId.trim() : undefined;
+    const isRootInsert = !rawParentId || WHOLE_DOC_ALIASES.has(rawParentId);
+    const targetParent = isRootInsert ? undefined : rawParentId;
+
+    const report: NormalizeReport = { renamed: [], unknown: [], defaulted: [] };
+    const nodeToInsert = resolveIconGeometry(normalizeNodeTree({ ...(a.node as any) }, report));
+    const normalizationNote = describeNormalization(report);
+
+    if (isRootInsert) {
+      if (nodeToInsert.x === undefined || nodeToInsert.x === 0) {
+        let maxX = 0;
+        for (const root of doc.children) {
+          const rightEdge = (root.x ?? 0) + (typeof root.width === "number" ? root.width : 1200);
+          if (rightEdge > maxX) maxX = rightEdge;
+        }
+        if (doc.children.length > 0 && maxX > 0) {
+          nodeToInsert.x = maxX + 80;
+          if (nodeToInsert.y === undefined) nodeToInsert.y = doc.children[0].y ?? 0;
+        }
+      }
+      if (nodeToInsert.width === undefined) nodeToInsert.width = 1360;
+      if (nodeToInsert.height === undefined) nodeToInsert.height = 920;
+    }
+
+    const before = doc;
+    doc = insertChild(doc, targetParent, nodeToInsert as PenNode, typeof a.index === "number" ? a.index : undefined);
+    if (doc === before) return `error: could not insert into ${rawParentId || "canvas"}`;
+    ctx.setDoc(doc);
+
+    const body = targetParent ? digestSubtree(doc, targetParent) : digest(doc);
+    const note = insertionNote(doc, (nodeToInsert as PenNode).id);
+    return [normalizationNote, body, note].filter(Boolean).join("\n");
+  }
+};
+
+export const placeInstancesTool: DocumentToolDefinition = {
+  name: "place_instances",
+  description:
+    "Place multiple instances of a reusable component, optionally overriding descendant properties (e.g. text content, fills) per instance.",
+  parameters: {
+    type: "object",
+    properties: {
+      componentId: {
+        type: "string",
+        description: "ID of the reusable component to instantiate"
+      },
+      parentId: {
+        type: "string",
+        description: "Target parent frame ID"
+      },
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          description: "Map of descendantId -> property overrides for this instance"
+        },
+        description: "One entry per instance to place"
+      }
+    },
+    required: ["componentId", "parentId", "items"]
+  },
+  execute: (ctx, a) => {
+    let doc = ctx.doc;
+    const componentId = typeof a.componentId === "string" ? a.componentId.trim() : "";
+    const parentId = typeof a.parentId === "string" ? a.parentId.trim() : "";
+    const items = Array.isArray(a.items) ? a.items : null;
+    if (!componentId || !parentId || !items) return "error: componentId, parentId and items are required";
+
+    const component = findNode(doc.children, componentId);
+    if (!component) return `error: component ${componentId} not found`;
+    if (!findNode(doc.children, parentId)) return `error: parent ${parentId} not found`;
+    if (items.length === 0) return "error: items is empty. Give one entry per instance.";
+
+    const known = new Set<string>();
+    (function collect(n: PenNode) {
+      known.add(n.id);
+      for (const c of childrenOf(n)) collect(c);
+    })(component);
+
+    if (component.reusable !== true) doc = setProperty(doc, componentId, "reusable", true);
+
+    const unknownKeys: string[] = [];
+    let counter = maxNumericId(doc.children);
+    const placed: string[] = [];
+
+    for (const raw of items) {
+      const overrides = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+      const descendants: Record<string, any> = {};
+      for (const [id, props] of Object.entries(overrides)) {
+        if (!known.has(id)) {
+          unknownKeys.push(id);
+          continue;
+        }
+        descendants[id] = props;
+      }
+      counter += 1;
+      const instanceId = `ref_${counter}`;
+      const before = doc;
+      doc = insertChild(doc, parentId, {
+        type: "ref",
+        id: instanceId,
+        ref: componentId,
+        ...(Object.keys(descendants).length > 0 ? { descendants } : {})
+      } as PenNode);
+      if (doc === before) return `error: could not insert into ${parentId}`;
+      placed.push(instanceId);
+    }
+
+    ctx.setDoc(doc);
+
+    const notes: string[] = [];
+    if (component.reusable !== true) notes.push(`note: marked ${componentId} reusable.`);
+    if (unknownKeys.length > 0) {
+      const unique = [...new Set(unknownKeys)];
+      notes.push(
+        `warning: ignored ${unknownKeys.length} override${unknownKeys.length === 1 ? "" : "s"} naming a node that is not in ${componentId} (${unique.slice(0, 5).join(", ")}${unique.length > 5 ? ", ..." : ""}). Read the component with read_digest for its ids.`
+      );
+    }
+    const head = `ok: placed ${placed.length} instance${placed.length === 1 ? "" : "s"} of ${componentId} in ${parentId}.`;
+    return [head, ...notes, digestSubtree(doc, parentId)].join("\n");
+  }
+};
+
+export const duplicateNodeTool: DocumentToolDefinition = {
+  name: "duplicate_node",
+  description: "Duplicate a node and its entire subtree, assigning new IDs. Returns the new node ID.",
+  parameters: {
+    type: "object",
+    properties: {
+      id: {
+        type: "string",
+        description: "Node ID to duplicate"
+      },
+      name: {
+        type: "string",
+        description: "Optional new name for the duplicate"
+      }
+    },
+    required: ["id"]
+  },
+  execute: (ctx, a) => {
+    let doc = ctx.doc;
+    if (typeof a.id !== "string" || !a.id.trim()) return "error: id is required";
+    const targetId = digestId(doc, a.id);
+    if (!targetId || !findNode(doc.children, targetId)) return `error: node ${a.id} not found`;
+
+    const res = duplicateNode(doc, targetId);
+    if (!res) return `error: could not duplicate ${a.id}`;
+
+    doc = res.doc;
+    if (typeof a.name === "string" && a.name.trim()) {
+      doc = setProperty(doc, res.newId, "name", a.name.trim());
+    }
+    ctx.setDoc(doc);
+    return `ok: duplicated ${targetId} as ${res.newId}\n${digestSubtree(doc, res.newId)}`;
+  }
+};
+
+export const deleteNodeTool: DocumentToolDefinition = {
+  name: "delete_node",
+  description: "Delete a node and all its children from the document.",
+  parameters: {
+    type: "object",
+    properties: {
+      id: {
+        type: "string",
+        description: "Node ID to delete"
+      }
+    },
+    required: ["id"]
+  },
+  execute: (ctx, a) => {
+    let doc = ctx.doc;
+    if (typeof a.id !== "string") return "error: id is required";
+    if (!findNode(doc.children, a.id)) return `error: node ${a.id} not found`;
+    const parentId = parentIdOf(doc, a.id);
+    doc = removeNode(doc, a.id);
+    ctx.setDoc(doc);
+    return parentId ? digestSubtree(doc, parentId) : digest(doc);
+  }
+};
+
+export const moveNodeTool: DocumentToolDefinition = {
+  name: "move_node",
+  description: "Move a node to a new parent and/or new index among its siblings.",
+  parameters: {
+    type: "object",
+    properties: {
+      id: {
+        type: "string",
+        description: "Node ID to move"
+      },
+      newParentId: {
+        type: "string",
+        description: "Target parent frame ID"
+      },
+      index: {
+        type: "number",
+        description: "Zero-based index in the new parent's children. Omit to append at the end."
+      }
+    },
+    required: ["id", "newParentId"]
+  },
+  execute: (ctx, a) => {
+    let doc = ctx.doc;
+    if (typeof a.id !== "string" || typeof a.newParentId !== "string") {
+      return "error: id and newParentId are required";
+    }
+    if (!findNode(doc.children, a.id)) return `error: could not move ${a.id}`;
+    const oldParent = parentIdOf(doc, a.id);
+    const before = digest(doc);
+    doc = moveNode(doc, a.id, a.newParentId, typeof a.index === "number" ? a.index : undefined);
+    if (digest(doc) === before) return `error: could not move ${a.id}`;
+    ctx.setDoc(doc);
+
+    const parts = [digestSubtree(doc, a.newParentId)];
+    if (oldParent && oldParent !== a.newParentId) parts.unshift(digestSubtree(doc, oldParent));
+    const loop = ctx.recordWrite(a.id, "parent", a.newParentId);
+    return [parts.join("\n---\n"), loop].filter(Boolean).join("\n");
+  }
+};
+
+export const mutationTools = [
+  createScreenTool,
+  insertNodeTool,
+  placeInstancesTool,
+  duplicateNodeTool,
+  deleteNodeTool,
+  moveNodeTool
+];
