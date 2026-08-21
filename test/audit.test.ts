@@ -82,6 +82,18 @@ describe("Design audit — every rule must be able to fail", () => {
     expect(found!.message).toContain("clipped");
   });
 
+  it("clipped: tells fixed mobile screens to reduce content, not resize the root", () => {
+    const doc = makeDoc(frame("screen", 390, 844, [rect("content", 390, 900)], {
+      layout: "vertical",
+      clip: true,
+      metadata: { screenKind: "mobile" }
+    }));
+    const found = audit(doc).find((f) => f.rule === "clipped");
+
+    expect(found?.fix).toContain("fixed mobile screen size");
+    expect(found?.fix).not.toContain("fit_content");
+  });
+
   it("clipped: does not fire when the parent is unclipped", () => {
     const doc = makeDoc(
       frame("card", 200, 40, [txt("bio", "A line of copy that is far too long for this box", 14)], {
@@ -366,9 +378,7 @@ describe("Design audit — every rule must be able to fail", () => {
 });
 
 describe("Design audit — scoping", () => {
-  // The rubber-stamp regression. review_design(id) used to keep only findings
-  // whose nodeId was the target itself, so asking about a card discarded every
-  // finding about the card's contents and answered "no defects".
+  // A scoped audit includes descendant findings, not only the target itself.
   const doc = makeDoc(
     frame("screen", 390, 600, [
       frame("card", 200, 40, [txt("bio", "A line of copy that is far too long for this box", 14)], {
@@ -646,6 +656,18 @@ describe("System prompt carries rules, not a design", () => {
   it("asks for a style before anything is built", () => {
     expect(prompt).toContain("set_style");
     expect(prompt).toContain("No style is set on this document yet.");
+  });
+
+  it("lets the model distinguish design work from ordinary conversation", () => {
+    expect(prompt).toContain("Decide whether the request requires design work");
+    expect(prompt).toMatch(/Otherwise,\s+answer normally without changing the canvas/);
+  });
+
+  it("requires real generated imagery for image-led products", () => {
+    expect(prompt).toContain("product depends on photography or illustration");
+    expect(prompt).toMatch(/call\s+generate_image/);
+    expect(prompt).toContain("fixed device frame");
+    expect(prompt).not.toContain("review_design");
   });
 
   it("states the style rules once a style is chosen, and drops the catalog", () => {

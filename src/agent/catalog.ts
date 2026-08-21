@@ -1,6 +1,8 @@
 export interface CatalogModel {
   id: string;
   label: string;
+  api?: "responses" | "messages";
+  vision?: boolean;
 }
 
 export interface CatalogProvider {
@@ -46,19 +48,20 @@ export const PROVIDER_CATALOG: CatalogProvider[] = [
     baseUrlEnv: "OPENCODE_GO_BASE_URL",
     baseUrl: "https://opencode.ai/zen/go/v1",
     models: [
-      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
-      { id: "grok-4.5", label: "Grok 4.5" },
-      { id: "kimi-k3", label: "Kimi K3" },
-      { id: "kimi-k2.7-code", label: "Kimi K2.7 Code" },
+      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", api: "responses", vision: true },
+      { id: "grok-4.5", label: "Grok 4.5", api: "responses", vision: true },
+      { id: "kimi-k3", label: "Kimi K3", vision: true },
+      { id: "kimi-k2.7-code", label: "Kimi K2.7 Code", vision: true },
       { id: "glm-5.3", label: "GLM-5.3" },
       { id: "glm-5.2", label: "GLM-5.2" },
       { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
       { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
-      { id: "minimax-m3", label: "MiniMax M3" },
-      { id: "qwen3.8-max", label: "Qwen3.8 Max" },
-      { id: "qwen3.7-max", label: "Qwen3.7 Max" },
+      { id: "deepseek-v4-flash-vision-exp", label: "DeepSeek V4 Flash Vision", vision: true },
+      { id: "minimax-m3", label: "MiniMax M3", api: "messages", vision: true },
+      { id: "qwen3.8-max", label: "Qwen3.8 Max", api: "messages", vision: true },
+      { id: "qwen3.7-max", label: "Qwen3.7 Max", api: "messages" },
       { id: "mimo-v2.5-pro", label: "MiMo-V2.5 Pro" },
-      { id: "mimo-v2.5", label: "MiMo-V2.5" },
+      { id: "mimo-v2.5", label: "MiMo-V2.5", vision: true },
       { id: "hy3", label: "Hy3" }
     ]
   },

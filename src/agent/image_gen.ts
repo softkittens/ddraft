@@ -1,4 +1,6 @@
 import { readFileSync, existsSync } from "fs";
+import { catalogById } from "./catalog";
+import type { FetchFn } from "./provider";
 
 export interface ImageGenResult {
   url: string;
@@ -8,7 +10,8 @@ export interface ImageGenResult {
 /** Thrown when no image provider is configured or every provider failed. */
 export class ImageGenUnavailableError extends Error {}
 
-function getEnvKey(key: string): string | undefined {
+function getEnvKey(key: string, env?: Record<string, string | undefined>): string | undefined {
+  if (env) return env[key];
   if (process.env[key]) return process.env[key];
   if (existsSync(".env")) {
     try {
@@ -27,8 +30,8 @@ function getEnvKey(key: string): string | undefined {
 }
 
 /**
- * Generate an image using Qwen-Image-3.0-Pro (DashScope) in the background,
- * with fallback to OpenAI DALL-E or styled photorealistic SVG placeholder.
+ * Generate an image using Qwen-Image-3.0-Pro (DashScope),
+ * with fallback to OpenAI DALL-E.
  */
 export async function generateDesignImage(
   prompt: string,
@@ -36,11 +39,17 @@ export async function generateDesignImage(
     model?: string;
     size?: string;
     aspectRatio?: "square" | "portrait" | "landscape";
+    env?: Record<string, string | undefined>;
+    fetch?: FetchFn;
   } = {}
 ): Promise<ImageGenResult> {
-  const qwenKey = getEnvKey("QWEN_API_KEY") || getEnvKey("DASHSCOPE_API_KEY");
-  const qwenBase = getEnvKey("QWEN_BASE_URL") || "https://dashscope.aliyuncs.com";
+  const env = options.env;
+  const fetchImpl = options.fetch ?? fetch;
+  const qwenKey = getEnvKey("QWEN_API_KEY", env) || getEnvKey("DASHSCOPE_API_KEY", env);
+  const qwenBase = getEnvKey("QWEN_BASE_URL", env) || getEnvKey("DASHSCOPE_BASE_URL", env) ||
+    catalogById("qwen-studio")?.baseUrl || "";
   const modelName = options.model || "qwen-image-3.0-pro";
+  const failures: string[] = [];
 
   const sizeMap: Record<string, string> = {
     square: "1024*1024",
@@ -49,21 +58,23 @@ export async function generateDesignImage(
   };
   const sizeParam = sizeMap[options.aspectRatio || "portrait"] || options.size || "1024*1024";
 
-  // 1. Try Qwen DashScope Text2Image API
-  if (qwenKey && qwenKey.length > 5) {
+  // Qwen chat and image endpoints share an origin, but not an API path.
+  const qwenOrigin = qwenBase.replace(/\/(?:compatible-mode|api)\/v1\/?$/, "");
+
+  // 1. Try Qwen Image 3.0 through its synchronous multimodal endpoint.
+  if (qwenKey && qwenKey.length > 5 && qwenOrigin) {
     try {
-      const endpoint = `${qwenBase.replace(/\/compatible-mode\/v1\/?$/, "")}/api/v1/services/aigc/text2image/image-synthesis`;
-      const submitResp = await fetch(endpoint, {
+      const endpoint = `${qwenOrigin}/api/v1/services/aigc/multimodal-generation/generation`;
+      const response = await fetchImpl(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${qwenKey}`,
-          "X-DashScope-Async": "enable"
+          "Authorization": `Bearer ${qwenKey}`
         },
         body: JSON.stringify({
           model: modelName,
           input: {
-            prompt: prompt
+            messages: [{ role: "user", content: [{ text: prompt }] }]
           },
           parameters: {
             size: sizeParam,
@@ -72,43 +83,28 @@ export async function generateDesignImage(
           }
         })
       });
-
-      if (submitResp.ok) {
-        const submitData = await submitResp.json() as any;
-        const taskId = submitData?.output?.task_id;
-        if (taskId) {
-          // Poll DashScope task status
-          const taskUrl = `${qwenBase.replace(/\/compatible-mode\/v1\/?$/, "")}/api/v1/tasks/${taskId}`;
-          for (let i = 0; i < 30; i++) {
-            await new Promise((r) => setTimeout(r, 1500));
-            const pollResp = await fetch(taskUrl, {
-              headers: { "Authorization": `Bearer ${qwenKey}` }
-            });
-            if (pollResp.ok) {
-              const pollData = await pollResp.json() as any;
-              const status = pollData?.output?.task_status;
-              if (status === "SUCCEEDED") {
-                const imgUrl = pollData?.output?.results?.[0]?.url;
-                if (imgUrl) {
-                  return { url: imgUrl, provider: "qwen" };
-                }
-              } else if (status === "FAILED" || status === "CANCELED") {
-                break;
-              }
-            }
-          }
-        }
+      const data = await response.json() as {
+        code?: string;
+        message?: string;
+        output?: { choices?: { message?: { content?: { image?: string }[] } }[] };
+      };
+      if (!response.ok) {
+        failures.push(`Qwen ${response.status}${data.code ? ` ${data.code}` : ""}: ${data.message || "request failed"}`);
+      } else {
+        const imgUrl = data.output?.choices?.[0]?.message?.content?.find((part) => part.image)?.image;
+        if (imgUrl) return { url: imgUrl, provider: "qwen" };
+        failures.push("Qwen returned no image");
       }
-    } catch {
-      // Qwen image API failed or offline, proceed to fallback
+    } catch (err) {
+      failures.push(`Qwen request failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   // 2. Fallback to OpenAI DALL-E if OPENAI_API_KEY is available
-  const openaiKey = getEnvKey("OPENAI_API_KEY");
+  const openaiKey = getEnvKey("OPENAI_API_KEY", env);
   if (openaiKey && openaiKey.length > 5) {
     try {
-      const openaiResp = await fetch("https://api.openai.com/v1/images/generations", {
+      const openaiResp = await fetchImpl("https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -128,9 +124,13 @@ export async function generateDesignImage(
         if (imgUrl) {
           return { url: imgUrl, provider: "openai" };
         }
+        failures.push("OpenAI returned no image");
+      } else {
+        const data = await openaiResp.json().catch(() => null) as { error?: { message?: string } } | null;
+        failures.push(`OpenAI ${openaiResp.status}: ${data?.error?.message || "request failed"}`);
       }
-    } catch {
-      // OpenAI image API failed or offline, proceed to fallback
+    } catch (err) {
+      failures.push(`OpenAI request failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -138,6 +138,9 @@ export async function generateDesignImage(
   // photograph here, with the prompt appended as a url fragment — which no
   // server ever receives. Every "generated" image was the same picture, and
   // the caller could not tell. A tool that cannot do its job says so.
+  if (failures.length > 0) {
+    throw new ImageGenUnavailableError(`Image generation failed. ${failures.join(" ")}`);
+  }
   throw new ImageGenUnavailableError(
     "Image generation is not configured. Set QWEN_API_KEY (or DASHSCOPE_API_KEY) " +
       "or OPENAI_API_KEY to enable it."

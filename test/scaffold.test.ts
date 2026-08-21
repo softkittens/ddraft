@@ -1,11 +1,12 @@
 import { describe, it, expect } from "bun:test";
-import { buildScreen, STATUS_BAR_HEIGHT, TAB_BAR_HEIGHT, MOBILE_WIDTH } from "../src/design/scaffold";
+import { buildScreen, STATUS_BAR_HEIGHT, TAB_BAR_HEIGHT, MOBILE_HEIGHT, MOBILE_WIDTH } from "../src/design/scaffold";
 import { auditDesign } from "../src/design/evaluator";
 import { layoutResolvedDocument } from "../src/layout/layout";
 import { createDocumentTools } from "../src/agent/tools";
 import { resolveStyle } from "../src/design/styleSystem";
 import { walkNodes, childrenOf } from "../src/model/tree";
 import type { Document, PenNode } from "../src/model/types";
+import { makeDoc, frame } from "./harness";
 
 function ids() {
   let n = 0;
@@ -27,7 +28,7 @@ describe("screen scaffold", () => {
       ids()
     );
     expect(node.width).toBe(MOBILE_WIDTH);
-    expect(node.height).toBe("fit_content(844)");
+    expect(node.height).toBe(MOBILE_HEIGHT);
     expect(find(node, "Status Bar")?.height).toBe(STATUS_BAR_HEIGHT);
     const bar = find(node, "Tab Bar")!;
     expect(bar.height).toBe(TAB_BAR_HEIGHT);
@@ -144,6 +145,32 @@ describe("create_screen tool", () => {
     const out = await session.execute("create_screen", { name: "Home", kind: "mobile" });
     expect(out).toContain("content:");
     expect(out).toContain("screen:");
+  });
+
+  it("keeps mobile screen roots at one device size", async () => {
+    const session = createDocumentTools(empty());
+    await session.execute("create_screen", { name: "Home", kind: "mobile" });
+    const screen = session.doc.children[0];
+
+    expect(screen.metadata?.screenKind).toBe("mobile");
+    expect(await session.execute("set_property", { id: screen.id, property: "height", value: 1200 })).toContain("fixed");
+    expect(await session.execute("batch_set_properties", {
+      updates: [{ id: screen.id, property: "width", value: 430 }]
+    })).toContain("fixed");
+    expect(screen.width).toBe(MOBILE_WIDTH);
+    expect(screen.height).toBe(MOBILE_HEIGHT);
+  });
+
+  it("does not mistake a hand-built status bar for a scaffolded mobile screen", async () => {
+    const session = createDocumentTools(makeDoc(frame("custom", 390, 900, [frame("status", 390, 62, [], {
+      name: "Status Bar"
+    })])));
+
+    expect(await session.execute("set_property", {
+      id: "custom",
+      property: "height",
+      value: 844
+    })).not.toContain("error:");
   });
 
   it("refuses a kind it does not build", async () => {

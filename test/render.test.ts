@@ -110,6 +110,30 @@ describe("browser capture", () => {
 });
 
 describe("paintNode effects", () => {
+  it("cover-crops image fills instead of stretching them", () => {
+    class WideImage {
+      complete = true;
+      naturalWidth = 200;
+      naturalHeight = 100;
+      crossOrigin = "";
+      set src(_url: string) {}
+    }
+    (globalThis as unknown as { Image: unknown }).Image = WideImage;
+    const { ctx, calls } = createMockCanvas();
+    const node = rect("photo", 100, 100, {
+      fill: { type: "image", url: "https://example.com/wide-cover-test.png" }
+    });
+
+    paintNode(ctx, {
+      id: "photo",
+      type: "rectangle",
+      box: { x: 0, y: 0, width: 100, height: 100 },
+      children: []
+    }, new Map([["photo", node]]));
+
+    expect(calls.find((call) => call.startsWith("drawImage:"))).toEndWith(",50,0,100,100,0,0,100,100");
+  });
+
   it("applies a singular shadow effect", () => {
     const { ctx, calls } = createMockCanvas();
     const node = rect("r", 40, 40, {

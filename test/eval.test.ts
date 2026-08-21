@@ -377,20 +377,85 @@ describe("failures that used to read as success", () => {
     expect(events.filter((e) => e.type === "error")).toHaveLength(0);
   });
 
-  it("emits budget, never done, when the model never stops calling tools", async () => {
+  it("stops after repeated tool rounds make no canvas progress", async () => {
+    let calls = 0;
     const events = await collect(runSession(
       testProvider,
-      [{ role: "user", content: "hi" }],
+      [{ role: "user", content: "edit the canvas" }],
       makeDoc(frame("f", 100, 100)),
       {
-        maxTurns: 3,
-        fetch: async () => toolSse("read_digest", {})
+        maxTurns: 10,
+        fetch: async () => {
+          calls += 1;
+          return toolSse("read_digest", {});
+        }
       }
     ));
-    const errors = events.filter((e) => e.type === "error") as Array<{ code?: string }>;
+    const errors = events.filter((e) => e.type === "error") as Array<{ code?: string; message?: string }>;
+    expect(calls).toBe(5);
     expect(errors).toHaveLength(1);
     expect(errors[0].code).toBe("budget");
+    expect(errors[0].message).toContain("no canvas progress");
     expect(events.filter((e) => e.type === "done")).toHaveLength(0);
+  });
+
+  it("allows a short read-measure-search discovery sequence", async () => {
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "edit the canvas" }],
+      makeDoc(frame("f", 100, 100)),
+      {
+        fetch: scriptedFetch([
+          () => toolSse("read_digest", {}),
+          () => toolSse("measure", { id: "f" }),
+          () => toolSse("search_icons", { query: "heart" }),
+          () => contentSse("done")
+        ])
+      }
+    ));
+
+    expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "error")).toHaveLength(0);
+  });
+
+  it("allows a productive design to continue beyond the old ten-round limit", async () => {
+    let calls = 0;
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "edit the canvas" }],
+      makeDoc(frame("f", 100, 100, [rect("r", 40, 40)])),
+      {
+        fetch: async () => {
+          calls += 1;
+          return calls <= 10
+            ? toolSse("set_property", { id: "r", property: "x", value: calls }, `c${calls}`)
+            : contentSse("done");
+        }
+      }
+    ));
+    expect(calls).toBe(11);
+    expect(events.filter((e) => e.type === "done")).toHaveLength(1);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+  });
+
+  it("keeps an emergency ceiling for a model that makes endless changes", async () => {
+    let calls = 0;
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "edit the canvas" }],
+      makeDoc(frame("f", 100, 100, [rect("r", 40, 40)])),
+      {
+        maxTurns: 3,
+        fetch: async () => {
+          calls += 1;
+          return toolSse("set_property", { id: "r", property: "x", value: calls }, `c${calls}`);
+        }
+      }
+    ));
+    const error = events.find((e) => e.type === "error") as { code?: string; message?: string };
+    expect(calls).toBe(3);
+    expect(error.code).toBe("budget");
+    expect(error.message).toContain("Emergency limit");
   });
 
   it("emits aborted, never done, when the run is cancelled", async () => {
@@ -405,7 +470,7 @@ describe("failures that used to read as success", () => {
     };
     const events = await collect(runSession(
       testProvider,
-      [{ role: "user", content: "hi" }],
+      [{ role: "user", content: "edit the canvas" }],
       makeDoc(frame("f", 100, 100, [rect("r", 10, 10)])),
       { fetch: fetchImpl, signal: ac.signal }
     ));
@@ -481,21 +546,25 @@ describe("tool events carry a document only when the document changed", () => {
 });
 
 describe("failures that used to read as success — remaining", () => {
-  it("sends the model back when it stops with an empty canvas", async () => {
+  it("sends the model back when it claims an empty design is finished", async () => {
     let calls = 0;
-    const silent: FetchFn = async () => {
-      calls += 1;
-      return new Response(sse(['data: {"choices":[{"delta":{"content":"All done!"}}]}\n\n', "data: [DONE]\n\n"]), {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream" }
-      });
-    };
-    for await (const _ of runSession(testProvider, [{ role: "user", content: "build it" }],
-      { version: "1.0", children: [] } as Document, { fetch: silent, maxTurns: 6 })) {
-      // drain
-    }
-    // One call would mean the empty canvas was accepted as finished.
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "build it" }],
+      makeDoc(),
+      {
+        maxTurns: 3,
+        fetch: async () => {
+          calls += 1;
+          return calls === 1
+            ? contentSse("All done!")
+            : toolSse("create_screen", { name: "Home", kind: "mobile" });
+        }
+      }
+    ));
+
     expect(calls).toBeGreaterThan(1);
+    expect(events.some((event) => event.type === "tool")).toBe(true);
   });
 
   it("walks a children array holding something that is not a node", () => {

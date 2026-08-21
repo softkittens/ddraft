@@ -42,11 +42,14 @@ export function loadProvider(
     );
   }
   const baseUrl = (spec.baseUrlEnv ? (Array.isArray(spec.baseUrlEnv) ? readEnvKey(bag, spec.baseUrlEnv) : bag[spec.baseUrlEnv]) : undefined) || spec.baseUrl;
+  const selected = spec.models.find((item) => item.id === (model || spec.models[0].id));
   return {
     id: spec.id,
     baseUrl,
     model: model || spec.models[0].id,
     apiKey,
-    reasoningEffort
+    reasoningEffort,
+    api: selected?.api || "chat",
+    vision: selected?.vision ?? spec.id === "openai"
   };
 }

@@ -23,6 +23,8 @@ export type DesignReview = z.infer<typeof designReviewSchema>;
 export const CRITIC_PROMPT = [
   "You are an independent visual design critic. You cannot edit the document.",
   "Judge only what is visible in the screenshot, using the brief and the compact digest for names and ids.",
+  "A polished generic app shell is not a pass. Require a product-specific visual idea in its composition, imagery or typography.",
+  "Prioritize weak composition and hierarchy over minor spacing polish. Do not spend issue slots on decoration while the core layout is generic.",
   "Every issue must cite visible evidence and give a concrete revision instruction.",
   "Return JSON only, matching this shape:",
   '{ "verdict": "pass" | "refine", "scores": { "specificity": 1-5, "hierarchy": 1-5, "usability": 1-5, "craft": 1-5 }, "strengths": string[0-2], "issues": [{ "title", "reason", "instruction", "nodeIds"?: string[] }][0-3] }',
@@ -69,8 +71,9 @@ export function parseDesignReview(raw: unknown, digestText: string): DesignRevie
 
 export function applyReviewMessage(brief: string, review: DesignReview): string {
   const lines = [
+    "[Visual review revision]",
     `Original brief: ${brief}`,
-    "Revise the current document using these critic instructions:"
+    "Apply these critic instructions with canvas tools. Recompose weak regions instead of only adding decoration:"
   ];
   for (const issue of review.issues) {
     const where = issue.nodeIds && issue.nodeIds.length > 0 ? ` (${issue.nodeIds.join(", ")})` : "";

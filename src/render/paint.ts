@@ -37,7 +37,7 @@ export function getCachedImage(url: string): HTMLImageElement | null {
     img.src = url;
     imageCache.set(url, img);
   }
-  return img.complete && img.naturalWidth > 0 ? img : null;
+  return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0 ? img : null;
 }
 
 export function preloadCachedImage(url: string, timeoutMs: number): Promise<void> {
@@ -45,7 +45,7 @@ export function preloadCachedImage(url: string, timeoutMs: number): Promise<void
   getCachedImage(url);
   const img = imageCache.get(url);
   if (!img) return Promise.resolve();
-  if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+  if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) return Promise.resolve();
   return new Promise((resolve) => {
     const finish = () => resolve();
     const timer = setTimeout(finish, timeoutMs);
@@ -424,7 +424,25 @@ export function drawShape(
             ctx.roundRect(0, 0, box.width, box.height, radius);
             ctx.clip();
           }
-          ctx.drawImage(img, 0, 0, box.width, box.height);
+          const imageRatio = img.naturalWidth / img.naturalHeight;
+          const boxRatio = box.width / box.height;
+          const sourceWidth = imageRatio > boxRatio
+            ? img.naturalHeight * boxRatio
+            : img.naturalWidth;
+          const sourceHeight = imageRatio > boxRatio
+            ? img.naturalHeight
+            : img.naturalWidth / boxRatio;
+          ctx.drawImage(
+            img,
+            (img.naturalWidth - sourceWidth) / 2,
+            (img.naturalHeight - sourceHeight) / 2,
+            sourceWidth,
+            sourceHeight,
+            0,
+            0,
+            box.width,
+            box.height
+          );
           ctx.restore();
         }
       }

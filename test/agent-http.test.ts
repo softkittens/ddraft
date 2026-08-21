@@ -244,12 +244,14 @@ describe("agent review HTTP", () => {
     expect(String(posted?.messages[0].content)).toContain("cannot edit");
   });
 
-  it("keeps the screenshot for a non-OpenAI model", async () => {
-    let posted: { messages: Message[] } | undefined;
-    const fakeFetch: FetchFn = async (_input, init) => {
+  it("uses the Responses API image format for OpenCode Go Luna", async () => {
+    let url = "";
+    let posted: { input: { content: { type: string; image_url?: string; detail?: string }[] }[] } | undefined;
+    const fakeFetch: FetchFn = async (input, init) => {
+      url = String(input);
       posted = JSON.parse(String(init?.body));
       return new Response(JSON.stringify({
-        choices: [{ message: { role: "assistant", content: JSON.stringify(validReview) } }]
+        output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(validReview) }] }]
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
@@ -262,16 +264,101 @@ describe("agent review HTTP", () => {
           screenshot: PNG,
           digest: "title Cover",
           providerId: "opencode-go",
-          model: "glm-5.2"
+          model: "gpt-5.6-luna"
         })
       }),
       { env: { OPENCODE_API_KEY: "sk-go" }, fetch: fakeFetch }
     );
 
     expect(res.status).toBe(200);
-    const user = posted?.messages[1];
-    expect(Array.isArray(user?.content)).toBe(true);
-    expect((user?.content as { type: string }[]).some((p) => p.type === "image_url")).toBe(true);
+    expect(url).toBe("https://opencode.ai/zen/go/v1/responses");
+    expect(posted?.input[1].content).toContainEqual({
+      type: "input_image",
+      image_url: PNG,
+      detail: "high"
+    });
+  });
+
+  it("keeps image_url input for an OpenCode Go chat vision model", async () => {
+    let url = "";
+    let posted: { messages: Message[] } | undefined;
+    const fakeFetch: FetchFn = async (input, init) => {
+      url = String(input);
+      posted = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        choices: [{ message: { role: "assistant", content: JSON.stringify(validReview) } }]
+      }), { status: 200 });
+    };
+
+    const res = await handleAgentRequest(
+      new Request("http://pen.test/agent/review", {
+        method: "POST",
+        body: JSON.stringify({
+          brief: "A reading site",
+          screenshot: PNG,
+          digest: "title Cover",
+          providerId: "opencode-go",
+          model: "kimi-k3"
+        })
+      }),
+      { env: { OPENCODE_API_KEY: "sk-go" }, fetch: fakeFetch }
+    );
+
+    expect(res.status).toBe(200);
+    expect(url).toBe("https://opencode.ai/zen/go/v1/chat/completions");
+    const content = posted?.messages[1].content;
+    expect(Array.isArray(content) && content.some((part) => part.type === "image_url")).toBe(true);
+  });
+
+  it("uses Messages API image blocks for OpenCode Go Qwen vision", async () => {
+    let url = "";
+    let posted: { messages: { content: { type: string; source?: { type: string; data: string } }[] }[] } | undefined;
+    const fakeFetch: FetchFn = async (input, init) => {
+      url = String(input);
+      posted = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        content: [{ type: "text", text: JSON.stringify(validReview) }]
+      }), { status: 200 });
+    };
+
+    const res = await handleAgentRequest(
+      new Request("http://pen.test/agent/review", {
+        method: "POST",
+        body: JSON.stringify({
+          brief: "A reading site",
+          screenshot: PNG,
+          digest: "title Cover",
+          providerId: "opencode-go",
+          model: "qwen3.8-max"
+        })
+      }),
+      { env: { OPENCODE_API_KEY: "sk-go" }, fetch: fakeFetch }
+    );
+
+    expect(res.status).toBe(200);
+    expect(url).toBe("https://opencode.ai/zen/go/v1/messages");
+    expect(posted?.messages[0].content.some((part) =>
+      part.type === "image" && part.source?.type === "base64"
+    )).toBe(true);
+  });
+
+  it("refuses visual review for a text-only OpenCode Go model", async () => {
+    const res = await handleAgentRequest(
+      new Request("http://pen.test/agent/review", {
+        method: "POST",
+        body: JSON.stringify({
+          brief: "A reading site",
+          screenshot: PNG,
+          digest: "title Cover",
+          providerId: "opencode-go",
+          model: "glm-5.2"
+        })
+      }),
+      { env: { OPENCODE_API_KEY: "sk-go" } }
+    );
+
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: "glm-5.2 does not accept image input" });
   });
 
   it("rejects a non-image screenshot URL", async () => {

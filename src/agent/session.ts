@@ -7,6 +7,7 @@ import { TOOL_DEFS, createDocumentTools } from "./tools";
 import { withSystemPrompt } from "./prompt";
 
 export type AgentErrorCode = "provider" | "invalid_response" | "budget" | "aborted";
+const NO_CANVAS_CHANGE = "[no canvas change]";
 
 export type AgentEvent =
   | { type: "delta"; content: string }
@@ -53,7 +54,7 @@ export async function* runSession(
             content: [
               {
                 type: "text",
-                text: `[Selected Canvas Reference Image "${nodeName}" (id: ${node.id})]: The user selected this reference image on the canvas. Analyze its layout, visual style, color palette, and assets to guide your design.`
+                text: `[Selected Canvas Reference Image "${nodeName}" (id: ${node.id})]: Context for the user's request. Use it only when relevant.`
               },
               {
                 type: "image_url",
@@ -66,10 +67,13 @@ export async function* runSession(
     }
   }
 
-  const maxTurns = opts.maxTurns ?? 10;
+  const maxTurns = opts.maxTurns ?? 30;
+  const MAX_STALLED_TURNS = 4;
   // How many times the audit may push the model back to work before giving up.
   const MAX_CORRECTIONS = 3;
   let corrections = 0;
+  let stalledTurns = 0;
+  let previousNoChangeSignature = "";
 
   try {
     for (let turn = 0; turn < maxTurns; turn++) {
@@ -96,6 +100,14 @@ export async function* runSession(
       });
 
       if (toolCalls.length === 0) {
+        // A text-only response means the model decided no canvas work was needed.
+        // Do not turn ordinary conversation into an unsolicited repair pass.
+        const explicitlyNoChange = content.trimEnd().endsWith(NO_CANVAS_CHANGE);
+        if (session.doc === doc && (session.doc.children.length > 0 || explicitlyNoChange)) {
+          yield { type: "done", messages: sanitizeSessionMessages(out), doc: session.doc };
+          return;
+        }
+
         // The model thinks it is finished. Measure the document and hand back
         // any blocker it left behind.
         const blockers = auditDocument(session.doc).filter(
@@ -140,7 +152,9 @@ export async function* runSession(
         return;
       }
 
+      const roundStart = session.doc;
       const visionPreviews: { name: string; url: string }[] = [];
+      let allCallsFailed = true;
 
       for (const call of toolCalls) {
         if (opts.signal?.aborted) break;
@@ -156,6 +170,7 @@ export async function* runSession(
         }
         const before = session.doc;
         const result = await session.execute(call.function.name, parsed);
+        if (!result.startsWith("error:")) allCallsFailed = false;
         const changed = session.doc !== before;
         out.push({ role: "tool", content: result, tool_call_id: call.id });
         yield { type: "tool", name: call.function.name, result, doc: changed ? session.doc : undefined };
@@ -188,6 +203,27 @@ export async function* runSession(
           ]
         });
       }
+
+      if (session.doc === roundStart && visionPreviews.length === 0) {
+        const signature = toolCalls
+          .map((call) => `${call.function.name}:${call.function.arguments}`)
+          .join("|");
+        stalledTurns = allCallsFailed || signature === previousNoChangeSignature
+          ? stalledTurns + 1
+          : 0;
+        previousNoChangeSignature = signature;
+        if (stalledTurns >= MAX_STALLED_TURNS) {
+          yield {
+            type: "error",
+            code: "budget",
+            message: `Agent stopped after ${stalledTurns} tool rounds made no canvas progress. Partial design was kept.`
+          };
+          return;
+        }
+      } else {
+        stalledTurns = 0;
+        previousNoChangeSignature = "";
+      }
     }
   } catch (err) {
     if (isAbortError(err, opts.signal)) {
@@ -210,7 +246,7 @@ export async function* runSession(
   yield {
     type: "error",
     code: "budget",
-    message: `Turn budget exceeded (${maxTurns} turns reached without model completion)`
+    message: `Emergency limit reached after ${maxTurns} model rounds. Partial design was kept.`
   };
 }
 
@@ -221,10 +257,13 @@ function sanitizeSessionMessages(msgs: Message[]): Message[] {
         (c) =>
           c.type === "text" &&
           (c.text.startsWith("Measured before you finish") ||
-            c.text.startsWith("This is the image that was generated"))
+            c.text.startsWith("This is the image that was generated") ||
+            c.text.startsWith("The canvas is still empty"))
       );
       if (isInternal) return false;
     }
     return true;
-  });
+  }).map((m) => m.role === "assistant" && typeof m.content === "string"
+    ? { ...m, content: m.content.replace(/\s*\[no canvas change\]\s*$/, "") }
+    : m);
 }

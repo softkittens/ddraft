@@ -5,10 +5,9 @@ import { resolveInstances } from "../model/instance";
 import { digest, digestSubtree } from "../digest/digest";
 import { layoutResolvedDocument, flattenLayoutTree } from "../layout/layout";
 import type { LayoutNode } from "../layout/types";
-import { auditDocument, formatAudit } from "../design/evaluator";
 import { resolveStyle, styleGuidelines, StyleChoiceError, STYLE_METADATA_KEY } from "../design/styleSystem";
 import { searchLucideIcons, getLucideIconPath } from "../model/icons";
-import { buildScreen, type ScreenSpec, type TabSpec } from "../design/scaffold";
+import { buildScreen, MOBILE_HEIGHT, MOBILE_WIDTH, type ScreenSpec, type TabSpec } from "../design/scaffold";
 import { generateDesignImage, ImageGenUnavailableError } from "./image_gen";
 import type { Tool } from "./provider";
 
@@ -19,6 +18,16 @@ const ALLOWED_PROPERTIES = new Set([
   "opacity", "rotation", "cornerRadius", "clip", "enabled", "layoutPosition",
   "effect", "icon", "strokeWidth", "textGrowth", "reusable", "ref"
 ]);
+
+function resizesMobileScreen(doc: Document, id: string, property: string): boolean {
+  if (property !== "width" && property !== "height") return false;
+  const root = doc.children.find((node) => node.id === id);
+  return root?.type === "frame" && root.metadata?.screenKind === "mobile";
+}
+
+function mobileSizeError(id: string): string {
+  return `error: ${id} is a fixed ${MOBILE_WIDTH}x${MOBILE_HEIGHT} mobile screen. Keep the root size; shorten or remove content, or reduce inner gaps and padding so it fits.`;
+}
 
 export const TOOL_DEFS: Tool[] = [
   {
@@ -206,21 +215,6 @@ export const TOOL_DEFS: Tool[] = [
       type: "object",
       properties: {
         id: { type: "string", description: "Node or frame ID to measure (omit for every top-level frame)" }
-      }
-    }
-  },
-  {
-    name: "review_design",
-    description:
-      "Measure the design and report what is wrong with it: clipped text, colliding nodes, " +
-      "text below the readable floor, insufficient contrast, touch targets that are too small, " +
-      "empty containers, hard-coded colours, and undisciplined type/spacing/radius scales. " +
-      "Passing an id scopes the report to that node and everything inside it. " +
-      "Reports findings only — there is no score to optimise.",
-    parameters: {
-      type: "object",
-      properties: {
-        id: { type: "string", description: "Frame ID to audit, including its descendants (omit for the whole document)" }
       }
     }
   },
@@ -506,6 +500,14 @@ export function createDocumentTools(initial: Document) {
         const updates = Array.isArray(a.updates) ? a.updates : [];
         if (updates.length === 0) return "error: updates array is required";
 
+        const blocked = updates.find((u) =>
+          u && typeof u.id === "string" && typeof u.property === "string" &&
+          resizesMobileScreen(doc, u.id, u.property)
+        );
+        if (blocked) {
+          return mobileSizeError(blocked.id);
+        }
+
         let newDoc = doc;
         const modifiedIds: string[] = [];
 
@@ -525,6 +527,7 @@ export function createDocumentTools(initial: Document) {
         if (typeof a.id !== "string" || typeof a.property !== "string") return "error: id and property are required";
         if (!ALLOWED_PROPERTIES.has(a.property)) return `error: invalid property "${a.property}"`;
         if (!findNode(doc.children, a.id)) return `error: node ${a.id} not found`;
+        if (resizesMobileScreen(doc, a.id, a.property)) return mobileSizeError(a.id);
         doc = setProperty(doc, a.id, a.property, a.value);
         return digestSubtree(doc, a.id);
       }
@@ -720,18 +723,6 @@ export function createDocumentTools(initial: Document) {
         ].join("\n");
       }
 
-      case "review_design": {
-        const targetId = digestId(doc, a.id);
-        if (targetId && !findNode(doc.children, targetId)) {
-          return `error: node ${targetId} not found`;
-        }
-        const findings = auditDocument(doc, targetId);
-        const label = targetId
-          ? `Audit of ${targetId} and its descendants`
-          : "Audit of the whole document";
-        return formatAudit(findings, label);
-      }
-
       case "search_icons": {
         const query = typeof a.query === "string" ? a.query : "";
         const matches = searchLucideIcons(query);
@@ -783,7 +774,7 @@ export function createDocumentTools(initial: Document) {
           result = await generateDesignImage(prompt, { aspectRatio });
         } catch (err) {
           if (err instanceof ImageGenUnavailableError) {
-            return `error: ${err.message} Design without photography: use a solid or gradient fill, a Lucide icon, or a typographic treatment instead.`;
+            return `error: ${err.message} Do not retry image generation in this run or replace required photography with a placeholder; report that the imagery could not be completed.`;
           }
           throw err;
         }

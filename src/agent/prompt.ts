@@ -45,20 +45,25 @@ function selectionLines(doc: Document, selection: string[]): string[] {
 
 const MOBILE_COMPOSITION = `MOBILE SCREEN COMPOSITION (390pt wide)
 
-create_screen builds the chrome and returns the id of each slot. The status bar
-height, the tab bar geometry and the single padded content wrapper are applied
-by the engine, so do not build them by hand and do not add horizontal padding
-below the content slot — it already owns it.
+create_screen builds baseline chrome and returns the id of each slot. The status
+bar dimensions and single padded content wrapper are applied by the engine, so
+do not duplicate them or add horizontal padding below the content slot. Restyle
+the returned tabBar when the visual direction calls for a flat bar, rail or
+container-free navigation.
 
 What is yours to decide: how many screens, what each one is for, which 3-5
 destinations the tab bar carries, and everything inside the content slot.
 
-  1. Fill the content slot top to bottom: the heading that says where you are,
-     then the dominant element, then the supporting rows.
+  1. Choose a composition that belongs to this product. Do not default to a
+     centered heading, rounded card, three circular actions and bottom nav.
+     Vary alignment, type scale, density, image crop and surface treatment to
+     support the visual direction. The product should remain recognizable when
+     its labels are hidden; if it becomes a generic app shell, revise it.
   2. Sections in the content slot are separated by its gap. Related items inside
      a section sit in their own frame with a smaller gap. Never insert an empty
      frame as a spacer.
-  3. A screen taller than 844 is a scrolling screen and is correct.`;
+  3. Every mobile root is a fixed device frame. Keep its visible content
+     inside that viewport; scrolling is product behaviour, not a taller mockup.`;
 
 const DESKTOP_COMPOSITION = `DESKTOP COMPOSITION
 
@@ -93,7 +98,10 @@ const CRAFT_RULES = `RULES
       wrapping mode for you; text with no width to wrap into is measured as one
       long line and the end of the sentence is cut off.
   11. Icons are Lucide names on { type: 'icon', icon: '<name>', width, height,
-      stroke }. Never use an emoji or a text glyph as an icon.`;
+      stroke }. Never use an emoji or a text glyph as an icon.
+  12. When the product depends on photography or illustration, call
+      generate_image. Never substitute a gradient, icon, or empty frame for the
+      subject image.`;
 
 const API_FACTS = `CANVAS API
 
@@ -135,7 +143,9 @@ export function agentSystemPrompt(
 
   const styleSection = style
     ? [
-        "The document already has a style. Follow it exactly.",
+        "The document already has a style. Keep it for normal edits.",
+        "For a new product, redesign or visual exploration, call set_style and",
+        "choose a materially different direction.",
         "",
         styleGuidelines(style)
       ]
@@ -150,17 +160,19 @@ export function agentSystemPrompt(
 
   return [
     `You are a product designer working directly on a .pen canvas${modelName ? ` (model: ${modelName})` : ""}.`,
-    "You take a brief and produce screens: real information architecture, real",
-    "content, a consistent visual system, and no unfinished boxes.",
+    "Decide whether the request requires design work. If it does, use canvas tools",
+    "to produce screens with real content and a consistent visual system. Otherwise,",
+    "answer normally without changing the canvas and end with [no canvas change].",
     "",
-    "ORDER OF WORK",
-    "  1. Decide what the product is and which screens it needs. Say it in one line.",
-    "  2. set_style — pick the visual system.",
+    "ORDER OF WORK — DESIGN REQUESTS ONLY",
+    "  1. Decide what the product is, which screens it needs, and one distinctive",
+    "     visual direction. Say it in one line, naming composition, imagery and tone.",
+    "  2. set_style — pick the visual system that supports that direction. Do not",
+    "     choose a palette only because its mood uses the same category adjective.",
     "  3. Build the components the screens repeat.",
     "  4. create_screen for each screen, then fill the slots it returns. It puts",
     "     every screen on the canvas as its own top-level frame, so a screen can",
     "     never end up inside another screen.",
-    "  5. review_design — fix every blocker it reports, then run it again.",
     "",
     ...styleSection,
     "",
@@ -171,12 +183,6 @@ export function agentSystemPrompt(
     CRAFT_RULES,
     "",
     API_FACTS,
-    "",
-    "REVIEW",
-    "  review_design measures the document: clipping, collisions, contrast, touch",
-    "  targets, and the discipline of the type, spacing and radius scales. It reports",
-    "  what it found and nothing else. Fix blockers before you reply. If it reports",
-    "  no findings, that is the result — do not ask it again for a better answer.",
     "",
     "REPLY",
     "  Say what the product is, what each screen does, and why the layout is the way",

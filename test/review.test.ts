@@ -42,8 +42,9 @@ describe("design review contract", () => {
     expect(Array.isArray(messages[1].content)).toBe(true);
   });
 
-  it("turns review issues into a visible user revision message", () => {
+  it("marks review issues as an internal revision message", () => {
     const text = applyReviewMessage("A reading site", parseDesignReview(review, "title Home"));
+    expect(text.startsWith("[Visual review revision]")).toBe(true);
     expect(text).toContain("Original brief: A reading site");
     expect(text).toContain("Weak hierarchy (title)");
     expect(text).toContain("Make the heading 28px");

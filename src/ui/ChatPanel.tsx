@@ -9,9 +9,7 @@ import {
   ArrowUp,
   Wrench,
   Layers,
-  Bot,
-  Camera,
-  ShieldCheck
+  Bot
 } from "lucide-solid";
 import {
   chatVisible,
@@ -33,7 +31,6 @@ import { decideAgentDocument } from "./agentDocument";
 import type { PublicProvider } from "../agent/credentials";
 import type { Document } from "../model/types";
 import { ModelSelector, parseChoice, choiceValue } from "./ModelSelector";
-import { DesignReviewCard } from "./DesignReviewCard";
 import { captureDocumentPng } from "../render/capture";
 import { applyReviewMessage, type DesignReview } from "../agent/review";
 import { digest } from "../digest/digest";
@@ -41,6 +38,7 @@ import { EXAMPLE_PROMPTS } from "./examplePrompts";
 
 const SETUP =
   "No provider key found. Add OPENAI_API_KEY, OPENCODE_GO_API_KEY, or DASHSCOPE_API_KEY to your .env file and restart. Keys stay on your local agent server.";
+const AUTO_REVIEW_REVISIONS = 2;
 
 /**
  * Name the tool a result came from.
@@ -60,25 +58,17 @@ function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError";
 }
 
-type ReviewUi =
-  | { status: "idle" }
-  | { status: "checking" }
-  | { status: "reviewing"; doc: Document }
-  | { status: "ready"; review: DesignReview; doc: Document }
-  | { status: "failed" };
-
 export const ChatPanel: Component = () => {
   const [configured, setConfigured] = createSignal(false);
   const [providers, setProviders] = createSignal<PublicProvider[]>([]);
-  const [choice, setChoice] = createSignal("");
-  const [effort, setEffort] = createSignal<"low" | "medium" | "high">("medium");
+  const [choice, setChoice] = createSignal(choiceValue("opencode-go", "gpt-5.6-luna"));
+  const [effort, setEffort] = createSignal<"low" | "medium" | "high">("high");
   const [messages, setMessages] = createSignal<Message[]>([]);
+  const [agentMessages, setAgentMessages] = createSignal<Message[]>([]);
   const [inputPrompt, setInputPrompt] = createSignal("");
   const [running, setRunning] = createSignal(false);
   const [streamText, setStreamText] = createSignal("");
   const [expandedTools, setExpandedTools] = createSignal<Set<number>>(new Set());
-  const [previewModalImg, setPreviewModalImg] = createSignal<string | null>(null);
-  const [reviewUi, setReviewUi] = createSignal<ReviewUi>({ status: "idle" });
   const [lastBrief, setLastBrief] = createSignal("");
 
   function renderMessageText(content: MessageContent | unknown): string {
@@ -93,16 +83,7 @@ export const ChatPanel: Component = () => {
 
   function isInternalMessage(content: MessageContent | unknown): boolean {
     const text = renderMessageText(content).trim();
-    return text.startsWith("[Visual Screenshot Preview") || text.startsWith("[IMAGE_PREVIEW]");
-  }
-
-  function parseToolResult(content: string | unknown) {
-    if (typeof content !== "string") return { text: String(content ?? ""), imageUrl: null };
-    if (content.includes("[IMAGE_PREVIEW]: ")) {
-      const parts = content.split("[IMAGE_PREVIEW]: ");
-      return { text: parts[0].trim(), imageUrl: parts[1]?.trim() || null };
-    }
-    return { text: content, imageUrl: null };
+    return text.startsWith("[IMAGE_PREVIEW]");
   }
 
   const toggleTool = (idx: number) => {
@@ -172,34 +153,34 @@ export const ChatPanel: Component = () => {
     reviewAbort?.abort();
   });
 
-  async function sendText(text: string, recordBrief: boolean) {
-    if (!text || !configured() || running()) return;
-    setChatExpanded(true);
-    const next: Message[] = [...messages(), { role: "user", content: text }];
-    setMessages(next);
-    if (recordBrief) setLastBrief(text);
-    setInputPrompt("");
-    setStreamText("");
-    setRunning(true);
-    setReviewUi({ status: "idle" });
-    reviewAbort?.abort();
-    reviewSeq += 1;
-    abort = new AbortController();
+  async function runAgentPass(text: string, context: Message[], visible: boolean) {
+    const next: Message[] = [...context, { role: "user", content: text }];
+    const visibleBase = messages();
+    if (visible) setMessages([...visibleBase, { role: "user", content: text }]);
+    const controller = new AbortController();
+    abort = controller;
     const selected = parseChoice(choice());
     let expectedDoc = doc();
     let finished = false;
+    let edited = false;
+    let finalMessages = next;
+    let failure: string | undefined;
 
     const applyIncoming = (incoming: Document | undefined): boolean => {
       const decision = decideAgentDocument(doc(), expectedDoc, incoming);
       if (decision.action === "abort") {
-        abort?.abort();
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: "The canvas changed, so the agent stopped before overwriting it." }
-        ]);
+        controller.abort();
+        failure = "The canvas changed, so the agent stopped before overwriting it.";
+        if (visible) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: failure! }
+          ]);
+        }
         return false;
       }
       if (decision.action === "accept") {
+        edited = true;
         expectedDoc = decision.expected;
         const oldPositions = snapshotPositions(layoutTree());
         updateDoc(decision.expected);
@@ -220,7 +201,7 @@ export const ChatPanel: Component = () => {
           model: selected?.model,
           reasoningEffort: effort()
         }),
-        signal: abort.signal
+        signal: controller.signal
       });
 
       if (!res.ok || !res.body) {
@@ -234,8 +215,9 @@ export const ChatPanel: Component = () => {
             errMessage = `Server error (${res.status}: ${res.statusText || "Request failed"})`;
           }
         }
-        setMessages((prev) => [...prev, { role: "assistant", content: errMessage }]);
-        return;
+        failure = errMessage;
+        if (visible) setMessages((prev) => [...prev, { role: "assistant", content: errMessage }]);
+        return { finished, edited, messages: finalMessages, failure };
       }
 
       let assembled = "";
@@ -244,17 +226,22 @@ export const ChatPanel: Component = () => {
         switch (event.type) {
           case "delta":
             assembled += event.content;
-            setStreamText(assembled);
+            if (visible) setStreamText(assembled);
             break;
           case "tool":
-            setStreamText("");
+            if (visible) setStreamText("");
             assembled = "";
-            setMessages((prev) => [...prev, { role: "tool", content: event.result, tool_call_id: event.name }]);
-            if (!applyIncoming(event.doc)) return;
+            if (visible) {
+              setMessages((prev) => [...prev, { role: "tool", content: event.result, tool_call_id: event.name }]);
+            }
+            if (!applyIncoming(event.doc)) {
+              return { finished, edited, messages: finalMessages, failure };
+            }
             break;
           case "done":
-            setStreamText("");
-            setMessages(event.messages.filter((m) => m.role !== "system"));
+            if (visible) setStreamText("");
+            finalMessages = event.messages.filter((m) => m.role !== "system");
+            if (visible) setMessages([...visibleBase, ...finalMessages.slice(context.length)]);
             setSelectedIds((prev) => {
               const nextSel = new Set<string>();
               const valid = nodeMap();
@@ -266,7 +253,8 @@ export const ChatPanel: Component = () => {
             finished = true;
             break;
           case "error":
-            setMessages((prev) => [...prev, { role: "assistant", content: event.message }]);
+            failure = event.message;
+            if (visible) setMessages((prev) => [...prev, { role: "assistant", content: event.message }]);
             break;
           default: {
             const _never: never = event;
@@ -276,18 +264,61 @@ export const ChatPanel: Component = () => {
       }
     } catch (err) {
       if (!isAbortError(err)) {
-        setMessages((prev) => [...prev, {
-          role: "assistant",
-          content: err instanceof Error ? err.message : String(err)
-        }]);
+        failure = err instanceof Error ? err.message : String(err);
+        if (visible) setMessages((prev) => [...prev, { role: "assistant", content: failure! }]);
       }
     } finally {
-      setRunning(false);
-      abort = null;
+      if (abort === controller) abort = null;
     }
 
-    if (finished && doc().children.length > 0) {
-      await runReview();
+    return { finished, edited, messages: finalMessages, failure };
+  }
+
+  async function sendText(text: string) {
+    if (!text || !configured() || running()) return;
+    setChatExpanded(true);
+    setLastBrief(text);
+    setInputPrompt("");
+    setStreamText("");
+    setRunning(true);
+    reviewAbort?.abort();
+    reviewSeq += 1;
+
+    let instruction = text;
+    let context = agentMessages();
+    try {
+      for (let pass = 0; pass <= AUTO_REVIEW_REVISIONS; pass++) {
+        const visible = pass === 0;
+        const result = await runAgentPass(instruction, context, visible);
+        context = result.messages;
+        setAgentMessages(context);
+
+        if (result.failure) {
+          if (!visible) {
+            setMessages((prev) => [...prev, {
+              role: "assistant",
+              content: `Background refinement stopped: ${result.failure}`
+            }]);
+          }
+          break;
+        }
+        if (!result.finished || !result.edited || pass === AUTO_REVIEW_REVISIONS) break;
+
+        const reviewed = await runReview();
+        if (reviewed.error) {
+          setMessages((prev) => [...prev, {
+            role: "assistant",
+            content: `Visual review could not run: ${reviewed.error}`
+          }]);
+          break;
+        }
+        const review = reviewed.review;
+        if (!review || review.verdict !== "refine" || review.issues.length === 0) break;
+        instruction = applyReviewMessage(lastBrief(), review);
+      }
+    } finally {
+      abort = null;
+      setRunning(false);
     }
   }
 
@@ -297,19 +328,10 @@ export const ChatPanel: Component = () => {
     reviewAbort = new AbortController();
     const seq = ++reviewSeq;
     const signal = reviewAbort.signal;
-    setReviewUi({ status: "checking" });
     const captured = doc();
     const capture = await captureDocumentPng(captured);
-    if (seq !== reviewSeq) return;
-    if (doc() !== captured) {
-      setReviewUi({ status: "idle" });
-      return;
-    }
-    if (!capture.ok) {
-      setReviewUi({ status: "failed" });
-      return;
-    }
-    setReviewUi({ status: "reviewing", doc: captured });
+    if (seq !== reviewSeq || doc() !== captured) return {};
+    if (!capture.ok) return { error: "the canvas could not be captured" };
     try {
       const res = await fetch("/agent/review", {
         method: "POST",
@@ -323,33 +345,22 @@ export const ChatPanel: Component = () => {
         }),
         signal
       });
-      if (seq !== reviewSeq) return;
+      if (seq !== reviewSeq) return {};
       if (!res.ok) {
-        setReviewUi({ status: "failed" });
-        return;
+        const body = await res.json().catch(() => null) as { error?: unknown } | null;
+        return { error: typeof body?.error === "string" ? body.error : `request failed (${res.status})` };
       }
       const body = (await res.json()) as DesignReview;
-      if (seq !== reviewSeq) return;
-      if (doc() !== captured) {
-        setReviewUi({ status: "idle" });
-        return;
-      }
-      setReviewUi({ status: "ready", review: body, doc: captured });
+      if (seq !== reviewSeq || doc() !== captured) return {};
+      return { review: body };
     } catch (err) {
-      if (isAbortError(err)) return;
-      if (seq !== reviewSeq) return;
-      setReviewUi({ status: "failed" });
+      if (signal.aborted) return {};
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   }
 
   async function send() {
-    await sendText(inputPrompt().trim(), true);
-  }
-
-  async function applyReview() {
-    const ui = reviewUi();
-    if (ui.status !== "ready" || ui.review.verdict !== "refine" || doc() !== ui.doc) return;
-    await sendText(applyReviewMessage(lastBrief(), ui.review), false);
+    await sendText(inputPrompt().trim());
   }
 
   return (
@@ -479,43 +490,24 @@ export const ChatPanel: Component = () => {
                     })()}
                   </Show>
 
-                  {/* Tool Execution Bubble (compact collapsible pill + visual screenshot card) */}
-                  <Show when={msg.role === "tool"}>
+                  {/* Image generation and review stay in model context, not the transcript. */}
+                  <Show when={msg.role === "tool" && toolLabel(messages(), i()) !== "generate_image"}>
                     {(() => {
-                      const parsed = parseToolResult(msg.content);
                       const name = toolLabel(messages(), i());
-                      const isVision = name === "generate_image" || parsed.imageUrl !== null;
-                      const isAudit = name === "review_design";
                       const isMeasure = name === "measure";
 
                       return (
-                        <div
-                          class={`mr-auto max-w-[96%] border rounded-lg text-xs shadow-2xs overflow-hidden transition-all ${
-                            isVision
-                              ? "bg-blue-50/70 border-blue-200/90 text-blue-900"
-                              : isAudit
-                              ? "bg-indigo-50/70 border-indigo-200/90 text-indigo-900"
-                              : "bg-slate-50/90 border-slate-200/80 text-slate-700"
-                          }`}
-                        >
+                        <div class="mr-auto max-w-[96%] border rounded-lg text-xs shadow-2xs overflow-hidden transition-all bg-slate-50/90 border-slate-200/80 text-slate-700">
                           <button
                             onClick={() => toggleTool(i())}
                             class="w-full px-2.5 py-1.5 flex items-center justify-between gap-2 hover:bg-black/5 transition text-left cursor-pointer"
                           >
                             <div class="flex items-center gap-1.5 min-w-0">
-                              <Show when={isVision}>
-                                <Camera size={11} class="text-blue-600 shrink-0" />
-                              </Show>
-                              <Show when={isAudit}>
-                                <ShieldCheck size={11} class="text-indigo-600 shrink-0" />
-                              </Show>
-                              <Show when={!isVision && !isAudit}>
-                                <Wrench size={10} class="text-slate-400 shrink-0" />
-                              </Show>
+                              <Wrench size={10} class="text-slate-400 shrink-0" />
                               <span class="font-mono font-medium text-[11px] truncate">{name}</span>
                               <span class="opacity-40">·</span>
                               <span class="text-[9px] font-sans font-medium">
-                                {isVision ? "image" : isAudit ? "audit" : isMeasure ? "measured" : "executed"}
+                                {isMeasure ? "measured" : "executed"}
                               </span>
                             </div>
                             <div class="text-[10px] opacity-60 font-sans shrink-0 hover:opacity-100">
@@ -523,31 +515,10 @@ export const ChatPanel: Component = () => {
                             </div>
                           </button>
 
-                          {/* Image preview thumbnail (if present) */}
-                          <Show when={parsed.imageUrl}>
-                            <div class="px-2.5 pb-2 pt-0.5">
-                              <div
-                                class="relative group cursor-pointer overflow-hidden rounded-md border border-blue-200/90 bg-slate-900/5 shadow-2xs hover:shadow-xs transition"
-                                onClick={() => setPreviewModalImg(parsed.imageUrl)}
-                              >
-                                <img
-                                  src={parsed.imageUrl!}
-                                  alt="Generated image"
-                                  class="w-full max-h-36 object-contain rounded bg-white/60"
-                                />
-                                <div class="absolute inset-0 bg-blue-900/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-                                  <span class="bg-black/75 text-white text-[10px] font-medium px-2.5 py-1 rounded-full flex items-center gap-1 shadow-sm">
-                                    <Maximize2 size={10} /> Enlarge
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </Show>
-
                           <Show when={expandedTools().has(i())}>
                             <div class="px-2.5 pb-2 pt-0.5 border-t border-black/5 bg-white/60">
                               <div class="mt-1 font-mono text-[10px] bg-white rounded p-1.5 border border-black/10 leading-tight whitespace-pre-wrap max-h-36 overflow-y-auto">
-                                {parsed.text}
+                                {renderMessageText(msg.content)}
                               </div>
                             </div>
                           </Show>
@@ -558,30 +529,6 @@ export const ChatPanel: Component = () => {
                 </div>
               )}
             </For>
-
-            <Show when={reviewUi().status === "checking" || reviewUi().status === "reviewing"}>
-              <div class="mr-auto text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-2.5 py-1.5">
-                {reviewUi().status === "checking" ? "Checking layout…" : "Reviewing design…"}
-              </div>
-            </Show>
-            <Show when={reviewUi().status === "failed"}>
-              <div class="mr-auto max-w-[96%] text-[11px] text-neutral-700 bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-2 space-y-1.5">
-                <div>Visual review could not run. The design is unchanged.</div>
-                <button
-                  type="button"
-                  class="rounded-md bg-neutral-800 text-white text-[11px] font-medium px-2.5 py-1"
-                  onClick={() => void runReview()}
-                >
-                  Retry
-                </button>
-              </div>
-            </Show>
-            <Show when={(() => {
-              const ui = reviewUi();
-              return ui.status === "ready" && ui.doc === doc() ? ui.review : undefined;
-            })()}>
-              {(review) => <DesignReviewCard review={review()} onApply={applyReview} />}
-            </Show>
 
             {/* Live Streaming Bubble */}
             <Show when={streamText()}>
@@ -628,7 +575,10 @@ export const ChatPanel: Component = () => {
             />
             <Show when={running()}>
               <button
-                onClick={() => abort?.abort()}
+                onClick={() => {
+                  abort?.abort();
+                  reviewAbort?.abort();
+                }}
                 class="w-6 h-6 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 flex items-center justify-center transition"
                 title="Stop generation"
               >
@@ -668,38 +618,6 @@ export const ChatPanel: Component = () => {
         </div>
       </div>
 
-      {/* Fullscreen Visual Preview Zoom Modal */}
-      <Show when={previewModalImg()}>
-        <div
-          class="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-6 animate-in fade-in"
-          onClick={() => setPreviewModalImg(null)}
-        >
-          <div
-            class="relative max-w-5xl max-h-[90vh] bg-white rounded-2xl p-3 shadow-2xl flex flex-col gap-2 overflow-hidden border border-neutral-200 animate-in zoom-in-95"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div class="flex items-center justify-between px-2 pt-1 pb-2 border-b border-neutral-100">
-              <div class="flex items-center gap-2">
-                <Camera size={14} class="text-blue-600" />
-                <span class="text-xs font-semibold text-neutral-800">Vision Screenshot Inspection</span>
-              </div>
-              <button
-                onClick={() => setPreviewModalImg(null)}
-                class="w-6 h-6 rounded-lg hover:bg-neutral-100 text-neutral-500 hover:text-neutral-900 flex items-center justify-center transition cursor-pointer"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <div class="overflow-auto max-h-[80vh] flex items-center justify-center bg-slate-950/5 rounded-xl p-2">
-              <img
-                src={previewModalImg()!}
-                alt="Enlarged Visual Preview"
-                class="max-w-full max-h-[75vh] object-contain rounded-lg shadow-sm"
-              />
-            </div>
-          </div>
-        </div>
-      </Show>
     </Show>
   );
 };

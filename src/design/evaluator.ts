@@ -14,6 +14,7 @@ export const HARD_MIN_FONT_SIZE = 9;
 export interface Finding {
   rule: FindingRule;
   nodeId: string;
+  parentId?: string;
   message: string;
 }
 
@@ -87,6 +88,7 @@ export function checkOverflow(nodes: LayoutNode[], doc: Document): Finding[] {
           findings.push({
             rule: "overflow",
             nodeId: child.id,
+            parentId: parent.id,
             message:
               `"${child.id}" (${Math.round(child.box.width)}x${Math.round(child.box.height)}px) extends ` +
               `${parts.join(" and ")} of parent "${parent.id}" ` +
@@ -762,7 +764,10 @@ const FIX_OF: Record<FindingRule, string> = {
  * A row of chips that is wider than its container cannot be fixed by making it
  * fill the container — it is already too wide. Say what will actually work.
  */
-function overflowFix(node: PenNode | undefined): string {
+function overflowFix(node: PenNode | undefined, parent: PenNode | undefined): string {
+  if (parent?.metadata?.screenKind === "mobile") {
+    return "Keep the fixed mobile screen size. Shorten or remove content, or reduce inner gaps and padding until everything fits inside the viewport.";
+  }
   if (node && node.type === "frame" && (node as FrameNode).layout === "horizontal") {
     return (
       "This row is wider than the space it has. Content does not wrap onto a " +
@@ -793,7 +798,7 @@ export function auditDesign(
       severity: SEVERITY_OF[f.rule],
       nodeId: f.nodeId,
       message: f.message,
-      fix: f.rule === "overflow" ? overflowFix(map.get(f.nodeId)) : FIX_OF[f.rule]
+      fix: f.rule === "overflow" ? overflowFix(map.get(f.nodeId), f.parentId ? map.get(f.parentId) : undefined) : FIX_OF[f.rule]
     })),
     ...checkContrast(tree, doc, map),
     ...checkTextClipping(tree, doc, map),

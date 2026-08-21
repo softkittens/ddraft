@@ -36,7 +36,7 @@ export interface Scaffold {
 }
 
 export const MOBILE_WIDTH = 390;
-export const MOBILE_MIN_HEIGHT = 844;
+export const MOBILE_HEIGHT = 844;
 export const STATUS_BAR_HEIGHT = 62;
 export const TAB_BAR_HEIGHT = 56;
 
@@ -166,13 +166,12 @@ function mobileScreen(spec: ScreenSpec, id: () => string, slots: Record<string, 
     id: slots.screen,
     name: spec.name,
     width: MOBILE_WIDTH,
-    // Height fits the content down to a floor. A screen taller than the device
-    // is a scrolling screen, which is correct, so this is not a fixed height.
-    height: `fit_content(${MOBILE_MIN_HEIGHT})`,
+    height: MOBILE_HEIGHT,
     layout: "vertical",
     justifyContent: "space_between",
     fill: "$surface-primary",
     clip: true,
+    metadata: { screenKind: "mobile" },
     children
   } as FrameNode;
 }

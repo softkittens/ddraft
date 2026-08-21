@@ -1,4 +1,4 @@
-import type { CompleteOptions, Message, Provider, Tool, ToolCall } from "./provider";
+import { toApiMessages, type CompleteOptions, type Message, type Provider, type Tool, type ToolCall } from "./provider";
 
 export async function* parseSseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
   const reader = body.getReader();
@@ -24,23 +24,6 @@ export async function* parseSseData(body: ReadableStream<Uint8Array>): AsyncGene
 export interface StreamDelta {
   content?: string;
   toolCallParts?: { index: number; id?: string; name?: string; arguments?: string }[];
-}
-
-function toApiMessages(messages: Message[], p?: Provider) {
-  const isVisionCapable = p?.id === "openai" || p?.model?.includes("gpt-4o") || p?.model?.includes("vl");
-  return messages.map((m) => {
-    let content = m.content;
-    if (Array.isArray(content) && !isVisionCapable) {
-      content = content
-        .filter((c) => c.type === "text")
-        .map((c) => (c as { type: "text"; text: string }).text)
-        .join("\n");
-    }
-    const row: Record<string, unknown> = { role: m.role, content };
-    if (m.tool_calls) row.tool_calls = m.tool_calls;
-    if (m.tool_call_id) row.tool_call_id = m.tool_call_id;
-    return row;
-  });
 }
 
 export async function* completeStream(

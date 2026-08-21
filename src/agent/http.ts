@@ -114,6 +114,9 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
     if (!provider) {
       return Response.json({ error: "not configured" }, { status: 503 });
     }
+    if (!provider.vision) {
+      return Response.json({ error: `${provider.model} does not accept image input` }, { status: 422 });
+    }
 
     const messages = criticMessages({
       brief: body.brief,
@@ -122,10 +125,9 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
     });
 
     try {
-      const reply = await complete(provider, messages, undefined, {
+      const reply = await complete(provider, messages, {
         fetch: deps.fetch,
-        signal: req.signal,
-        keepImages: true
+        signal: req.signal
       });
       const parsed = extractJson(typeof reply.content === "string" ? reply.content : "");
       const review = parseDesignReview(parsed, body.digest);
@@ -200,4 +202,3 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
 
   return new Response("not found", { status: 404 });
 }
-

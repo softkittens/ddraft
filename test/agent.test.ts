@@ -8,8 +8,9 @@ import { digest } from "../src/digest/digest";
 import { cloneDocument } from "../src/model/tree";
 import { parseDocument } from "../src/model/parse";
 import { agentSystemPrompt } from "../src/agent/prompt";
-import { assembleToolCalls } from "../src/agent/stream";
+import { assembleToolCalls, completeStream } from "../src/agent/stream";
 import { getLucideIconPath } from "../src/model/icons";
+import { generateDesignImage } from "../src/agent/image_gen";
 
 const echoProvider: Provider = {
   id: "echo",
@@ -53,7 +54,7 @@ async function collectSession(
   const events: AgentEvent[] = [];
   for await (const ev of runSession(
     echoProvider,
-    [{ role: "user", content: "hi" }],
+    [{ role: "user", content: "edit the canvas" }],
     makeDoc(frame("f", 200, 100, [rect("r", 40, 40)])),
     { fetch: fetchImpl, ...extra }
   )) {
@@ -77,8 +78,8 @@ describe("H1 provider client", () => {
 
     const a: Provider = { id: "a", baseUrl: "https://a.test/v1", model: "model-a", apiKey: "key-a" };
     const b: Provider = { id: "b", baseUrl: "https://b.test/v1", model: "model-b", apiKey: "key-b" };
-    await complete(a, [{ role: "user", content: "hi" }], undefined, { fetch: fakeFetch });
-    await complete(b, [{ role: "user", content: "hi" }], undefined, { fetch: fakeFetch });
+    await complete(a, [{ role: "user", content: "hi" }], { fetch: fakeFetch });
+    await complete(b, [{ role: "user", content: "hi" }], { fetch: fakeFetch });
 
     expect(seen[0].url).toBe("https://a.test/v1/chat/completions");
     expect(seen[1].url).toBe("https://b.test/v1/chat/completions");
@@ -93,9 +94,51 @@ describe("H1 provider client", () => {
       jsonResponse({
         choices: [{ message: { role: "assistant", content: "hello from the model" } }]
       });
-    const reply = await complete(echoProvider, [{ role: "user", content: "hi" }], undefined, { fetch: fakeFetch });
+    const reply = await complete(echoProvider, [{ role: "user", content: "hi" }], { fetch: fakeFetch });
     expect(reply.role).toBe("assistant");
     expect(reply.content).toBe("hello from the model");
+  });
+
+  it("keeps image input in the streaming tool loop for catalogued vision models", async () => {
+    let posted: { messages: { content: unknown }[] } | undefined;
+    const fetch: FetchFn = async (_input, init) => {
+      posted = JSON.parse(String(init?.body));
+      return new Response(sseBody(["data: [DONE]\n\n"]));
+    };
+    const provider: Provider = {
+      id: "opencode-go",
+      baseUrl: "https://example.test/v1",
+      model: "kimi-k3",
+      apiKey: "key",
+      vision: true
+    };
+    const content = [
+      { type: "text" as const, text: "reference" },
+      { type: "image_url" as const, image_url: { url: "data:image/png;base64,xx" } }
+    ];
+
+    for await (const _ of completeStream(provider, [{ role: "user", content }], undefined, { fetch })) {
+      // drain
+    }
+
+    expect(posted?.messages[0].content).toEqual(content);
+  });
+
+  it("uses output_text when an assistant turn is sent through Responses", async () => {
+    let posted: { input: { content: { type: string }[] }[] } | undefined;
+    const provider: Provider = { ...echoProvider, api: "responses" };
+    await complete(provider, [
+      { role: "user", content: "question" },
+      { role: "assistant", content: "answer" }
+    ], {
+      fetch: async (_input, init) => {
+        posted = JSON.parse(String(init?.body));
+        return jsonResponse({ output: [] });
+      }
+    });
+
+    expect(posted?.input[0].content[0].type).toBe("input_text");
+    expect(posted?.input[1].content[0].type).toBe("output_text");
   });
 });
 
@@ -153,9 +196,53 @@ describe("H2 credentials", () => {
     const p = loadProvider("opencode-go", { OPENCODE_API_KEY: "k" });
     expect(p?.model).toBeTruthy();
   });
+
+  it("marks every native OpenCode Go vision model in the picker", () => {
+    const models = listConfiguredProviders({ OPENCODE_API_KEY: "k" })[0].models;
+    const vision = models
+      .map((model) => loadProvider("opencode-go", { OPENCODE_API_KEY: "k" }, model.id))
+      .filter((provider) => provider?.vision)
+      .map((provider) => provider?.model);
+    expect(vision).toEqual([
+      "gpt-5.6-luna",
+      "grok-4.5",
+      "kimi-k3",
+      "kimi-k2.7-code",
+      "deepseek-v4-flash-vision-exp",
+      "minimax-m3",
+      "qwen3.8-max",
+      "mimo-v2.5"
+    ]);
+  });
 });
 
 describe("H3 tool loop", () => {
+  it("lets the model answer a non-design question without forcing an empty-canvas build", async () => {
+    let requests = 0;
+    let posted: { tools?: unknown[] } | undefined;
+    const fakeFetch: FetchFn = async (_input, init) => {
+      requests++;
+      posted = JSON.parse(String(init?.body));
+      return contentSse("I am the selected model. [no canvas change]");
+    };
+    const events: AgentEvent[] = [];
+    for await (const event of runSession(
+      echoProvider,
+      [{ role: "user", content: "what model are you?" }],
+      makeDoc(),
+      { fetch: fakeFetch }
+    )) {
+      events.push(event);
+    }
+
+    expect(requests).toBe(1);
+    expect(Array.isArray(posted?.tools)).toBe(true);
+    expect(events.some((event) => event.type === "tool")).toBe(false);
+    expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+    const done = events.find((event) => event.type === "done");
+    expect(done?.type === "done" && done.messages.at(-1)?.content).toBe("I am the selected model.");
+  });
+
   it("ends after one request when the reply has no tool calls", async () => {
     let requests = 0;
     const fakeFetch: FetchFn = async () => {
@@ -335,16 +422,43 @@ describe("H4 document tools", () => {
     }
   });
 
-  it("reports that image generation is unavailable rather than substituting a stock photo", async () => {
-    // With no provider key configured this used to return one fixed Unsplash
-    // photograph for every prompt, so the caller believed it had an image of
-    // whatever it asked for. Saying so is the only honest answer.
-    const session = createDocumentTools(makeDoc(frame("f", 200, 100, [])));
-    const result = await session.execute("generate_image", { prompt: "Stallion sunset", nodeId: "f" });
-    expect(result).toContain("error: Image generation is not configured");
-    expect(result).toContain("Design without photography");
-    // and it leaves the node alone rather than filling it with something else
-    expect((session.doc.children[0] as any).fill?.type).toBeUndefined();
+  it("uses the configured Qwen workspace origin and Image 3.0 request shape", async () => {
+    let url = "";
+    let posted: {
+      input: { messages: { content: { text: string }[] }[] };
+      parameters: { size: string };
+    } | undefined;
+    const result = await generateDesignImage("Stallion sunset", {
+      aspectRatio: "portrait",
+      env: {
+        QWEN_API_KEY: "sk-test",
+        QWEN_BASE_URL: "https://workspace.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+      },
+      fetch: async (input, init) => {
+        url = String(input);
+        posted = JSON.parse(String(init?.body));
+        return jsonResponse({
+          output: { choices: [{ message: { content: [{ image: "https://images.test/horse.png" }] } }] }
+        });
+      }
+    });
+
+    expect(url).toBe("https://workspace.ap-southeast-1.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation");
+    expect(posted?.input.messages[0].content).toEqual([{ text: "Stallion sunset" }]);
+    expect(posted?.parameters.size).toBe("768*1024");
+    expect(result).toEqual({ url: "https://images.test/horse.png", provider: "qwen" });
+  });
+
+  it("reports a configured provider failure instead of claiming no key exists", async () => {
+    const pending = generateDesignImage("Stallion sunset", {
+      env: { QWEN_API_KEY: "sk-test" },
+      fetch: async () => new Response(JSON.stringify({
+        code: "InvalidApiKey",
+        message: "Invalid API-key provided."
+      }), { status: 401 })
+    });
+
+    expect(pending).rejects.toThrow("Qwen 401 InvalidApiKey: Invalid API-key provided.");
   });
 });
 
@@ -419,4 +533,3 @@ describe("Stream tool assembly", () => {
     expect(JSON.parse(calls[0].function.arguments)).toEqual({ id: "card" });
   });
 });
-

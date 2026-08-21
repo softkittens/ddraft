@@ -6,6 +6,8 @@ export interface Provider {
   model: string;
   apiKey: string;
   reasoningEffort?: ReasoningEffort;
+  api?: "chat" | "responses" | "messages";
+  vision?: boolean;
 }
 
 export interface ToolCall {
@@ -38,13 +40,11 @@ export type FetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<
 export interface CompleteOptions {
   fetch?: FetchFn;
   signal?: AbortSignal;
-  /** Keep image_url parts even when the provider is not classified as vision-capable. */
-  keepImages?: boolean;
 }
 
-export function toApiMessages(messages: Message[], p?: Provider, keepImages = false) {
+export function toApiMessages(messages: Message[], p?: Provider) {
   const isVisionCapable =
-    keepImages || p?.id === "openai" || p?.model?.includes("gpt-4o") || p?.model?.includes("vl");
+    p?.vision || p?.id === "openai" || p?.model?.includes("gpt-4o") || p?.model?.includes("vl");
   return messages.map((m) => {
     let content = m.content;
     if (Array.isArray(content) && !isVisionCapable) {
@@ -60,31 +60,84 @@ export function toApiMessages(messages: Message[], p?: Provider, keepImages = fa
   });
 }
 
+function toResponsesInput(messages: Message[]) {
+  return messages.map((message) => {
+    const parts: MessageContentPart[] = Array.isArray(message.content)
+      ? message.content
+      : [{ type: "text", text: message.content }];
+    return {
+      role: message.role,
+      content: parts
+      .map((part) => part.type === "text"
+        ? { type: message.role === "assistant" ? "output_text" : "input_text", text: part.text }
+        : { type: "input_image", image_url: part.image_url.url, detail: part.image_url.detail })
+    };
+  });
+}
+
+function toMessagesInput(messages: Message[]) {
+  const system: string[] = [];
+  const input: { role: "user" | "assistant"; content: unknown[] }[] = [];
+  for (const message of messages) {
+    if (message.role === "system") {
+      system.push(typeof message.content === "string" ? message.content : message.content
+        .filter((part) => part.type === "text")
+        .map((part) => (part as { type: "text"; text: string }).text)
+        .join("\n"));
+      continue;
+    }
+    const parts: MessageContentPart[] = Array.isArray(message.content)
+      ? message.content
+      : [{ type: "text", text: message.content }];
+    input.push({
+      role: message.role === "assistant" ? "assistant" : "user",
+      content: parts.map((part) => {
+        if (part.type === "text") return { type: "text", text: part.text };
+        const match = part.image_url.url.match(/^data:([^;]+);base64,(.+)$/);
+        return match
+          ? { type: "image", source: { type: "base64", media_type: match[1], data: match[2] } }
+          : { type: "image", source: { type: "url", url: part.image_url.url } };
+      })
+    });
+  }
+  return { system: system.join("\n\n"), messages: input };
+}
+
 export async function complete(
   p: Provider,
   messages: Message[],
-  tools?: Tool[],
   opts: CompleteOptions = {}
 ): Promise<Message> {
   const fetchImpl = opts.fetch ?? fetch;
-  const body: Record<string, unknown> = {
-    model: p.model,
-    messages: toApiMessages(messages, p, opts.keepImages),
-    ...(p.reasoningEffort ? { reasoning_effort: p.reasoningEffort } : {})
+  const api = p.api || "chat";
+  const messagesInput = api === "messages" ? toMessagesInput(messages) : null;
+  const body: Record<string, unknown> = api === "responses"
+    ? {
+        model: p.model,
+        input: toResponsesInput(messages),
+        ...(p.reasoningEffort && p.reasoningEffort !== "none"
+          ? { reasoning: { effort: p.reasoningEffort } }
+          : {})
+      }
+    : api === "messages"
+      ? { model: p.model, max_tokens: 4096, ...messagesInput }
+    : {
+        model: p.model,
+        messages: toApiMessages(messages, p),
+        ...(p.reasoningEffort ? { reasoning_effort: p.reasoningEffort } : {})
+      };
+  const endpoint = api === "chat" ? "chat/completions" : api;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${p.apiKey}`
   };
-  if (tools && tools.length > 0) {
-    body.tools = tools.map((t) => ({
-      type: "function",
-      function: { name: t.name, description: t.description, parameters: t.parameters }
-    }));
+  if (api === "messages") {
+    headers["x-api-key"] = p.apiKey;
+    headers["anthropic-version"] = "2023-06-01";
   }
-
-  const res = await fetchImpl(`${p.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+  const res = await fetchImpl(`${p.baseUrl.replace(/\/$/, "")}/${endpoint}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${p.apiKey}`
-    },
+    headers,
     body: JSON.stringify(body),
     signal: opts.signal
   });
@@ -107,7 +160,19 @@ export async function complete(
 
   const data = (await res.json()) as {
     choices?: { message?: { role?: string; content?: string | null; tool_calls?: ToolCall[] } }[];
+    output?: { type?: string; content?: { type?: string; text?: string }[] }[];
+    content?: { type?: string; text?: string }[];
   };
+  if (api !== "chat") {
+    const parts = api === "responses"
+      ? (data.output ?? []).flatMap((item) => item.content ?? [])
+      : data.content ?? [];
+    const content = parts
+      .filter((part) => part.type === "output_text" || part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("");
+    return { role: "assistant", content };
+  }
   const msg = data.choices?.[0]?.message;
   return {
     role: "assistant",
