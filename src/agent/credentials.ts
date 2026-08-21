@@ -1,0 +1,52 @@
+import type { Provider, ReasoningEffort } from "./provider";
+import { PROVIDER_CATALOG, catalogById, readEnvKey, type CatalogProvider } from "./catalog";
+
+export interface PublicProvider {
+  id: CatalogProvider["id"];
+  label: string;
+  models: { id: string; label: string }[];
+}
+
+function envBag(env?: Record<string, string | undefined>): Record<string, string | undefined> {
+  return env ?? (process.env as Record<string, string | undefined>);
+}
+
+export function listConfiguredProviders(env?: Record<string, string | undefined>): PublicProvider[] {
+  const bag = envBag(env);
+  return PROVIDER_CATALOG.filter((p) => readEnvKey(bag, p.envKeys)).map((p) => ({
+    id: p.id,
+    label: p.label,
+    models: p.models
+  }));
+}
+
+/** A model that no provider in the catalog offers. */
+export class UnknownModelError extends Error {}
+
+export function loadProvider(
+  id: string,
+  env?: Record<string, string | undefined>,
+  model?: string,
+  reasoningEffort?: ReasoningEffort
+): Provider | null {
+  const spec = catalogById(id);
+  if (!spec) return null;
+  const bag = envBag(env);
+  const apiKey = readEnvKey(bag, spec.envKeys);
+  if (!apiKey) return null;
+  // An unknown model is an error, not a reason to pick a different one. A run
+  // billed and scored against a model nobody asked for is worse than no run.
+  if (model && !spec.models.some((m) => m.id === model)) {
+    throw new UnknownModelError(
+      `${spec.label} does not offer the model "${model}". It offers: ${spec.models.map((m) => m.id).join(", ")}`
+    );
+  }
+  const baseUrl = (spec.baseUrlEnv ? (Array.isArray(spec.baseUrlEnv) ? readEnvKey(bag, spec.baseUrlEnv) : bag[spec.baseUrlEnv]) : undefined) || spec.baseUrl;
+  return {
+    id: spec.id,
+    baseUrl,
+    model: model || spec.models[0].id,
+    apiKey,
+    reasoningEffort
+  };
+}

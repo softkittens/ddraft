@@ -208,7 +208,7 @@ export const Toolbar: Component = () => {
         </button>
         <button
           onClick={() => setChatVisible(!chatVisible())}
-          title="Toggle AI Agent Assistant"
+          title="Toggle AI chat sidebar"
           class={`p-1.5 rounded transition ${
             chatVisible()
               ? "bg-blue-100 text-blue-700"

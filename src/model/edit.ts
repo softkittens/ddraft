@@ -34,15 +34,41 @@ export function setProperty(doc: Document, id: string, key: string, value: unkno
   return newDoc;
 }
 
-export function insertChild(doc: Document, parentId: string, node: PenNode, at?: number): Document {
+function ensureNodeIds(node: any, seed = "node"): void {
+  if (!node || typeof node !== "object") return;
+  if (!node.id || typeof node.id !== "string" || !node.id.trim()) {
+    node.id = `${node.type || seed}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+  if (Array.isArray(node.children)) {
+    for (const child of node.children) {
+      ensureNodeIds(child, seed);
+    }
+  }
+}
+
+export function insertChild(
+  doc: Document,
+  parentId: string | null | undefined,
+  node: PenNode,
+  at?: number
+): Document {
   const newDoc = cloneDocument(doc);
+  const clonedNode = structuredClone(node);
+  ensureNodeIds(clonedNode);
+
+  if (!parentId || parentId === "canvas" || parentId === "root" || parentId === "document") {
+    const idx = at !== undefined ? Math.max(0, Math.min(at, newDoc.children.length)) : newDoc.children.length;
+    newDoc.children.splice(idx, 0, clonedNode);
+    return newDoc;
+  }
+
   const parent = findNode(newDoc.children, parentId);
   if (!parent || !isParentNode(parent)) return doc;
 
   const children = parent.children ?? [];
   parent.children = children;
   const idx = at !== undefined ? Math.max(0, Math.min(at, children.length)) : children.length;
-  children.splice(idx, 0, structuredClone(node));
+  children.splice(idx, 0, clonedNode);
   return newDoc;
 }
 
@@ -92,6 +118,15 @@ export function duplicateNode(doc: Document, id: string): { doc: Document; newId
         for (const child of childrenOf(n)) regenerateIds(child, false);
       }
       regenerateIds(cloneNode, true);
+      if (list === newDoc.children) {
+        let maxX = 0;
+        for (const root of newDoc.children) {
+          const rightEdge = (root.x ?? 0) + (typeof root.width === "number" ? root.width : 1200);
+          if (rightEdge > maxX) maxX = rightEdge;
+        }
+        if (maxX > 0) cloneNode.x = maxX + 80;
+        if (cloneNode.y === undefined && orig.y !== undefined) cloneNode.y = orig.y;
+      }
       list.splice(idx + 1, 0, cloneNode);
       return newRootId;
     }

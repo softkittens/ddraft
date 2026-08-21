@@ -1,4 +1,30 @@
-import defaultRaw from "../../fixtures/A_control_r1.pen?raw";
+import A_control_r1 from "../../fixtures/A_control_r1.pen?raw";
+import A_control_r2 from "../../fixtures/A_control_r2.pen?raw";
+import A_control_r3 from "../../fixtures/A_control_r3.pen?raw";
+import B_contract_r1 from "../../fixtures/B_contract_r1.pen?raw";
+import B_contract_r2 from "../../fixtures/B_contract_r2.pen?raw";
+import B_contract_r3 from "../../fixtures/B_contract_r3.pen?raw";
+import C_verify_r1 from "../../fixtures/C_verify_r1.pen?raw";
+import C_verify_r2 from "../../fixtures/C_verify_r2.pen?raw";
+import C_verify_r3 from "../../fixtures/C_verify_r3.pen?raw";
+import D_hires_r1 from "../../fixtures/D_hires_r1.pen?raw";
+import D_hires_r2 from "../../fixtures/D_hires_r2.pen?raw";
+import D_hires_r3 from "../../fixtures/D_hires_r3.pen?raw";
+
+export const FIXTURES_RAW: Record<string, string> = {
+  A_control_r1,
+  A_control_r2,
+  A_control_r3,
+  B_contract_r1,
+  B_contract_r2,
+  B_contract_r3,
+  C_verify_r1,
+  C_verify_r2,
+  C_verify_r3,
+  D_hires_r1,
+  D_hires_r2,
+  D_hires_r3
+};
 
 export const FIXTURE_LABELS: Record<string, string> = {
   A_control_r1: "Factory Control (A_r1)",
@@ -15,22 +41,9 @@ export const FIXTURE_LABELS: Record<string, string> = {
   D_hires_r3: "High-Res Complex (D_r3)"
 };
 
-const lazyLoaders =
-  typeof import.meta.glob === "function"
-    ? (import.meta.glob("../../fixtures/*.pen", {
-        query: "?raw",
-        import: "default"
-      }) as Record<string, () => Promise<string>>)
-    : {};
-
 export async function fetchFixtureRaw(key: string): Promise<string> {
-
-  if (key === "A_control_r1") return defaultRaw;
-  const path = `../../fixtures/${key}.pen`;
-  const loader = lazyLoaders[path];
-  if (!loader) return defaultRaw;
-  return await loader();
+  return FIXTURES_RAW[key] || FIXTURES_RAW.A_control_r1;
 }
 
 export const DEFAULT_FIXTURE_KEY = "A_control_r1";
-export const DEFAULT_FIXTURE_RAW = defaultRaw;
+export const DEFAULT_FIXTURE_RAW = A_control_r1;

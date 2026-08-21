@@ -1,0 +1,91 @@
+export interface CatalogModel {
+  id: string;
+  label: string;
+}
+
+export interface CatalogProvider {
+  id: "openai" | "opencode-go" | "qwen-studio";
+  label: string;
+  envKeys: string[];
+  baseUrlEnv?: string | string[];
+  baseUrl: string;
+  models: CatalogModel[];
+}
+
+export const PROVIDER_CATALOG: CatalogProvider[] = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    envKeys: ["OPENAI_API_KEY"],
+    baseUrlEnv: "OPENAI_BASE_URL",
+    baseUrl: "https://api.openai.com/v1",
+    models: [
+      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+      { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+      { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+      { id: "gpt-5.5", label: "GPT-5.5" },
+      { id: "gpt-5.4", label: "GPT-5.4" },
+      { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+      { id: "gpt-5.2", label: "GPT-5.2" },
+      { id: "gpt-5.1", label: "GPT-5.1" },
+      { id: "gpt-5", label: "GPT-5" },
+      { id: "gpt-4.1", label: "GPT-4.1" },
+      { id: "gpt-4.1-mini", label: "GPT-4.1 mini" },
+      { id: "gpt-4o", label: "GPT-4o" },
+      { id: "gpt-4o-mini", label: "GPT-4o mini" },
+      { id: "o4-mini", label: "o4 mini" },
+      { id: "o3", label: "o3" },
+      { id: "o3-mini", label: "o3 mini" },
+      { id: "o1", label: "o1" }
+    ]
+  },
+  {
+    id: "opencode-go",
+    label: "OpenCode Go",
+    envKeys: ["OPENCODE_GO_API_KEY", "OPENCODE_API_KEY"],
+    baseUrlEnv: "OPENCODE_GO_BASE_URL",
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    models: [
+      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+      { id: "grok-4.5", label: "Grok 4.5" },
+      { id: "kimi-k3", label: "Kimi K3" },
+      { id: "kimi-k2.7-code", label: "Kimi K2.7 Code" },
+      { id: "glm-5.3", label: "GLM-5.3" },
+      { id: "glm-5.2", label: "GLM-5.2" },
+      { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+      { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+      { id: "minimax-m3", label: "MiniMax M3" },
+      { id: "qwen3.8-max", label: "Qwen3.8 Max" },
+      { id: "qwen3.7-max", label: "Qwen3.7 Max" },
+      { id: "mimo-v2.5-pro", label: "MiMo-V2.5 Pro" },
+      { id: "mimo-v2.5", label: "MiMo-V2.5" },
+      { id: "hy3", label: "Hy3" }
+    ]
+  },
+  {
+    id: "qwen-studio",
+    label: "Qwen Studio",
+    envKeys: ["DASHSCOPE_API_KEY", "QWEN_API_KEY"],
+    baseUrlEnv: ["QWEN_BASE_URL", "DASHSCOPE_BASE_URL"],
+    baseUrl: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+    models: [
+      { id: "qwen-plus", label: "Qwen Plus" },
+      { id: "qwen-turbo", label: "Qwen Turbo" },
+      { id: "qwen-max", label: "Qwen Max" },
+      { id: "qwen3-coder-plus", label: "Qwen3 Coder Plus" },
+      { id: "qwen3.8-max", label: "Qwen3.8 Max" }
+    ]
+  }
+];
+
+export function catalogById(id: string): CatalogProvider | undefined {
+  return PROVIDER_CATALOG.find((p) => p.id === id);
+}
+
+export function readEnvKey(env: Record<string, string | undefined>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = env[key];
+    if (value) return value;
+  }
+  return undefined;
+}

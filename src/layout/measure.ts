@@ -55,11 +55,55 @@ function flowSizing(s: ParsedSizing): ParsedSizing {
  * Measure Stage (Bottom-Up: Child -> Parent)
  * Calculates the intrinsic size of each node.
  */
-export function measureNode(node: PenNode, variables?: Record<string, any>): MeasuredNode {
-  const children = ((node as FrameNode | GroupNode).children || []).map((c) => measureNode(c, variables));
+/**
+ * Inner width a frame can offer its children, or undefined when it is not yet
+ * knowable. A fixed frame knows immediately; one that fills its parent knows as
+ * soon as the parent does; one that fits its content does not know at all,
+ * because its width is what its children are about to decide.
+ */
+function innerWidthOf(node: PenNode, available: number | undefined): number | undefined {
+  const sizing = parseSizing(node.width);
+  const pad = normalisePadding((node as FrameNode).padding);
+  let outer: number | undefined;
+  if (sizing.mode === "fixed") outer = sizing.value;
+  else if (sizing.mode === "fill_container" && available !== undefined) outer = available;
+  if (outer === undefined) return undefined;
+  return Math.max(0, outer - pad.left - pad.right);
+}
+
+/**
+ * @param availableWidth Width the parent can give this node, when it knows it.
+ *
+ * Widths resolve downward and heights upward. Without the first half, a text
+ * node set to fill its container measured as one long line during this pass —
+ * there was no width to wrap against — and reported the height of a single
+ * line. The parent sized itself to that, the arrange pass then wrapped the text
+ * to three lines, and the last two fell outside a box that had already been
+ * decided. That is the most common blocker the auditor reports.
+ */
+export function measureNode(
+  node: PenNode,
+  variables?: Record<string, any>,
+  availableWidth?: number
+): MeasuredNode {
+  const inner = innerWidthOf(node, availableWidth);
+  // Only a vertical frame hands its full inner width to every child. In a row
+  // the children divide it and that split is not known until arrange, and in a
+  // group they are placed absolutely and take nothing from the parent.
+  const isVertical = node.type === "frame" && ((node as FrameNode).layout || "horizontal") === "vertical";
+  const childWidth = isVertical ? inner : undefined;
+
+  const children = ((node as FrameNode | GroupNode).children || []).map((c) =>
+    measureNode(c, variables, childWidth)
+  );
 
   if (node.type === "text") {
-    const metrics = measureTextNode(node as TextNode, undefined, variables);
+    const spans = parseSizing(node.width).mode === "fill_container";
+    const metrics = measureTextNode(
+      node as TextNode,
+      spans && availableWidth !== undefined ? availableWidth : undefined,
+      variables
+    );
     return { node, measuredWidth: metrics.width, measuredHeight: metrics.height, children };
   }
 

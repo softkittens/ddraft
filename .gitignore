@@ -13,3 +13,6 @@ dist/
 
 *.md
 !README.md
+
+# Eval output. The runs are large and provider-specific; keep the harness, not the data.
+eval/runs/

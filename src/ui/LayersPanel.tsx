@@ -8,7 +8,8 @@ import {
   Layers,
   Component as ComponentIcon,
   Circle,
-  X
+  X,
+  Trash2
 } from "lucide-solid";
 import type { PenNode } from "../model/types";
 import { childrenOf } from "../model/tree";
@@ -18,8 +19,8 @@ import {
   selectNode,
   layersCollapsed,
   toggleLayerCollapse,
-  setLayersVisible
-
+  setLayersVisible,
+  deleteNodeById
 } from "./store";
 
 const NodeRow: Component<{ node: PenNode; depth: number }> = (props) => {
@@ -61,32 +62,47 @@ const NodeRow: Component<{ node: PenNode; depth: number }> = (props) => {
       <div
         onClick={(e) => selectNode(props.node.id, e.metaKey || e.ctrlKey)}
         style={{ "padding-left": `${props.depth * 14 + 10}px` }}
-        class={`flex items-center gap-1.5 h-7 pr-2 text-xs cursor-pointer transition select-none ${
+        class={`group flex items-center justify-between h-7 pr-2 text-xs cursor-pointer transition select-none ${
           isSelected()
             ? "bg-[#0d99ff] text-white font-medium"
             : "text-neutral-700 hover:bg-neutral-100"
         }`}
       >
-        {/* Collapse Chevron */}
-        <Show
-          when={hasChildren()}
-          fallback={<span class="w-3.5 shrink-0" />}
-        >
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleLayerCollapse(props.node.id);
-            }}
-            class="w-3.5 h-3.5 flex items-center justify-center hover:opacity-80 shrink-0"
+        <div class="flex items-center gap-1.5 min-w-0 flex-1">
+          {/* Collapse Chevron */}
+          <Show
+            when={hasChildren()}
+            fallback={<span class="w-3.5 shrink-0" />}
           >
-            <Show when={isCollapsed()} fallback={<ChevronDown size={12} />}>
-              <ChevronRight size={12} />
-            </Show>
-          </button>
-        </Show>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleLayerCollapse(props.node.id);
+              }}
+              class="w-3.5 h-3.5 flex items-center justify-center hover:opacity-80 shrink-0"
+            >
+              <Show when={isCollapsed()} fallback={<ChevronDown size={12} />}>
+                <ChevronRight size={12} />
+              </Show>
+            </button>
+          </Show>
 
-        {getNodeIcon()}
-        <span class="truncate">{getDisplayName()}</span>
+          {getNodeIcon()}
+          <span class="truncate">{getDisplayName()}</span>
+        </div>
+
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            deleteNodeById(props.node.id);
+          }}
+          class={`opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-black/10 transition shrink-0 ${
+            isSelected() ? "text-white" : "text-neutral-400 hover:text-rose-600"
+          }`}
+          title="Delete layer"
+        >
+          <Trash2 size={11} />
+        </button>
       </div>
 
       {/* Recursive Children */}

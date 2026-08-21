@@ -6,6 +6,7 @@ import type {
   TextNode,
   EllipseNode,
   IconNode,
+  ImageFill,
   Fill,
   ColorStop,
   Effect,
@@ -14,6 +15,22 @@ import type {
 } from "../model/types";
 import { resolveVariable } from "../model/variables";
 import { resolveFontFamily, measureTextNode } from "../layout/text";
+import { getLucideIconPath } from "../model/icons";
+import { getSpawnAnimation } from "../interaction/animate";
+
+const imageCache = new Map<string, HTMLImageElement>();
+
+export function getCachedImage(url: string): HTMLImageElement | null {
+  if (typeof Image === "undefined" || !url) return null;
+  let img = imageCache.get(url);
+  if (!img) {
+    img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = url;
+    imageCache.set(url, img);
+  }
+  return img.complete && img.naturalWidth > 0 ? img : null;
+}
 
 export type { Fill, ColorStop, Effect, ShadowEffect, BlurEffect };
 export { resolveVariable };
@@ -321,12 +338,24 @@ export function drawShape(
     }
     case "icon": {
       const iconNode = data as IconNode;
-      if (iconNode?.icon && typeof Path2D !== "undefined") {
-        const path2d = new Path2D(ICON_PATH);
+      const iconName = iconNode?.icon || iconNode?.name || "sparkles";
+      const geom = getLucideIconPath(iconName) || ICON_PATH;
+      if (typeof Path2D !== "undefined") {
+        const path2d = new Path2D(geom);
         ctx.save();
         ctx.scale(box.width / 24, box.height / 24);
-        ctx.strokeStyle = resolveVariable(iconNode.fill, variables) || "#1e293b";
-        ctx.lineWidth = 2;
+        if (data?.fill) {
+          const fillStyle = resolveFill(ctx, data.fill, box, variables);
+          if (fillStyle) {
+            ctx.fillStyle = fillStyle;
+            ctx.fill(path2d);
+          }
+        }
+        const strokeColor = resolveVariable(data?.stroke || iconNode?.fill || "$text", variables) || "#FFFFFF";
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = typeof data?.strokeWidth === "number" ? data.strokeWidth : 2;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
         ctx.stroke(path2d);
         ctx.restore();
       }
@@ -343,6 +372,30 @@ export function drawShape(
         ctx.fillStyle = fillStyle;
         ctx.fill();
       }
+
+      // If this node has an image fill, draw the cached image over it
+      const imgFill = data
+        ? Array.isArray(data.fill)
+          ? (data.fill.find((f: any) => f?.type === "image") as ImageFill | undefined)
+          : (data.fill as any)?.type === "image"
+          ? (data.fill as ImageFill)
+          : undefined
+        : undefined;
+
+      if (imgFill && (imgFill.url || imgFill.data)) {
+        const img = getCachedImage(imgFill.url || imgFill.data!);
+        if (img) {
+          ctx.save();
+          if (radius && typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(0, 0, box.width, box.height, radius);
+            ctx.clip();
+          }
+          ctx.drawImage(img, 0, 0, box.width, box.height);
+          ctx.restore();
+        }
+      }
+
       if (data?.stroke && data?.strokeWidth) {
         paintStroke(ctx, box, data.stroke, data.strokeWidth, "center", variables);
       }
@@ -379,8 +432,21 @@ export function paintNode(
     ctx.translate(posX, posY);
   }
 
+  const spawn = getSpawnAnimation(layoutNode.id);
+  if (spawn) {
+    ctx.globalAlpha *= spawn.opacity;
+    ctx.translate(0, spawn.offsetY);
+    if (spawn.scale < 0.999) {
+      const cx = layoutNode.box.width / 2;
+      const cy = layoutNode.box.height / 2;
+      ctx.translate(cx, cy);
+      ctx.scale(spawn.scale, spawn.scale);
+      ctx.translate(-cx, -cy);
+    }
+  }
+
   if (data?.opacity !== undefined && data.opacity < 1) {
-    ctx.globalAlpha = data.opacity;
+    ctx.globalAlpha *= data.opacity;
   }
 
   if (data?.clip) {
@@ -396,6 +462,21 @@ export function paintNode(
   }
 
   drawShape(ctx, layoutNode, data, variables);
+
+  if (spawn && spawn.glow > 0.05 && layoutNode.type === "frame") {
+    ctx.save();
+    ctx.strokeStyle = `rgba(6, 182, 212, ${spawn.glow * 0.65})`;
+    ctx.lineWidth = 1.5;
+    const radius = data?.cornerRadius;
+    if (radius && typeof ctx.roundRect === "function") {
+      ctx.beginPath();
+      ctx.roundRect(0, 0, layoutNode.box.width, layoutNode.box.height, radius);
+      ctx.stroke();
+    } else {
+      ctx.strokeRect(0, 0, layoutNode.box.width, layoutNode.box.height);
+    }
+    ctx.restore();
+  }
 
   if (layoutNode.children && layoutNode.children.length > 0) {
     for (const child of layoutNode.children) {

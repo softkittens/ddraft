@@ -127,7 +127,14 @@ export interface TextNode extends BaseNode {
 export interface NoteNode extends BaseNode { type: "note"; content?: string }
 export interface PromptNode extends BaseNode { type: "prompt"; content?: string }
 export interface ContextNode extends BaseNode { type: "context"; content?: string }
-export interface IconNode extends BaseNode { type: "icon"; icon?: string; library?: string }
+export interface IconNode extends BaseNode {
+  type: "icon";
+  icon?: string;
+  library?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  fill?: Fill | Fill[] | string;
+}
 export interface ScriptNode extends BaseNode { type: "script"; code?: string }
 export interface RefNode extends BaseNode {
   type: "ref";

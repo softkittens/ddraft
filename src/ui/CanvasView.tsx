@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onMount, onCleanup, type Component } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, Show, type Component } from "solid-js";
 import {
   doc,
   camera,
@@ -440,14 +440,113 @@ export const CanvasView: Component = () => {
     if (animFrameId) cancelAnimationFrame(animFrameId);
   });
 
+  const [isDragOverCanvas, setIsDragOverCanvas] = createSignal(false);
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = "copy";
+    }
+    setIsDragOverCanvas(true);
+  };
+
+  const handleDragLeave = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragOverCanvas(false);
+  };
+
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragOverCanvas(false);
+    if (!canvasRef || !e.dataTransfer?.files?.length) return;
+
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    if (files.length === 0) return;
+
+    const rectBounds = canvasRef.getBoundingClientRect();
+    const screenPt = { x: e.clientX - rectBounds.left, y: e.clientY - rectBounds.top };
+    const dropWorld = screenToWorld(screenPt, camera());
+
+    for (const file of files) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        if (!dataUrl) return;
+
+        const img = new Image();
+        img.onload = () => {
+          const maxDimension = 420;
+          let w = img.naturalWidth || 360;
+          let h = img.naturalHeight || 360;
+
+          if (w > maxDimension || h > maxDimension) {
+            if (w > h) {
+              h = Math.round((h * maxDimension) / w);
+              w = maxDimension;
+            } else {
+              w = Math.round((w * maxDimension) / h);
+              h = maxDimension;
+            }
+          }
+
+          const id = getNextNodeId(doc(), "img");
+          const imageName = file.name.replace(/\.[^/.]+$/, "") || "Reference Image";
+
+          const imageNode: PenNode = {
+            id,
+            type: "frame",
+            name: `Image — ${imageName}`,
+            x: Math.round(dropWorld.x),
+            y: Math.round(dropWorld.y),
+            width: w,
+            height: h,
+            cornerRadius: 16,
+            clip: true,
+            fill: { type: "image", url: dataUrl },
+            children: []
+          };
+
+          const hit = hitTestScene(layoutTree(), dropWorld);
+          let nextDoc: Document;
+          if (hit && hit.type === "frame" && hit.id !== id) {
+            imageNode.x = Math.round(dropWorld.x - hit.box.x);
+            imageNode.y = Math.round(dropWorld.y - hit.box.y);
+            nextDoc = insertChild(doc(), hit.id, imageNode);
+          } else {
+            nextDoc = cloneDocument(doc());
+            nextDoc.children.push(imageNode);
+          }
+
+          updateDoc(nextDoc);
+          setSelectedIds(new Set([id]));
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   return (
-    <div ref={containerRef} class="flex-1 h-full w-full relative overflow-hidden">
+    <div
+      ref={containerRef}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      class="flex-1 h-full min-w-0 relative overflow-hidden"
+    >
       <canvas
         ref={canvasRef}
         onMouseDown={handleMouseDown}
         onWheel={handleWheel}
         class="w-full h-full block"
       />
+      <Show when={isDragOverCanvas()}>
+        <div class="absolute inset-0 bg-blue-500/10 border-2 border-dashed border-blue-500 pointer-events-none flex items-center justify-center z-50">
+          <div class="bg-blue-600 text-white font-medium text-sm px-4 py-2 rounded-xl shadow-lg flex items-center gap-2">
+            <span>Drop image to place reference on canvas</span>
+          </div>
+        </div>
+      </Show>
     </div>
   );
 };

@@ -16,12 +16,22 @@ import {
   resetZoom100,
   zoomIn,
   zoomOut,
-  setToolMode
+  setToolMode,
+  selectedIds,
+  deleteSelectedNodes
 } from "./store";
 
 export const App: Component = () => {
   const handleGlobalKeyDown = (e: KeyboardEvent) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+    if (e.key === "Backspace" || e.key === "Delete") {
+      if (selectedIds().size > 0) {
+        e.preventDefault();
+        deleteSelectedNodes();
+        return;
+      }
+    }
 
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
       e.preventDefault();
@@ -83,8 +93,8 @@ export const App: Component = () => {
         </Show>
 
         <div class="flex-1 h-full relative overflow-hidden flex">
-          <CanvasView />
           <ChatPanel />
+          <CanvasView />
         </div>
 
         <Show when={inspectorVisible()}>

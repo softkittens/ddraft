@@ -32,10 +32,30 @@ function getCanvasContext(): CanvasRenderingContext2D | null {
   return cachedCanvasCtx;
 }
 
+/**
+ * Every family the style catalog offers, with the generic it falls back to.
+ * A family that is not here resolves to itself and will silently fall back to
+ * whatever the platform picks, so the catalog and this table must agree.
+ */
+const FONT_STACKS: Record<string, string> = {
+  Inter: "Inter, sans-serif",
+  Geist: "Geist, sans-serif",
+  "DM Sans": "'DM Sans', sans-serif",
+  "Space Grotesk": "'Space Grotesk', sans-serif",
+  "Funnel Display": "'Funnel Display', sans-serif",
+  Newsreader: "Newsreader, serif",
+  "Playfair Display": "'Playfair Display', serif",
+  "Instrument Serif": "'Instrument Serif', serif",
+  Anton: "Anton, sans-serif",
+  "Geist Mono": "'Geist Mono', monospace",
+  "IBM Plex Mono": "'IBM Plex Mono', monospace"
+};
+
 export function resolveFontFamily(fam?: string, variables?: Record<string, any>): string {
   const raw = resolveVariable(fam || "Inter", variables);
-  if (raw === "Geist Mono" || raw.includes("Mono")) return "'Geist Mono', monospace";
-  if (raw === "Inter") return "Inter, sans-serif";
+  const known = FONT_STACKS[raw];
+  if (known) return known;
+  if (raw.includes("Mono")) return "'Geist Mono', monospace";
   return raw;
 }
 

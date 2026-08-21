@@ -2,6 +2,7 @@ import { createSignal, createMemo } from "solid-js";
 import type { Document } from "../model/types";
 import { parseDocument } from "../model/parse";
 import { createHistory, pushDocument, undo as undoDoc, redo as redoDoc, type HistoryState } from "../model/history";
+import { removeNode } from "../model/edit";
 import { layoutResolvedDocument } from "../layout/layout";
 import { resolveInstances } from "../model/instance";
 import { createCamera, zoomAtScreenPoint, type Camera } from "../interaction/camera";
@@ -24,7 +25,7 @@ export const [layersCollapsed, setLayersCollapsed] = createSignal<Set<string>>(n
 export const [layersVisible, setLayersVisible] = createSignal<boolean>(true);
 export const [inspectorVisible, setInspectorVisible] = createSignal<boolean>(true);
 export const [chatVisible, setChatVisible] = createSignal<boolean>(true);
-export const [chatExpanded, setChatExpanded] = createSignal<boolean>(false);
+export const [chatExpanded, setChatExpanded] = createSignal<boolean>(true);
 
 export async function loadFixture(key: string) {
   setSelectedFixture(key);
@@ -92,4 +93,25 @@ export function selectNode(id: string, multi = false) {
     else next.add(id);
     return next;
   });
+}
+
+export function deleteSelectedNodes() {
+  const ids = selectedIds();
+  if (ids.size === 0) return;
+  let nextDoc = doc();
+  for (const id of ids) {
+    nextDoc = removeNode(nextDoc, id);
+  }
+  setSelectedIds(new Set<string>());
+  updateDoc(nextDoc);
+}
+
+export function deleteNodeById(id: string) {
+  const nextDoc = removeNode(doc(), id);
+  setSelectedIds((prev) => {
+    const next = new Set(prev);
+    next.delete(id);
+    return next;
+  });
+  updateDoc(nextDoc);
 }
