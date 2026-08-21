@@ -1,0 +1,287 @@
+import type { Box, LayoutNode } from "../layout/types";
+import type { Document, PenNode } from "../model/types";
+import { childrenOf, indexDocument } from "../model/tree";
+import { resolveVariable } from "../model/variables";
+import { flattenLayoutTree } from "../layout/layout";
+
+export { childrenOf };
+
+export type AuditRule =
+  | "clipped"
+  | "collision"
+  | "text_too_small"
+  | "low_contrast"
+  | "tap_target"
+  | "off_canvas"
+  | "empty_container"
+  | "collapsed_container"
+  | "type_scale"
+  | "spacing_scale"
+  | "radius_scale"
+  | "token_bypass"
+  | "nested_screen"
+  | "text_clipped"
+  | "empty_text"
+  | "duplicate_region"
+  | "accent_overuse"
+  | "missed_bleed"
+  | "missing_display"
+  | "empty_tail"
+  | "shadow_quality"
+  | "border_accent"
+  | "tracking"
+  | "prose_measure"
+  | "stat_tile_row"
+  | "cloned_content"
+  | "icon_unresolved";
+
+export type AuditSeverity = "blocker" | "warning" | "info";
+
+export interface AuditFinding {
+  rule: AuditRule;
+  severity: AuditSeverity;
+  nodeId: string;
+  message: string;
+  fix: string;
+}
+
+export interface AuditContext {
+  doc: Document;
+  tree: LayoutNode[];
+  nodes: Map<string, PenNode>;
+  boxes: Map<string, LayoutNode>;
+}
+
+export function createAuditContext(tree: LayoutNode[], doc: Document): AuditContext {
+  return {
+    doc,
+    tree,
+    nodes: indexDocument(doc),
+    boxes: flattenLayoutTree(tree)
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Finding Factory Helpers
+ * ------------------------------------------------------------------ */
+
+export const blocker = (rule: AuditRule, nodeId: string, message: string, fix: string): AuditFinding => ({
+  rule,
+  severity: "blocker",
+  nodeId,
+  message,
+  fix
+});
+
+export const warning = (rule: AuditRule, nodeId: string, message: string, fix: string): AuditFinding => ({
+  rule,
+  severity: "warning",
+  nodeId,
+  message,
+  fix
+});
+
+export const info = (rule: AuditRule, nodeId: string, message: string, fix: string): AuditFinding => ({
+  rule,
+  severity: "info",
+  nodeId,
+  message,
+  fix
+});
+
+/* ------------------------------------------------------------------ *
+ * Geometry & Math Helpers
+ * ------------------------------------------------------------------ */
+
+export function boxesOverlap(a: Box, b: Box): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+export function boxContains(outer: Box, inner: Box): boolean {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.width <= outer.x + outer.width &&
+    inner.y + inner.height <= outer.y + outer.height
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Color, Luminance & Tokens Helpers
+ * ------------------------------------------------------------------ */
+
+export const BACKGROUND_TYPES = new Set(["frame", "group", "rectangle", "ellipse", "polygon"]);
+export const LITERAL_COLOR = /^#[0-9a-fA-F]{3,8}$/;
+export const UNIVERSAL_LITERALS = /^#(fff(f{0,5})?|ffffff[0-9a-f]{2}|000(0{0,5})?|000000[0-9a-f]{2})$/i;
+export const SCREEN_CHROME_NAME = /(status|top) ?bar/i;
+export const INTERACTIVE_NAME = /(button|btn|tab|action|toggle|fab|chip|control|cta)/i;
+export const ACCENT_TOKEN = /\$accent-(primary|secondary)\b/;
+export const REGION_ROLES: { role: string; pattern: RegExp }[] = [
+  { role: "status bar", pattern: /status ?bar/i },
+  { role: "tab bar", pattern: /tab ?bar|bottom ?nav/i }
+];
+
+export function parseHexColor(colorStr: string | undefined): { r: number; g: number; b: number } | null {
+  if (!colorStr) return null;
+  const str = colorStr.trim();
+  if (str.startsWith("#")) {
+    const hex = str.slice(1);
+    if (hex.length === 3 || hex.length === 4) {
+      return {
+        r: parseInt(hex[0] + hex[0], 16),
+        g: parseInt(hex[1] + hex[1], 16),
+        b: parseInt(hex[2] + hex[2], 16)
+      };
+    }
+    if (hex.length >= 6) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16)
+      };
+    }
+    return null;
+  }
+  const rgbMatch = str.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbMatch) {
+    return {
+      r: Math.min(255, parseInt(rgbMatch[1], 10)),
+      g: Math.min(255, parseInt(rgbMatch[2], 10)),
+      b: Math.min(255, parseInt(rgbMatch[3], 10))
+    };
+  }
+  return null;
+}
+
+export function getRelativeLuminance(rgb: { r: number; g: number; b: number }): number {
+  const [rs, gs, bs] = [rgb.r / 255, rgb.g / 255, rgb.b / 255].map((c) =>
+    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  );
+  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+}
+
+export function contrastRatio(
+  fg: string | undefined,
+  bg: string | undefined,
+  variables?: Record<string, any>
+): number | null {
+  const fgHex = parseHexColor(resolveVariable(fg, variables));
+  const bgHex = parseHexColor(resolveVariable(bg, variables));
+  if (!fgHex || !bgHex) return null;
+  const l1 = getRelativeLuminance(fgHex);
+  const l2 = getRelativeLuminance(bgHex);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+export function solidFillOf(node: PenNode | undefined): string | undefined {
+  if (!node || !BACKGROUND_TYPES.has(node.type)) return undefined;
+  const fill = (node as any).fill;
+  if (typeof fill === "string") return fill;
+  if (Array.isArray(fill)) {
+    const solid = fill.find((f: any) => f?.type === "color" && typeof f.color === "string");
+    return solid?.color;
+  }
+  if (fill && typeof fill === "object" && fill.type === "color" && typeof fill.color === "string") {
+    return fill.color;
+  }
+  return undefined;
+}
+
+export function hasImageFill(node: PenNode | undefined): boolean {
+  if (!node) return false;
+  const fill = (node as any).fill;
+  if (Array.isArray(fill)) return fill.some((f: any) => f?.type === "image");
+  return !!fill && typeof fill === "object" && (fill as any).type === "image";
+}
+
+export function overUnmeasurableBackground(node: PenNode | undefined): boolean {
+  if (!node) return false;
+  const fill = (node as any).fill;
+  if (Array.isArray(fill)) return fill.some((f: any) => f?.type === "image" || f?.type === "gradient");
+  return !!fill && typeof fill === "object" && ((fill as any).type === "image" || (fill as any).type === "gradient");
+}
+
+export function extractHexColors(fillOrStroke: unknown): string[] {
+  if (!fillOrStroke) return [];
+  if (typeof fillOrStroke === "string") {
+    return LITERAL_COLOR.test(fillOrStroke) ? [fillOrStroke] : [];
+  }
+  if (Array.isArray(fillOrStroke)) {
+    return fillOrStroke.flatMap(extractHexColors);
+  }
+  if (typeof fillOrStroke === "object" && fillOrStroke !== null) {
+    const obj = fillOrStroke as Record<string, any>;
+    if (obj.type === "color" && typeof obj.color === "string" && LITERAL_COLOR.test(obj.color)) {
+      return [obj.color];
+    }
+    if (obj.type === "gradient" && Array.isArray(obj.stops)) {
+      const stops: string[] = [];
+      for (const stop of obj.stops) {
+        if (typeof stop?.color === "string" && LITERAL_COLOR.test(stop.color)) {
+          stops.push(stop.color);
+        }
+      }
+      return stops;
+    }
+  }
+  return [];
+}
+
+/* ------------------------------------------------------------------ *
+ * Tree Traversal & Inspection Helpers
+ * ------------------------------------------------------------------ */
+
+export function walkEnabled(nodes: PenNode[], fn: (n: PenNode) => void): void {
+  for (const n of nodes) {
+    if (n.enabled === false) continue;
+    fn(n);
+    walkEnabled(childrenOf(n), fn);
+  }
+}
+
+export function hasTextContent(node: PenNode): boolean {
+  if (node.type === "text") return true;
+  for (const c of childrenOf(node)) {
+    if (hasTextContent(c)) return true;
+  }
+  return false;
+}
+
+export function isDescendant(node: PenNode, ancestor: PenNode): boolean {
+  for (const child of childrenOf(ancestor)) {
+    if (child === node || isDescendant(node, child)) return true;
+  }
+  return false;
+}
+
+export function isScreen(node: PenNode): boolean {
+  if (node.type !== "frame") return false;
+  if (SCREEN_CHROME_NAME.test(node.name ?? "")) return false;
+  return childrenOf(node).some((c) => SCREEN_CHROME_NAME.test(c.name ?? ""));
+}
+
+export function collectSubtreeIds(doc: Document, rootId: string): Set<string> | undefined {
+  const ids = new Set<string>();
+  let found = false;
+
+  function collect(node: PenNode) {
+    ids.add(node.id);
+    for (const child of childrenOf(node)) collect(child);
+  }
+  function search(nodes: PenNode[]) {
+    for (const node of nodes) {
+      if (node.id === rootId) {
+        found = true;
+        collect(node);
+        return;
+      }
+      search(childrenOf(node));
+      if (found) return;
+    }
+  }
+
+  search(doc.children);
+  return found ? ids : undefined;
+}

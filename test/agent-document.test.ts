@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { decideAgentDocument } from "../src/ui/agentDocument";
 import { makeDoc, frame, rect } from "./harness";
 import { setProperty } from "../src/model/edit";
+import { createDocumentTools } from "../src/agent/tools";
 
 describe("stale agent snapshots must not overwrite user edits", () => {
   it("accepts the first agent document against the request snapshot", () => {
@@ -33,5 +34,34 @@ describe("stale agent snapshots must not overwrite user edits", () => {
     const first = setProperty(sent, "f", "width", 200);
     const second = setProperty(first, "r", "width", 20);
     expect(decideAgentDocument(first, first, second)).toEqual({ action: "accept", expected: second });
+  });
+});
+
+describe("insert_node normalizes what the model wrote", () => {
+  it("renames a known alias and says that it did", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: { type: "frame", id: "f", name: "F", width: 100, height: 100, children: [], direction: "horizontal" }
+    });
+    expect(result).toContain("renamed 1 property");
+    expect((session.doc.children[0] as any).layout).toBe("horizontal");
+  });
+
+  it("drops a property the engine does not have, and warns", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: { type: "frame", id: "f", name: "F", width: 100, height: 100, children: [], zIndex: 3 }
+    });
+    expect(result).toContain("dropped 1 property");
+    expect((session.doc.children[0] as any).zIndex).toBeUndefined();
+  });
+
+  it("leaves a valid tree untouched", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: { type: "frame", id: "f", name: "F", width: 100, height: 100, layout: "vertical", children: [] }
+    });
+    expect(result).not.toContain("renamed");
+    expect(result).not.toContain("dropped");
   });
 });
