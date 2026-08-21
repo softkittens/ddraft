@@ -5,6 +5,27 @@ import { findLayoutNode } from "../../layout/layout";
 import type { Box } from "../../layout/types";
 import type { CanvasRenderState } from "./types";
 
+let dotPattern: CanvasPattern | null = null;
+
+function getDotPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
+  if (dotPattern) return dotPattern;
+  if (typeof document === "undefined") return null;
+
+  const offscreen = document.createElement("canvas");
+  offscreen.width = 20;
+  offscreen.height = 20;
+  const offCtx = offscreen.getContext("2d");
+  if (!offCtx) return null;
+
+  offCtx.fillStyle = "rgba(15, 23, 42, 0.22)";
+  offCtx.beginPath();
+  offCtx.arc(10, 10, 1, 0, Math.PI * 2);
+  offCtx.fill();
+
+  dotPattern = ctx.createPattern(offscreen, "repeat");
+  return dotPattern;
+}
+
 export function renderScene(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -17,19 +38,17 @@ export function renderScene(
   ctx.fillStyle = "#e8eaed";
   ctx.fillRect(0, 0, width, height);
 
-  // Background grid dots (drawn in screen space, batched into a single sub-pixel path)
-  const gridSize = 20 * camera.zoom;
-  if (gridSize >= 8) {
-    ctx.fillStyle = "rgba(0, 0, 0, 0.06)";
-    ctx.beginPath();
-    const offsetX = ((camera.x % gridSize) + gridSize) % gridSize;
-    const offsetY = ((camera.y % gridSize) + gridSize) % gridSize;
-    for (let x = offsetX; x < width; x += gridSize) {
-      for (let y = offsetY; y < height; y += gridSize) {
-        ctx.rect(x - 0.5, y - 0.5, 1, 1);
-      }
+  // Background grid dots (GPU-accelerated pattern transformed with camera matrix)
+  const pattern = getDotPattern(ctx);
+  if (pattern && camera.zoom >= 0.25) {
+    ctx.save();
+    if (typeof DOMMatrix !== "undefined" && pattern.setTransform) {
+      const mat = new DOMMatrix().translate(camera.x, camera.y).scale(camera.zoom);
+      pattern.setTransform(mat);
+      ctx.fillStyle = pattern;
+      ctx.fillRect(0, 0, width, height);
     }
-    ctx.fill();
+    ctx.restore();
   }
 
   // World coordinate transform

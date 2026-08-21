@@ -85,6 +85,10 @@ export const CanvasView: Component = () => {
       animFrameId = requestAnimationFrame(render);
     });
 
+    if (canvasRef) {
+      canvasRef.addEventListener("wheel", pointer.handleWheel, { passive: false });
+    }
+
     if (containerRef) {
       resizeObserver = new ResizeObserver(() => {
         if (animFrameId) cancelAnimationFrame(animFrameId);
@@ -96,6 +100,9 @@ export const CanvasView: Component = () => {
 
   onCleanup(() => {
     setImageInvalidator(null);
+    if (canvasRef) {
+      canvasRef.removeEventListener("wheel", pointer.handleWheel);
+    }
     if (resizeObserver) resizeObserver.disconnect();
     if (animFrameId) cancelAnimationFrame(animFrameId);
   });
@@ -111,7 +118,6 @@ export const CanvasView: Component = () => {
       <canvas
         ref={canvasRef}
         onMouseDown={pointer.handleMouseDown}
-        onWheel={pointer.handleWheel}
         class="w-full h-full block"
       />
       <Show when={fileDrop.isDragOverCanvas()}>

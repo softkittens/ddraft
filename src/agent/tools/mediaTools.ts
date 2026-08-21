@@ -141,12 +141,23 @@ export const generateImageTool: DocumentToolDefinition = {
     }
 
     const target = flattenLayoutTree(layoutResolvedDocument(resolveInstances(doc))).get(targetId);
-    if (!target || target.box.width <= 0 || target.box.height <= 0) {
-      return `error: node ${targetId} must have measurable dimensions before image generation`;
+    let aspectRatio: "landscape" | "portrait" | "square" = "landscape";
+    let targetSize = "target";
+
+    if (target && target.box.width > 0 && target.box.height > 0) {
+      const ratio = target.box.width / target.box.height;
+      aspectRatio = ratio > 1.15 ? "landscape" : ratio < 0.87 ? "portrait" : "square";
+      targetSize = `${Math.round(target.box.width)}x${Math.round(target.box.height)}`;
+    } else {
+      const rawNode = findNode(doc.children, targetId);
+      const w = typeof (rawNode as any)?.width === "number" ? (rawNode as any).width : 0;
+      const h = typeof (rawNode as any)?.height === "number" ? (rawNode as any).height : 0;
+      if (w > 0 && h > 0) {
+        const ratio = w / h;
+        aspectRatio = ratio > 1.15 ? "landscape" : ratio < 0.87 ? "portrait" : "square";
+        targetSize = `${Math.round(w)}x${Math.round(h)}`;
+      }
     }
-    const ratio = target.box.width / target.box.height;
-    const aspectRatio = ratio > 1.15 ? "landscape" : ratio < 0.87 ? "portrait" : "square";
-    const targetSize = `${Math.round(target.box.width)}x${Math.round(target.box.height)}`;
 
     let result;
     try {
