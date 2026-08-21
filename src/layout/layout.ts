@@ -27,6 +27,20 @@ export function flattenLayoutTree(nodes: LayoutNode[]): Map<string, LayoutNode> 
 }
 
 /**
+ * Direct O(depth) lookup for a single LayoutNode without allocating a Map.
+ */
+export function findLayoutNode(nodes: LayoutNode[], id: string): LayoutNode | null {
+  for (const root of nodes) {
+    if (root.id === id) return root;
+    if (root.children.length > 0) {
+      const found = findLayoutNode(root.children, id);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
  * # Layout Pipeline
  *
  * Layout is a pure function:
