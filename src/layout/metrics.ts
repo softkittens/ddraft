@@ -74,10 +74,6 @@ export function lookupLineHeightRatio(family: string): number | undefined {
   return recorded?.lineHeightRatios[family];
 }
 
-export function hasRecordedMetrics(): boolean {
-  return recorded !== null;
-}
-
 /** Start capturing every live measurement so it can be written to a recording. */
 export function startRecording(): void {
   recorder = new Map();

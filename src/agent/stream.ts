@@ -1,4 +1,12 @@
-import { toApiMessages, type CompleteOptions, type Message, type Provider, type Tool, type ToolCall } from "./provider";
+import {
+  toApiMessages,
+  toResponsesInput,
+  type CompleteOptions,
+  type Message,
+  type Provider,
+  type Tool,
+  type ToolCall
+} from "./provider";
 
 export async function* parseSseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
   const reader = body.getReader();
@@ -23,7 +31,125 @@ export async function* parseSseData(body: ReadableStream<Uint8Array>): AsyncGene
 
 export interface StreamDelta {
   content?: string;
-  toolCallParts?: { index: number; id?: string; name?: string; arguments?: string }[];
+  reasoning?: string;
+  toolCallParts?: {
+    index: number;
+    id?: string;
+    name?: string;
+    arguments?: string;
+    extra_content?: ToolCall["extra_content"];
+  }[];
+}
+
+async function responseError(p: Provider, res: Response): Promise<Error> {
+  const text = await res.text();
+  let detail = text.slice(0, 250);
+  try {
+    const json = JSON.parse(text);
+    if (json?.error?.message) detail = json.error.message;
+    else if (json?.message) detail = json.message;
+  } catch {
+    // Keep the plain response body.
+  }
+  if (res.status === 401) {
+    return new Error(`${p.id} (401 Unauthorized): ${detail}. Please check your API key in .env or set base URL.`);
+  }
+  return new Error(`provider ${p.id} ${res.status}: ${detail}`);
+}
+
+async function* completeResponsesStream(
+  p: Provider,
+  messages: Message[],
+  tools: Tool[] | undefined,
+  opts: CompleteOptions
+): AsyncGenerator<StreamDelta> {
+  const body: Record<string, unknown> = {
+    model: p.model,
+    input: toResponsesInput(messages),
+    stream: true,
+    ...(p.reasoningEffort && p.reasoningEffort !== "none"
+      ? { reasoning: { effort: p.reasoningEffort } }
+      : {})
+  };
+  if (tools?.length) {
+    body.tools = tools.map((tool) => ({
+      type: "function",
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }));
+  }
+
+  const res = await (opts.fetch ?? fetch)(`${p.baseUrl.replace(/\/$/, "")}/responses`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${p.apiKey}` },
+    body: JSON.stringify(body),
+    signal: opts.signal
+  });
+  if (!res.ok || !res.body) throw await responseError(p, res);
+
+  const argumentItems = new Set<string>();
+  const callIds = new Map<string, string>();
+  for await (const data of parseSseData(res.body)) {
+    const event = JSON.parse(data) as any;
+    if (event.type === "response.output_text.delta") {
+      yield { content: event.delta };
+      continue;
+    }
+    if (event.type === "response.reasoning_text.delta" ||
+        event.type === "response.reasoning_summary_text.delta") {
+      yield { reasoning: event.delta };
+      continue;
+    }
+    if (event.type === "response.function_call_arguments.delta") {
+      const key = event.item_id ?? event.call_id;
+      argumentItems.add(key);
+      yield {
+        toolCallParts: [{
+          index: event.output_index ?? 0,
+          id: event.call_id ?? callIds.get(event.item_id),
+          arguments: event.delta
+        }]
+      };
+      continue;
+    }
+    if (event.type === "response.function_call_arguments.done") {
+      const key = event.item_id ?? event.call_id;
+      if (!argumentItems.has(key)) {
+        argumentItems.add(key);
+        yield {
+          toolCallParts: [{
+            index: event.output_index ?? 0,
+            id: event.call_id ?? callIds.get(event.item_id),
+            name: event.name,
+            arguments: event.arguments
+          }]
+        };
+      }
+      continue;
+    }
+    if ((event.type === "response.output_item.added" || event.type === "response.output_item.done") &&
+        event.item?.type === "function_call") {
+      const item = event.item;
+      const key = item.id ?? item.call_id;
+      if (item.id && item.call_id) callIds.set(item.id, item.call_id);
+      const argumentsText = argumentItems.has(key) ? undefined : item.arguments;
+      if (argumentsText) argumentItems.add(key);
+      yield {
+        toolCallParts: [{
+          index: event.output_index ?? 0,
+          id: item.call_id ?? item.id,
+          name: item.name,
+          arguments: argumentsText
+        }]
+      };
+      continue;
+    }
+    if (event.type === "error" || event.type === "response.failed") {
+      const error = event.error ?? event.response?.error;
+      throw new Error(error?.message ?? "Responses stream failed");
+    }
+  }
 }
 
 export async function* completeStream(
@@ -32,6 +158,11 @@ export async function* completeStream(
   tools?: Tool[],
   opts: CompleteOptions = {}
 ): AsyncGenerator<StreamDelta> {
+  if (p.api === "responses") {
+    yield* completeResponsesStream(p, messages, tools, opts);
+    return;
+  }
+
   const fetchImpl = opts.fetch ?? fetch;
   const body: Record<string, unknown> = {
     model: p.model,
@@ -56,35 +187,31 @@ export async function* completeStream(
     signal: opts.signal
   });
   if (!res.ok || !res.body) {
-    const text = await res.text();
-    let detail = text.slice(0, 250);
-    try {
-      const errJson = JSON.parse(text);
-      if (errJson?.error?.message) detail = errJson.error.message;
-      else if (errJson?.message) detail = errJson.message;
-    } catch {
-      // ignore
-    }
-    if (res.status === 401) {
-      throw new Error(`${p.id} (401 Unauthorized): ${detail}. Please check your API key in .env or set base URL.`);
-    }
-    throw new Error(`provider ${p.id} ${res.status}: ${detail}`);
+    throw await responseError(p, res);
   }
 
   for await (const data of parseSseData(res.body)) {
     const json = JSON.parse(data) as {
-      choices?: { delta?: { content?: string; tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[] } }[];
+      choices?: { delta?: { content?: string; reasoning?: string; reasoning_content?: string; thinking?: string; tool_calls?: {
+        index: number;
+        id?: string;
+        function?: { name?: string; arguments?: string };
+        extra_content?: ToolCall["extra_content"];
+      }[] } }[];
     };
     const delta = json.choices?.[0]?.delta;
     if (!delta) continue;
+    const reasoning = delta.reasoning_content ?? delta.reasoning ?? delta.thinking;
     const toolCallParts = (delta.tool_calls ?? []).map((c) => ({
       index: c.index,
       id: c.id,
       name: c.function?.name,
-      arguments: c.function?.arguments
+      arguments: c.function?.arguments,
+      extra_content: c.extra_content
     }));
     yield {
       content: delta.content,
+      reasoning: typeof reasoning === "string" ? reasoning : undefined,
       toolCallParts: toolCallParts.length > 0 ? toolCallParts : undefined
     };
   }
@@ -97,7 +224,8 @@ export function assembleToolCalls(
   const calls: ToolCall[] = existing.map((c) => ({
     id: c.id,
     type: "function" as const,
-    function: { name: c.function.name, arguments: c.function.arguments }
+    function: { name: c.function.name, arguments: c.function.arguments },
+    extra_content: c.extra_content
   }));
 
   let lastActive: ToolCall | null = calls.length > 0 ? calls[calls.length - 1] : null;
@@ -147,6 +275,7 @@ export function assembleToolCalls(
       if (part.arguments) {
         target.function.arguments += part.arguments;
       }
+      if (part.extra_content) target.extra_content = part.extra_content;
     }
   }
 

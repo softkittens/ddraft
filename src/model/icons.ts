@@ -1,14 +1,53 @@
 /**
  * Lucide icon lookup.
- * Server/tests resolve any installed icon from node_modules. The browser only
- * has the small core map below; insert_icon stores geometry on the node so
- * arbitrary icons still paint without bundling the catalog.
+ *
+ * The browser has the small core map below and nothing else; insert_icon stores
+ * geometry on the node, so an arbitrary icon still paints without bundling the
+ * catalog. Anything running outside the browser registers the full catalog —
+ * see iconCatalog.ts.
  */
 
 const iconPathCache = new Map<string, string>();
 let cachedIconNames: string[] | null = null;
 
-function elementToPath(tag: string, attrs: Record<string, any>): string {
+/** Resolves any installed Lucide icon. Supplied by whoever can read the package. */
+export interface IconCatalog {
+  /** Every name this catalog can resolve. */
+  names(): string[];
+  /** Path geometry for one name, or undefined when the catalog has no such icon. */
+  path(name: string): string | undefined;
+}
+
+/**
+ * The full catalog, registered by whoever can supply it.
+ *
+ * This used to reach into node_modules through `require`, which is a different
+ * answer in every place the code runs: present under Bun, absent in the Vite
+ * dev middleware that actually serves the agent, absent in the browser. The
+ * middleware quietly fell back to the 28-icon core map below, so search_icons
+ * answered "no such icon" for info, bookmark and calendar while insert_icon
+ * refused `clock` — and the tests stayed green, because tests run under Bun
+ * where `require` exists. A registry has no environment to guess at: the server
+ * registers a catalog, the browser does not, and both take the same path here.
+ */
+let registry: IconCatalog | null = null;
+
+export function registerIconCatalog(catalog: IconCatalog): void {
+  registry = catalog;
+  cachedIconNames = null;
+  iconPathCache.clear();
+}
+
+/**
+ * True when the full catalog is loaded. A caller that promises the model an
+ * icon will paint needs to tell "this name is wrong" from "this process can
+ * only see twenty-eight names".
+ */
+export function iconCatalogAvailable(): boolean {
+  return registry !== null;
+}
+
+export function elementToPath(tag: string, attrs: Record<string, any>): string {
   if (tag === "path") return attrs.d || "";
   if (tag === "circle") {
     const r = Number(attrs.r || 0);
@@ -79,11 +118,7 @@ const CORE_ICONS: Record<string, string> = {
   "battery-full": "M10 10v4 M14 10v4 M22 14v-4 M6 10v4 M 4,6 h 12 a 2,2 0 0 1 2,2 v 8 a 2,2 0 0 1 -2,2 h -12 a 2,2 0 0 1 -2,2 v -8 a 2,2 0 0 1 2,2 z"
 };
 
-/**
- * On-demand Lucide icon retriever.
- * In Bun / Node (agent server, tests): pulls directly from installed lucide-solid node_modules.
- * In the browser: the core map only. Nodes should already carry geometry from insert_icon.
- */
+/** Geometry for one icon name, from the core map or the registered catalog. */
 export function getLucideIconPath(name: string): string | undefined {
   if (!name) return undefined;
   const normalized = name.toLowerCase().trim().replace(/_/g, "-");
@@ -97,76 +132,54 @@ export function getLucideIconPath(name: string): string | undefined {
     return CORE_ICONS[normalized];
   }
 
-  // If in Node/Bun environment, load on-demand from node_modules dynamically
-  if (typeof process !== "undefined" && typeof (process as any).cwd === "function") {
-    try {
-      const fs = typeof require !== "undefined" ? require("fs") : null;
-      const path = typeof require !== "undefined" ? require("path") : null;
-      if (fs && path) {
-        const candidates = [
-          path.resolve(process.cwd(), "node_modules/lucide-solid/dist/esm/icons"),
-          path.resolve(process.cwd(), "../node_modules/lucide-solid/dist/esm/icons")
-        ];
-        for (const dir of candidates) {
-          const filePath = path.join(dir, `${normalized}.mjs`);
-          if (fs.existsSync(filePath)) {
-            const content = fs.readFileSync(filePath, "utf-8");
-            const match = content.match(/iconNode\s*=\s*(\[[\s\S]*?\]);/);
-            if (match) {
-              const raw = match[1].replace(/key:\s*[\x27\x22]\w+[\x27\x22]/g, "").replace(/,\s*}/g, "}").replace(/,\s*\]/g, "]");
-              const jsonStr = raw.replace(/([a-zA-Z0-9_]+):/g, "\"$1\":").replace(/\x27/g, "\"");
-              const parsed = JSON.parse(jsonStr);
-              const geom = parsed.map(([t, a]: [string, any]) => elementToPath(t, a)).filter(Boolean).join(" ");
-              if (geom) {
-                iconPathCache.set(normalized, geom);
-                return geom;
-              }
-            }
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
+  const registered = registry?.path(normalized);
+  if (registered) {
+    iconPathCache.set(normalized, registered);
+    return registered;
   }
 
-  return iconPathCache.get(normalized);
+  return undefined;
 }
 
-/**
- * Returns available Lucide icon names dynamically from node_modules or core list.
- */
+/** Every name that can be resolved here: the whole catalog, or the core map. */
 export function getAllLucideIconNames(): string[] {
   if (cachedIconNames) return cachedIconNames;
-  if (typeof process !== "undefined" && typeof (process as any).cwd === "function") {
-    try {
-      const fs = typeof require !== "undefined" ? require("fs") : null;
-      const path = typeof require !== "undefined" ? require("path") : null;
-      if (fs && path) {
-        const dir = path.resolve(process.cwd(), "node_modules/lucide-solid/dist/esm/icons");
-        if (fs.existsSync(dir)) {
-          cachedIconNames = fs.readdirSync(dir)
-            .filter((f: string) => f.endsWith(".mjs"))
-            .map((f: string) => f.replace(/\.mjs$/, ""));
-          return cachedIconNames!;
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return Object.keys(CORE_ICONS);
+  cachedIconNames = registry ? registry.names() : Object.keys(CORE_ICONS);
+  return cachedIconNames;
 }
 
-/**
- * Fuzzy search across all installed Lucide icons.
- */
+/** Fuzzy search across every installed Lucide icon. */
 export function searchLucideIcons(query: string, limit = 20): string[] {
   const all = getAllLucideIconNames();
   if (!query) return all.slice(0, limit);
-  const q = query.toLowerCase().trim().replace(/_/g, "-");
-  const exact = all.filter((k) => k === q);
-  const starts = all.filter((k) => k.startsWith(q) && k !== q);
-  const includes = all.filter((k) => k.includes(q) && !k.startsWith(q));
-  return [...exact, ...starts, ...includes].slice(0, limit);
+
+  // Matched per word, not as one string. Icon names are hyphenated and queries
+  // are written the way a person speaks: "cat paw" found nothing while both cat
+  // and paw-print were installed, and "message circle" found nothing while
+  // message-circle was the icon being described. Every multi-word query failed,
+  // and the model answered a wrong "no such icon" by settling for a worse one.
+  const q = query.toLowerCase().trim().replace(/[_\s]+/g, "-");
+  const words = q.split("-").filter(Boolean);
+  if (words.length === 0) return all.slice(0, limit);
+
+  const scored = all
+    .map((name) => {
+      const parts = name.split("-");
+      let score = 0;
+      if (name === q) score = 1000;
+      else if (name.startsWith(q)) score = 500;
+      else if (name.includes(q)) score = 400;
+      for (const word of words) {
+        if (parts.includes(word)) score += 100;
+        else if (parts.some((part) => part.startsWith(word))) score += 40;
+        else if (name.includes(word)) score += 10;
+      }
+      // Among equal matches prefer the plainer name: a query for "cat" wants
+      // cat, not chart-scatter.
+      return { name, score: score > 0 ? score - Math.min(parts.length, 9) : 0 };
+    })
+    .filter((entry) => entry.score > 0);
+
+  scored.sort((a, b) => b.score - a.score || a.name.length - b.name.length || a.name.localeCompare(b.name));
+  return scored.slice(0, limit).map((entry) => entry.name);
 }

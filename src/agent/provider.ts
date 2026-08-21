@@ -14,6 +14,7 @@ export interface ToolCall {
   id: string;
   type: "function";
   function: { name: string; arguments: string };
+  extra_content?: { google?: { thought_signature?: string } };
 }
 
 export type MessageContentPart =
@@ -43,11 +44,12 @@ export interface CompleteOptions {
 }
 
 export function toApiMessages(messages: Message[], p?: Provider) {
-  const isVisionCapable =
-    p?.vision || p?.id === "openai" || p?.model?.includes("gpt-4o") || p?.model?.includes("vl");
+  // The catalog decides this, once. Sniffing the model name for "gpt-4o" or
+  // "vl" here disagreed with loadProvider on every model neither rule named,
+  // so a request could carry an image the server believed it had stripped.
   return messages.map((m) => {
     let content = m.content;
-    if (Array.isArray(content) && !isVisionCapable) {
+    if (Array.isArray(content) && !p?.vision) {
       content = content
         .filter((c) => c.type === "text")
         .map((c) => (c as { type: "text"; text: string }).text)
@@ -60,19 +62,37 @@ export function toApiMessages(messages: Message[], p?: Provider) {
   });
 }
 
-function toResponsesInput(messages: Message[]) {
-  return messages.map((message) => {
+export function toResponsesInput(messages: Message[]) {
+  const input: Record<string, unknown>[] = [];
+  for (const message of messages) {
+    if (message.role === "tool") {
+      const output = Array.isArray(message.content)
+        ? message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n")
+        : message.content;
+      input.push({ type: "function_call_output", call_id: message.tool_call_id, output });
+      continue;
+    }
+
     const parts: MessageContentPart[] = Array.isArray(message.content)
       ? message.content
       : [{ type: "text", text: message.content }];
-    return {
-      role: message.role,
-      content: parts
+    const content = parts
       .map((part) => part.type === "text"
         ? { type: message.role === "assistant" ? "output_text" : "input_text", text: part.text }
-        : { type: "input_image", image_url: part.image_url.url, detail: part.image_url.detail })
-    };
-  });
+        : { type: "input_image", image_url: part.image_url.url, detail: part.image_url.detail });
+    if (content.some((part) => part.type !== "output_text" || part.text)) {
+      input.push({ role: message.role, content });
+    }
+    for (const call of message.tool_calls ?? []) {
+      input.push({
+        type: "function_call",
+        call_id: call.id,
+        name: call.function.name,
+        arguments: call.function.arguments
+      });
+    }
+  }
+  return input;
 }
 
 function toMessagesInput(messages: Message[]) {

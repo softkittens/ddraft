@@ -110,6 +110,31 @@ describe("browser capture", () => {
 });
 
 describe("paintNode effects", () => {
+  it("paints an icon from its stored geometry rather than the fallback glyph", () => {
+    // The other half of the icon fix: tools store geometry, and this is what
+    // proves the painter reaches for it. Without it every non-core icon drew
+    // ICON_PATH — the layers glyph — whatever the model asked for.
+    const drawn: string[] = [];
+    (globalThis as { Path2D?: unknown }).Path2D = class {
+      constructor(d: string) { drawn.push(d); }
+    };
+    try {
+      const { ctx } = createMockCanvas();
+      const node = {
+        type: "icon", id: "bm", icon: "bookmark",
+        geometry: "M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"
+      };
+      paintNode(
+        ctx,
+        { id: "bm", type: "icon", box: { x: 0, y: 0, width: 22, height: 22 }, children: [] },
+        new Map([["bm", node as never]])
+      );
+      expect(drawn).toEqual(["M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"]);
+    } finally {
+      delete (globalThis as { Path2D?: unknown }).Path2D;
+    }
+  });
+
   it("cover-crops image fills instead of stretching them", () => {
     class WideImage {
       complete = true;

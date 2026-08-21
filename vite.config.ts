@@ -46,7 +46,10 @@ function agentDevMiddleware(env: Record<string, string>): Plugin {
             duplex: "half"
           });
 
-          const webRes = await handleAgentRequest(webReq, { env });
+          const webRes = await handleAgentRequest(webReq, {
+            env,
+            logDir: resolve(process.cwd(), "agent-logs")
+          });
 
           res.statusCode = webRes.status;
           webRes.headers.forEach((v, k) => res.setHeader(k, v));

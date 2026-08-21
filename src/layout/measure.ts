@@ -134,12 +134,26 @@ export function measureNode(
   const wSizing = parseSizing(frame.width);
   const hSizing = parseSizing(frame.height);
 
-  // A frame with layout: "none" does NOT auto-size (defaults to 0x0 if unauthored)
+  /**
+   * A frame with layout: "none" places its children by their own x/y, so there
+   * is no flow to add up. An unauthored size stays 0 — nothing asked for one.
+   *
+   * `fit_content` did too, and that is what this now fixes. It is not an
+   * omission: the author asked the frame to be as big as what it holds, which
+   * for absolute children is their extent, exactly as a group resolves it.
+   * Answering 0 collapsed the frame to nothing, and because checkOverflow skips
+   * a parent measuring 0 it did so without a single finding — one run spent its
+   * last eight rounds moving a hero image in and out of a box that could never
+   * have shown it.
+   */
   if (layoutMode === "none") {
+    const extent = contentExtent(children);
+    const hug = (s: ParsedSizing, span: number) =>
+      s.mode === "fit_content" ? s.fallback ?? span : sizingValue(s, 0);
     return {
       node,
-      measuredWidth: sizingValue(wSizing, 0),
-      measuredHeight: sizingValue(hSizing, 0),
+      measuredWidth: hug(wSizing, extent.w),
+      measuredHeight: hug(hSizing, extent.h),
       children
     };
   }

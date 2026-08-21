@@ -68,6 +68,30 @@ describe("Layout Subsystem (Unit B)", () => {
     });
   });
 
+  it("hugs absolute children when a layout:none frame asks to fit its content", () => {
+    // It answered 0, which is right for an unauthored size and wrong for one
+    // the author wrote down. A hero built as an image with a sheet under it
+    // collapsed to 390x0 and showed nothing, and because checkOverflow skips a
+    // parent measuring zero the audit had nothing to say about it either.
+    const doc = makeDoc(frame("screen", 390, 844, [
+      frame("hero", "fill_container" as any, "fit_content" as any, [
+        rect("photo", 390, 400),
+        rect("sheet", 390, 192, { y: 400 } as any)
+      ], { layout: "none" })
+    ], { layout: "vertical" }));
+
+    assertBoxes(layoutDocument(doc), {
+      hero: [0, 0, 390, 592],
+      photo: [0, 0, 390, 400],
+      sheet: [0, 400, 390, 192]
+    });
+  });
+
+  it("leaves an unauthored layout:none frame at zero, which is what nothing asked for", () => {
+    const doc = makeDoc(frame("f", undefined, undefined, [rect("r", 50, 50)], { layout: "none" }));
+    expect(flattenBoxes(layoutDocument(doc)).get("f")).toMatchObject({ width: 0, height: 0 });
+  });
+
   it("lays out vertical wrapping text without sibling overlap", () => {
     const longText = "This is a very long text paragraph designed to wrap onto multiple lines in a container.";
     // 1. fill_container width vertical wrapping

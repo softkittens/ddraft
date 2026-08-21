@@ -1,12 +1,32 @@
-import { listConfiguredProviders, loadProvider, UnknownModelError } from "./credentials";
+import {
+  listConfiguredProviders,
+  loadProvider,
+  loadVisionProvider,
+  UnknownModelError
+} from "./credentials";
 import { isAbortError, runSession, type AgentEvent } from "./session";
 import { complete, type FetchFn, type ReasoningEffort } from "./provider";
-import { criticMessages, parseDesignReview } from "./review";
+import { criticMessages, parseDesignReview } from "./critic";
+import type { ReviewResponse } from "./review";
+import type { StyleRun } from "../design/history";
+import { createSessionLog } from "./sessionLog";
+import { designDirection } from "../design/styleSystem";
+import { catalogById } from "./catalog";
 import { z } from "zod";
+
+/** The client sends this; nothing else may reach the prompt. */
+function isStyleRun(value: unknown): value is StyleRun {
+  if (!value || typeof value !== "object") return false;
+  const run = value as Record<string, unknown>;
+  return ["at", "brief", "palette", "headings", "elevation"].every(
+    (key) => typeof run[key] === "string"
+  );
+}
 
 export interface AgentHttpDeps {
   env?: Record<string, string | undefined>;
   fetch?: FetchFn;
+  logDir?: string;
 }
 
 const REVIEW_BODY_LIMIT = 8 * 1024 * 1024;
@@ -87,9 +107,13 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
     let body: {
       providerId?: string;
       model?: string;
+      reasoningEffort?: ReasoningEffort;
       brief?: unknown;
       screenshot?: unknown;
       digest?: unknown;
+      direction?: unknown;
+      audit?: unknown;
+      sessionId?: unknown;
     };
     try {
       body = JSON.parse(rawText) as typeof body;
@@ -106,7 +130,7 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
 
     let provider = null;
     try {
-      provider = loadRequestedProvider(env, body.providerId, body.model, "none");
+      provider = loadRequestedProvider(env, body.providerId, body.model, body.reasoningEffort);
     } catch (e) {
       if (e instanceof UnknownModelError) return Response.json({ error: e.message }, { status: 400 });
       throw e;
@@ -114,34 +138,95 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
     if (!provider) {
       return Response.json({ error: "not configured" }, { status: 503 });
     }
-    if (!provider.vision) {
-      return Response.json({ error: `${provider.model} does not accept image input` }, { status: 422 });
-    }
-
     const messages = criticMessages({
       brief: body.brief,
       screenshotDataUrl: body.screenshot,
-      digest: body.digest
+      digest: body.digest,
+      direction: designDirection(body.direction),
+      audit: typeof body.audit === "string" ? body.audit : undefined
     });
+    const log = deps.logDir ? createSessionLog(deps.logDir, body.sessionId) : null;
+    const designModel = provider.model;
+    /*
+     * Which models have had a turn at the screenshot.
+     *
+     * A model is dropped from this list for either of two reasons — the catalog
+     * says it has no eyes, or it accepted the request and failed on it. From
+     * here those are the same fact, and both are worth one handoff rather than
+     * one dead review.
+     */
+    const tried: string[] = [designModel];
+    let handoff: string | undefined;
+
+    if (!provider.vision) {
+      const alternate = loadVisionProvider(provider.id, env, tried, body.reasoningEffort);
+      if (!alternate) {
+        await log?.close();
+        return Response.json({
+          error: `${designModel} does not accept image input, and ${
+            catalogById(provider.id)?.label ?? provider.id
+          } offers no model that does`
+        }, { status: 422 });
+      }
+      handoff = `${designModel} does not read images`;
+      provider = alternate;
+      tried.push(provider.model);
+    }
 
     try {
-      const reply = await complete(provider, messages, {
-        fetch: deps.fetch,
-        signal: req.signal
-      });
-      const parsed = extractJson(typeof reply.content === "string" ? reply.content : "");
-      const review = parseDesignReview(parsed, body.digest);
-      return Response.json(review);
-    } catch (err) {
-      if (isAbortError(err, req.signal)) {
-        return new Response(null, { status: 204 });
+      for (;;) {
+        log?.write({
+          type: "review_request",
+          providerId: provider.id,
+          model: provider.model,
+          designModel,
+          handoff,
+          reasoningEffort: provider.reasoningEffort,
+          messages
+        });
+        try {
+          const reply = await complete(provider, messages, {
+            fetch: deps.fetch,
+            signal: req.signal
+          });
+          log?.write({ type: "review_response", model: provider.model, response: reply });
+          const parsed = extractJson(typeof reply.content === "string" ? reply.content : "");
+          const review = parseDesignReview(parsed, body.digest);
+          const response: ReviewResponse = {
+            ...review,
+            reviewedBy: { providerId: provider.id, model: provider.model, handoff }
+          };
+          log?.write({ type: "review_result", model: provider.model, handoff, review });
+          return Response.json(response);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          log?.write({ type: "review_error", model: provider.model, error: message });
+          if (isAbortError(err, req.signal)) {
+            return new Response(null, { status: 204 });
+          }
+          // The model answered; it just did not answer in the shape asked for.
+          // Handing that to a second model would spend another call on a
+          // failure a retry cannot distinguish from a stubborn one.
+          if (err instanceof z.ZodError || err instanceof SyntaxError) {
+            return Response.json({ error: "invalid_response" }, { status: 422 });
+          }
+          const alternate = loadVisionProvider(provider.id, env, tried, body.reasoningEffort);
+          if (!alternate) {
+            return Response.json({ error: message }, { status: 502 });
+          }
+          log?.write({
+            type: "review_handoff",
+            from: provider.model,
+            to: alternate.model,
+            reason: message
+          });
+          handoff = `${provider.model} failed on the screenshot (${message})`;
+          provider = alternate;
+          tried.push(provider.model);
+        }
       }
-      if (err instanceof z.ZodError || err instanceof SyntaxError) {
-        return Response.json({ error: "invalid_response" }, { status: 422 });
-      }
-      return Response.json({
-        error: err instanceof Error ? err.message : String(err)
-      }, { status: 502 });
+    } finally {
+      await log?.close();
     }
   }
 
@@ -153,6 +238,8 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
       model?: string;
       reasoningEffort?: ReasoningEffort;
       selection?: unknown;
+      recentStyles?: unknown;
+      sessionId?: unknown;
     };
     let provider = null;
     try {
@@ -165,39 +252,63 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
       return Response.json({ error: "not configured" }, { status: 503 });
     }
 
+    const log = deps.logDir ? createSessionLog(deps.logDir, body.sessionId) : null;
+    log?.write({
+      type: "session_start",
+      sessionId: log?.id,
+      providerId: provider.id,
+      model: provider.model,
+      api: provider.api ?? "chat",
+      reasoningEffort: provider.reasoningEffort,
+      selection: body.selection
+    });
+
     const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        try {
-          for await (const event of runSession(provider, body.messages as never, body.doc as never, {
-            fetch: deps.fetch,
-            signal: req.signal,
-            selection: Array.isArray(body.selection)
-              ? body.selection.filter((v): v is string => typeof v === "string")
-              : []
-          })) {
-            controller.enqueue(encodeEvent(event));
+      start(controller) {
+        void (async () => {
+          try {
+            for await (const event of runSession(provider, body.messages as never, body.doc as never, {
+              fetch: deps.fetch,
+              signal: req.signal,
+              selection: Array.isArray(body.selection)
+                ? body.selection.filter((v): v is string => typeof v === "string")
+                : [],
+              recentStyles: Array.isArray(body.recentStyles)
+                ? (body.recentStyles.filter(isStyleRun) as StyleRun[])
+                : [],
+              trace: (event) => log?.write(event)
+            })) {
+              if (event.type === "done") log?.write({ type: "session_done" });
+              if (event.type === "error") {
+                log?.write({ type: "session_error", code: event.code, message: event.message });
+              }
+              controller.enqueue(encodeEvent(event));
+            }
+          } catch (err) {
+            if (!isAbortError(err, req.signal)) {
+              log?.write({ type: "session_error", code: "provider", message: err instanceof Error ? err.message : String(err) });
+              controller.enqueue(encodeEvent({
+                type: "error",
+                code: "provider",
+                message: err instanceof Error ? err.message : String(err)
+              }));
+            }
+          } finally {
+            log?.write({ type: "session_end" });
+            await log?.close();
+            controller.close();
           }
-        } catch (err) {
-          if (!isAbortError(err, req.signal)) {
-            controller.enqueue(encodeEvent({
-              type: "error",
-              code: "provider",
-              message: err instanceof Error ? err.message : String(err)
-            }));
-          }
-        } finally {
-          controller.close();
-        }
+        })();
       }
     });
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive"
-      }
-    });
+    const headers: Record<string, string> = {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive"
+    };
+    if (log) headers["X-Agent-Session-Id"] = log.id;
+    return new Response(stream, { headers });
   }
 
   return new Response("not found", { status: 404 });

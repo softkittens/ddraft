@@ -1,0 +1,692 @@
+[
+  {
+    "name": "Agentic",
+    "scheme": "dark",
+    "mood": "Conversational AI-first interface with minimal controls, clear outcomes, and delegated task flows for agentic workflows.",
+    "tokens": {
+      "surface-primary": "#0B1020",
+      "surface-secondary": "#131B2F",
+      "foreground-primary": "#F8FAFC",
+      "foreground-secondary": "#CBD5E1",
+      "foreground-muted": "#8EA0B8",
+      "border-subtle": "#293653",
+      "accent-primary": "#60A5FA",
+      "accent-secondary": "#FBBF24"
+    }
+  },
+  {
+    "name": "Application",
+    "scheme": "light",
+    "mood": "App dashboard with purple-themed aesthetic, top-bar navigation, card-based layouts, and developer-first workflows.",
+    "tokens": {
+      "surface-primary": "#F6F7F9",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#172033",
+      "foreground-secondary": "#3B4658",
+      "foreground-muted": "#6B7689",
+      "border-subtle": "#D8DEE8",
+      "accent-primary": "#2563EB",
+      "accent-secondary": "#DC2626"
+    }
+  },
+  {
+    "name": "Artistic",
+    "scheme": "light",
+    "mood": "High-contrast, expressive style with creative typography and bold color choices for visually striking interfaces.",
+    "tokens": {
+      "surface-primary": "#FBF6EE",
+      "surface-secondary": "#FFFDF8",
+      "foreground-primary": "#201914",
+      "foreground-secondary": "#4C4037",
+      "foreground-muted": "#7A6D63",
+      "border-subtle": "#DED2C3",
+      "accent-primary": "#9B5B32",
+      "accent-secondary": "#4F8A4F"
+    }
+  },
+  {
+    "name": "Atelier Zero",
+    "scheme": "light",
+    "mood": "A magazine-grade, collage-driven visual system: warm paper canvas, surreal",
+    "tokens": {
+      "surface-primary": "#FFFFFF",
+      "surface-secondary": "#F7F7F7",
+      "foreground-primary": "#111111",
+      "foreground-secondary": "#3A3A3A",
+      "foreground-muted": "#707070",
+      "border-subtle": "#D9D9D9",
+      "accent-primary": "#111111",
+      "accent-secondary": "#168A46"
+    }
+  },
+  {
+    "name": "Bento",
+    "scheme": "light",
+    "mood": "Modular grid layout with card-like blocks, clear hierarchy, soft spacing, and subtle visual contrast for organized, scannable interfaces.",
+    "tokens": {
+      "surface-primary": "#F5F8FF",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#101828",
+      "foreground-secondary": "#344054",
+      "foreground-muted": "#667085",
+      "border-subtle": "#D7E0EF",
+      "accent-primary": "#2563EB",
+      "accent-secondary": "#EF4444"
+    }
+  },
+  {
+    "name": "Bold",
+    "scheme": "light",
+    "mood": "Strong visual presence with heavyweight typography, high-contrast colors, and commanding layouts.",
+    "tokens": {
+      "surface-primary": "#FFFFFF",
+      "surface-secondary": "#F7F7F7",
+      "foreground-primary": "#111111",
+      "foreground-secondary": "#3A3A3A",
+      "foreground-muted": "#707070",
+      "border-subtle": "#D9D9D9",
+      "accent-primary": "#111111",
+      "accent-secondary": "#168A46"
+    }
+  },
+  {
+    "name": "Cafe",
+    "scheme": "light",
+    "mood": "Cozy cafe-inspired interface with warm tones, soft typography, and clean layouts for a relaxed browsing experience.",
+    "tokens": {
+      "surface-primary": "#FBF6EE",
+      "surface-secondary": "#FFFDF8",
+      "foreground-primary": "#201914",
+      "foreground-secondary": "#4C4037",
+      "foreground-muted": "#7A6D63",
+      "border-subtle": "#DED2C3",
+      "accent-primary": "#9B5B32",
+      "accent-secondary": "#4F8A4F"
+    }
+  },
+  {
+    "name": "Clean",
+    "scheme": "light",
+    "mood": "Simplicity-focused design with ample whitespace, legible typography, and a limited color palette to reduce visual clutter.",
+    "tokens": {
+      "surface-primary": "#FFFFFF",
+      "surface-secondary": "#F7F7F7",
+      "foreground-primary": "#111111",
+      "foreground-secondary": "#3A3A3A",
+      "foreground-muted": "#707070",
+      "border-subtle": "#D9D9D9",
+      "accent-primary": "#111111",
+      "accent-secondary": "#168A46"
+    }
+  },
+  {
+    "name": "Claymorphism",
+    "scheme": "light",
+    "mood": "Soft, rounded 3D-like shapes mimicking malleable clay with playful, puffy elements and colorful surfaces.",
+    "tokens": {
+      "surface-primary": "#F7EEE6",
+      "surface-secondary": "#FFF8F1",
+      "foreground-primary": "#2B211C",
+      "foreground-secondary": "#5A4B43",
+      "foreground-muted": "#8A7A70",
+      "border-subtle": "#DAC8B9",
+      "accent-primary": "#B46A46",
+      "accent-secondary": "#4D8F5A"
+    }
+  },
+  {
+    "name": "Contemporary",
+    "scheme": "light",
+    "mood": "Current-era minimalist design with bento grids, dark mode support, and high-performance accessible layouts.",
+    "tokens": {
+      "surface-primary": "#F5F8FF",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#101828",
+      "foreground-secondary": "#344054",
+      "foreground-muted": "#667085",
+      "border-subtle": "#D7E0EF",
+      "accent-primary": "#2563EB",
+      "accent-secondary": "#EF4444"
+    }
+  },
+  {
+    "name": "Corporate",
+    "scheme": "light",
+    "mood": "Professional, brand-aligned design with structured grids, minimalist layouts, and consistent enterprise patterns.",
+    "tokens": {
+      "surface-primary": "#F5F8FF",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#101828",
+      "foreground-secondary": "#344054",
+      "foreground-muted": "#667085",
+      "border-subtle": "#D7E0EF",
+      "accent-primary": "#2563EB",
+      "accent-secondary": "#EF4444"
+    }
+  },
+  {
+    "name": "Cosmic",
+    "scheme": "dark",
+    "mood": "Futuristic sci-fi aesthetic with dark themes, vibrant neon accents, and immersive spatial elements.",
+    "tokens": {
+      "surface-primary": "#070711",
+      "surface-secondary": "#111126",
+      "foreground-primary": "#F8F7FF",
+      "foreground-secondary": "#D6CCFF",
+      "foreground-muted": "#9D8AD4",
+      "border-subtle": "#34265E",
+      "accent-primary": "#C084FC",
+      "accent-secondary": "#FFF34D"
+    }
+  },
+  {
+    "name": "Dithered",
+    "scheme": "light",
+    "mood": "Dot-pattern rendering technique that simulates shades with a limited palette for nostalgic, retro, high-contrast visuals.",
+    "tokens": {
+      "surface-primary": "#FFF4CF",
+      "surface-secondary": "#FFFAF0",
+      "foreground-primary": "#2A1810",
+      "foreground-secondary": "#593625",
+      "foreground-muted": "#8A6652",
+      "border-subtle": "#D9AA7A",
+      "accent-primary": "#D24B1F",
+      "accent-secondary": "#3D8F4F"
+    }
+  },
+  {
+    "name": "Dramatic",
+    "scheme": "dark",
+    "mood": "High-contrast, theatrical design with bold layouts, immersive visuals, and unconventional compositions that command attention.",
+    "tokens": {
+      "surface-primary": "#090B12",
+      "surface-secondary": "#121722",
+      "foreground-primary": "#F8FAFC",
+      "foreground-secondary": "#CBD5E1",
+      "foreground-muted": "#94A3B8",
+      "border-subtle": "#2A3447",
+      "accent-primary": "#60A5FA",
+      "accent-secondary": "#FBBF24"
+    }
+  },
+  {
+    "name": "Editorial",
+    "scheme": "light",
+    "mood": "Magazine-inspired editorial layout with refined serif typography, structured grids, and elegant reading experiences.",
+    "tokens": {
+      "surface-primary": "#FBF7F0",
+      "surface-secondary": "#FFFDF8",
+      "foreground-primary": "#1F1A16",
+      "foreground-secondary": "#4B4038",
+      "foreground-muted": "#7D7168",
+      "border-subtle": "#DED3C5",
+      "accent-primary": "#9A5A2F",
+      "accent-secondary": "#4F8A4F"
+    }
+  },
+  {
+    "name": "Elegant",
+    "scheme": "light",
+    "mood": "Graceful, refined aesthetic with delicate typography, minimal palettes, and polished layouts that exude sophistication.",
+    "tokens": {
+      "surface-primary": "#FBF6EE",
+      "surface-secondary": "#FFFDF8",
+      "foreground-primary": "#201914",
+      "foreground-secondary": "#4C4037",
+      "foreground-muted": "#7A6D63",
+      "border-subtle": "#DED2C3",
+      "accent-primary": "#9B5B32",
+      "accent-secondary": "#4F8A4F"
+    }
+  },
+  {
+    "name": "Enterprise",
+    "scheme": "light",
+    "mood": "Clean, high-contrast enterprise design for data-driven workflows with intuitive drag-and-drop patterns and structured layouts.",
+    "tokens": {
+      "surface-primary": "#F8FAFC",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#0F172A",
+      "foreground-secondary": "#334155",
+      "foreground-muted": "#64748B",
+      "border-subtle": "#D8DEE8",
+      "accent-primary": "#1D4ED8",
+      "accent-secondary": "#B45309"
+    }
+  },
+  {
+    "name": "Expressive",
+    "scheme": "light",
+    "mood": "Vibrant, personality-driven design with bold colors, playful graphics, and dynamic layouts that balance creativity with structure.",
+    "tokens": {
+      "surface-primary": "#FBF8FF",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#1F1730",
+      "foreground-secondary": "#4D425F",
+      "foreground-muted": "#776B88",
+      "border-subtle": "#DED4EE",
+      "accent-primary": "#7C3AED",
+      "accent-secondary": "#16A34A"
+    }
+  },
+  {
+    "name": "Fantasy",
+    "scheme": "dark",
+    "mood": "Game-inspired fantasy aesthetic with bold, premium visuals, rich color palettes, and immersive thematic elements.",
+    "tokens": {
+      "surface-primary": "#070711",
+      "surface-secondary": "#111126",
+      "foreground-primary": "#F8F7FF",
+      "foreground-secondary": "#D6CCFF",
+      "foreground-muted": "#9D8AD4",
+      "border-subtle": "#34265E",
+      "accent-primary": "#C084FC",
+      "accent-secondary": "#FFF34D"
+    }
+  },
+  {
+    "name": "Flat",
+    "scheme": "light",
+    "mood": "Two-dimensional minimalist style with vibrant colors, clean typography, and no 3D effects for fast, user-friendly interfaces.",
+    "tokens": {
+      "surface-primary": "#F5F8FF",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#101828",
+      "foreground-secondary": "#344054",
+      "foreground-muted": "#667085",
+      "border-subtle": "#D7E0EF",
+      "accent-primary": "#2563EB",
+      "accent-secondary": "#EF4444"
+    }
+  },
+  {
+    "name": "Futuristic",
+    "scheme": "dark",
+    "mood": "Forward-looking design with tech-inspired typography, modern layouts, and a sleek, innovation-driven aesthetic.",
+    "tokens": {
+      "surface-primary": "#090B12",
+      "surface-secondary": "#121722",
+      "foreground-primary": "#F8FAFC",
+      "foreground-secondary": "#CBD5E1",
+      "foreground-muted": "#94A3B8",
+      "border-subtle": "#2A3447",
+      "accent-primary": "#60A5FA",
+      "accent-secondary": "#FBBF24"
+    }
+  },
+  {
+    "name": "Gradient",
+    "scheme": "light",
+    "mood": "Smooth color transitions and gradient-rich surfaces for modern, playful interfaces with visual depth.",
+    "tokens": {
+      "surface-primary": "#F7F3FF",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#191225",
+      "foreground-secondary": "#443856",
+      "foreground-muted": "#746985",
+      "border-subtle": "#DDD2F2",
+      "accent-primary": "#7C3AED",
+      "accent-secondary": "#EF4444"
+    }
+  },
+  {
+    "name": "Hud",
+    "scheme": "dark",
+    "mood": "Fighter jet / helicopter head-up display. Phosphor green on near-black, all-caps data overlays, angular geometry. Zero ambiguity at speed and altitude.",
+    "tokens": {
+      "surface-primary": "#090B12",
+      "surface-secondary": "#121722",
+      "foreground-primary": "#F8FAFC",
+      "foreground-secondary": "#CBD5E1",
+      "foreground-muted": "#94A3B8",
+      "border-subtle": "#2A3447",
+      "accent-primary": "#60A5FA",
+      "accent-secondary": "#FBBF24"
+    }
+  },
+  {
+    "name": "Luxury",
+    "scheme": "dark",
+    "mood": "High-end dark aesthetic with bold headings, monochromatic palette, and premium feel for luxury brand experiences.",
+    "tokens": {
+      "surface-primary": "#080706",
+      "surface-secondary": "#151310",
+      "foreground-primary": "#FFF8EA",
+      "foreground-secondary": "#D8CDB7",
+      "foreground-muted": "#9F927C",
+      "border-subtle": "#3A3020",
+      "accent-primary": "#C6A15B",
+      "accent-secondary": "#5FA36A"
+    }
+  },
+  {
+    "name": "Minimal",
+    "scheme": "light",
+    "mood": "Stripped-back design emphasizing whitespace, clean typography, and restrained color for maximum clarity and focus.",
+    "tokens": {
+      "surface-primary": "#FFFFFF",
+      "surface-secondary": "#FAFAFA",
+      "foreground-primary": "#111111",
+      "foreground-secondary": "#3A3A3A",
+      "foreground-muted": "#777777",
+      "border-subtle": "#E2E2E2",
+      "accent-primary": "#111111",
+      "accent-secondary": "#168A46"
+    }
+  },
+  {
+    "name": "Mission Control",
+    "scheme": "dark",
+    "mood": "Space/aerospace mission monitoring. Dark command center, amber telemetry, monospace precision. Functional clarity above all else.",
+    "tokens": {
+      "surface-primary": "#090B12",
+      "surface-secondary": "#121722",
+      "foreground-primary": "#F8FAFC",
+      "foreground-secondary": "#CBD5E1",
+      "foreground-muted": "#94A3B8",
+      "border-subtle": "#2A3447",
+      "accent-primary": "#60A5FA",
+      "accent-secondary": "#FBBF24"
+    }
+  },
+  {
+    "name": "Modern",
+    "scheme": "light",
+    "mood": "Contemporary editorial style with serif typography, minimal palettes, and clean layouts for polished digital products.",
+    "tokens": {
+      "surface-primary": "#F7F8FC",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#111827",
+      "foreground-secondary": "#374151",
+      "foreground-muted": "#6B7280",
+      "border-subtle": "#DFE3ED",
+      "accent-primary": "#4F46E5",
+      "accent-secondary": "#EF4444"
+    }
+  },
+  {
+    "name": "Mono",
+    "scheme": "light",
+    "mood": "Monospace-driven, matrix-inspired design with high-contrast elements, compact density, and a hacker-chic aesthetic.",
+    "tokens": {
+      "surface-primary": "#FFFFFF",
+      "surface-secondary": "#F7F7F7",
+      "foreground-primary": "#111111",
+      "foreground-secondary": "#3A3A3A",
+      "foreground-muted": "#707070",
+      "border-subtle": "#D9D9D9",
+      "accent-primary": "#111111",
+      "accent-secondary": "#168A46"
+    }
+  },
+  {
+    "name": "Neobrutalism",
+    "scheme": "light",
+    "mood": "Modern take on brutalism with bold borders, vivid accent colors, and raw, high-contrast layouts on warm surfaces.",
+    "tokens": {
+      "surface-primary": "#FFF4CF",
+      "surface-secondary": "#FFFAF0",
+      "foreground-primary": "#2A1810",
+      "foreground-secondary": "#593625",
+      "foreground-muted": "#8A6652",
+      "border-subtle": "#D9AA7A",
+      "accent-primary": "#D24B1F",
+      "accent-secondary": "#3D8F4F"
+    }
+  },
+  {
+    "name": "Neon",
+    "scheme": "dark",
+    "mood": "Electric neon glow effects with high-contrast color pairings for bold, attention-grabbing interfaces.",
+    "tokens": {
+      "surface-primary": "#070711",
+      "surface-secondary": "#111126",
+      "foreground-primary": "#F8F7FF",
+      "foreground-secondary": "#D6CCFF",
+      "foreground-muted": "#9D8AD4",
+      "border-subtle": "#34265E",
+      "accent-primary": "#C084FC",
+      "accent-secondary": "#FFF34D"
+    }
+  },
+  {
+    "name": "Neumorphism",
+    "scheme": "light",
+    "mood": "Soft, extruded UI elements with inner and outer shadows on monochromatic surfaces for a tactile, embedded look.",
+    "tokens": {
+      "surface-primary": "#F7EEE6",
+      "surface-secondary": "#FFF8F1",
+      "foreground-primary": "#2B211C",
+      "foreground-secondary": "#5A4B43",
+      "foreground-muted": "#8A7A70",
+      "border-subtle": "#DAC8B9",
+      "accent-primary": "#B46A46",
+      "accent-secondary": "#4D8F5A"
+    }
+  },
+  {
+    "name": "Paper",
+    "scheme": "light",
+    "mood": "Paper-textured, print-inspired design with minimal colors, clean serif/sans typography, and tactile surface qualities.",
+    "tokens": {
+      "surface-primary": "#FAF3DF",
+      "surface-secondary": "#FFFAF0",
+      "foreground-primary": "#211B12",
+      "foreground-secondary": "#504737",
+      "foreground-muted": "#7C7160",
+      "border-subtle": "#DDD0B4",
+      "accent-primary": "#8F5D24",
+      "accent-secondary": "#5B8D42"
+    }
+  },
+  {
+    "name": "Perspective",
+    "scheme": "light",
+    "mood": "Spatial depth design with isometric views, vanishing points, and layered elements that guide attention through 3D-like realism.",
+    "tokens": {
+      "surface-primary": "#F5F8FF",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#101828",
+      "foreground-secondary": "#344054",
+      "foreground-muted": "#667085",
+      "border-subtle": "#D7E0EF",
+      "accent-primary": "#2563EB",
+      "accent-secondary": "#EF4444"
+    }
+  },
+  {
+    "name": "Premium",
+    "scheme": "light",
+    "mood": "Apple-inspired premium aesthetic with precise spacing, modern typography, and a refined, polished visual language.",
+    "tokens": {
+      "surface-primary": "#FAF8F4",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#1C1B19",
+      "foreground-secondary": "#4B4740",
+      "foreground-muted": "#746D63",
+      "border-subtle": "#DED6C9",
+      "accent-primary": "#A06A3B",
+      "accent-secondary": "#3F8F5F"
+    }
+  },
+  {
+    "name": "Professional",
+    "scheme": "light",
+    "mood": "Polished, business-ready design with modern typography, structured layouts, and a trustworthy visual identity.",
+    "tokens": {
+      "surface-primary": "#F5F8FF",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#101828",
+      "foreground-secondary": "#344054",
+      "foreground-muted": "#667085",
+      "border-subtle": "#D7E0EF",
+      "accent-primary": "#2563EB",
+      "accent-secondary": "#EF4444"
+    }
+  },
+  {
+    "name": "Publication",
+    "scheme": "light",
+    "mood": "Print-inspired visual language for books, magazines, and reports with editorial grids and expressive typography.",
+    "tokens": {
+      "surface-primary": "#FFFFFF",
+      "surface-secondary": "#F6F6F6",
+      "foreground-primary": "#0B0B0B",
+      "foreground-secondary": "#333333",
+      "foreground-muted": "#666666",
+      "border-subtle": "#D6D6D6",
+      "accent-primary": "#C1121F",
+      "accent-secondary": "#0F8A3B"
+    }
+  },
+  {
+    "name": "Refined",
+    "scheme": "light",
+    "mood": "Carefully curated, modern minimal style with elegant serif typography and understated, sophisticated palettes.",
+    "tokens": {
+      "surface-primary": "#FBF6EE",
+      "surface-secondary": "#FFFDF8",
+      "foreground-primary": "#201914",
+      "foreground-secondary": "#4C4037",
+      "foreground-muted": "#7A6D63",
+      "border-subtle": "#DED2C3",
+      "accent-primary": "#9B5B32",
+      "accent-secondary": "#4F8A4F"
+    }
+  },
+  {
+    "name": "Retro",
+    "scheme": "light",
+    "mood": "Throwback design with vintage-inspired typography, high-contrast retro palettes, and nostalgic visual elements.",
+    "tokens": {
+      "surface-primary": "#FFF4CF",
+      "surface-secondary": "#FFFAF0",
+      "foreground-primary": "#2A1810",
+      "foreground-secondary": "#593625",
+      "foreground-muted": "#8A6652",
+      "border-subtle": "#D9AA7A",
+      "accent-primary": "#D24B1F",
+      "accent-secondary": "#3D8F4F"
+    }
+  },
+  {
+    "name": "Simple",
+    "scheme": "light",
+    "mood": "Straightforward, no-frills design with clean typography, neutral colors, and intuitive layouts that stay out of the way.",
+    "tokens": {
+      "surface-primary": "#F5F8FF",
+      "surface-secondary": "#FFFFFF",
+      "foreground-primary": "#101828",
+      "foreground-secondary": "#344054",
+      "foreground-muted": "#667085",
+      "border-subtle": "#D7E0EF",
+      "accent-primary": "#2563EB",
+      "accent-secondary": "#EF4444"
+    }
+  },
+  {
+    "name": "Skeumorphism",
+    "scheme": "light",
+    "mood": "Real-world mimicry with textured surfaces, 3D effects, and familiar physical metaphors for intuitive digital interfaces.",
+    "tokens": {
+      "surface-primary": "#F7EEE6",
+      "surface-secondary": "#FFF8F1",
+      "foreground-primary": "#2B211C",
+      "foreground-secondary": "#5A4B43",
+      "foreground-muted": "#8A7A70",
+      "border-subtle": "#DAC8B9",
+      "accent-primary": "#B46A46",
+      "accent-secondary": "#4D8F5A"
+    }
+  },
+  {
+    "name": "Sleek",
+    "scheme": "dark",
+    "mood": "Modern minimalist aesthetic with clean lines, intentional color palette, subtle interactions, and consistent spacing.",
+    "tokens": {
+      "surface-primary": "#090B12",
+      "surface-secondary": "#121722",
+      "foreground-primary": "#F8FAFC",
+      "foreground-secondary": "#CBD5E1",
+      "foreground-muted": "#94A3B8",
+      "border-subtle": "#2A3447",
+      "accent-primary": "#60A5FA",
+      "accent-secondary": "#FBBF24"
+    }
+  },
+  {
+    "name": "Spacious",
+    "scheme": "light",
+    "mood": "Generous whitespace, consistent padding, and grid-based layouts for clean, readable, and breathing interfaces.",
+    "tokens": {
+      "surface-primary": "#FAF3DF",
+      "surface-secondary": "#FFFAF0",
+      "foreground-primary": "#211B12",
+      "foreground-secondary": "#504737",
+      "foreground-muted": "#7C7160",
+      "border-subtle": "#DDD0B4",
+      "accent-primary": "#8F5D24",
+      "accent-secondary": "#5B8D42"
+    }
+  },
+  {
+    "name": "Storytelling",
+    "scheme": "light",
+    "mood": "Narrative-driven design using visuals, copy, and interaction to guide users through engaging, emotionally resonant journeys.",
+    "tokens": {
+      "surface-primary": "#FBF6EE",
+      "surface-secondary": "#FFFDF8",
+      "foreground-primary": "#201914",
+      "foreground-secondary": "#4C4037",
+      "foreground-muted": "#7A6D63",
+      "border-subtle": "#DED2C3",
+      "accent-primary": "#9B5B32",
+      "accent-secondary": "#4F8A4F"
+    }
+  },
+  {
+    "name": "Trading Terminal",
+    "scheme": "dark",
+    "mood": "Bloomberg-style financial trading terminal. Dark-only, data-dense, cyan/coral buy/sell signals. Everything readable at a glance from two meters away.",
+    "tokens": {
+      "surface-primary": "#070B12",
+      "surface-secondary": "#101826",
+      "foreground-primary": "#F8FAFC",
+      "foreground-secondary": "#CBD5E1",
+      "foreground-muted": "#8492A6",
+      "border-subtle": "#263246",
+      "accent-primary": "#38BDF8",
+      "accent-secondary": "#EF4444"
+    }
+  },
+  {
+    "name": "Vintage",
+    "scheme": "light",
+    "mood": "1950s-1990s nostalgia with skeuomorphic touches, grainy textures, retro color palettes, and pixel-style typography.",
+    "tokens": {
+      "surface-primary": "#FAF3DF",
+      "surface-secondary": "#FFFAF0",
+      "foreground-primary": "#211B12",
+      "foreground-secondary": "#504737",
+      "foreground-muted": "#7C7160",
+      "border-subtle": "#DDD0B4",
+      "accent-primary": "#8F5D24",
+      "accent-secondary": "#5B8D42"
+    }
+  },
+  {
+    "name": "Warm Editorial",
+    "scheme": "light",
+    "mood": "A serif-led magazine aesthetic. Terracotta accent on warm off-white paper —",
+    "tokens": {
+      "surface-primary": "#FBF6EE",
+      "surface-secondary": "#FFFDF8",
+      "foreground-primary": "#201914",
+      "foreground-secondary": "#4C4037",
+      "foreground-muted": "#7A6D63",
+      "border-subtle": "#DED2C3",
+      "accent-primary": "#9B5B32",
+      "accent-secondary": "#4F8A4F"
+    }
+  }
+]

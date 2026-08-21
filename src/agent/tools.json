@@ -1,0 +1,394 @@
+[
+  {
+    "name": "set_style",
+    "description": "Commit to a design direction, then choose its palette, roundness, elevation and typefaces. Writes the colour and font tokens onto the document and returns the usage rules for the chosen style. Call this before building anything on an unstyled document. Every argument must name an option from the catalog in the system prompt.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "palette": {
+          "type": "string",
+          "description": "Palette name, e.g. 'Carbon Frost'"
+        },
+        "roundness": {
+          "type": "string",
+          "description": "Roundness scale name, e.g. 'Basic'"
+        },
+        "elevation": {
+          "type": "string",
+          "description": "Elevation preset name, e.g. 'Soft Lift'"
+        },
+        "headings": {
+          "type": "string",
+          "description": "Typeface for titles and section headings"
+        },
+        "body": {
+          "type": "string",
+          "description": "Typeface for paragraphs and list titles"
+        },
+        "captions": {
+          "type": "string",
+          "description": "Typeface for labels, metadata and badges"
+        },
+        "thesis": {
+          "type": "string",
+          "description": "The visual idea and the familiar category arrangement this design refuses"
+        },
+        "ownWorld": {
+          "type": "string",
+          "description": "Palette and component language recognizable even with the copy removed"
+        },
+        "firstViewport": {
+          "type": "string",
+          "description": "Exact first-screen composition, including dominant element and scale"
+        }
+      },
+      "required": [
+        "palette",
+        "roundness",
+        "elevation",
+        "headings",
+        "body",
+        "captions",
+        "thesis",
+        "ownWorld",
+        "firstViewport"
+      ]
+    }
+  },
+  {
+    "name": "read_digest",
+    "description": "Return a structural digest. Omit id for the whole document. Pass a node id for a subtree.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "name": "set_variable",
+    "description": "Update a theme token/variable (e.g. name: 'bg', value: '#FFFFFF'). Instantly updates all elements referencing $name across the document.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Variable name without $ (e.g. 'bg', 'surface', 'surface-raised', 'line', 'text', 'muted')"
+        },
+        "value": {
+          "type": "string",
+          "description": "Hex color code or value (e.g. '#FFFFFF', '#0F172A')"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ]
+    }
+  },
+  {
+    "name": "batch_set_properties",
+    "description": "Update multiple properties across multiple nodes in one atomic call.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "updates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "property": {
+                "type": "string"
+              },
+              "value": {}
+            },
+            "required": [
+              "id",
+              "property",
+              "value"
+            ]
+          }
+        }
+      },
+      "required": [
+        "updates"
+      ]
+    }
+  },
+  {
+    "name": "set_property",
+    "description": "Set one property on one node. Returns the subtree digest.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "property": {
+          "type": "string"
+        },
+        "value": {}
+      },
+      "required": [
+        "id",
+        "property"
+      ]
+    }
+  },
+  {
+    "name": "create_screen",
+    "description": "Create a new screen as a top-level frame, with its chrome already built and measured: a mobile screen gets inset content, a full-width bleed region, and an optional tab bar; a desktop screen gets a top bar, a left rail, a dominant main region and a right rail. Returns the id of each slot. Always start a screen with this rather than assembling the chrome by hand. Put ordinary mobile content in content and edge-to-edge media or colour regions in bleed.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "What the screen is, e.g. 'Discover' or 'Order Detail'"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "mobile",
+            "desktop"
+          ]
+        },
+        "tabs": {
+          "type": "array",
+          "description": "Mobile only. 3-5 destinations, exactly one marked active. Omit for a screen with no tab bar.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "icon": {
+                "type": "string",
+                "description": "Lucide icon name"
+              },
+              "active": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "label",
+              "icon"
+            ]
+          }
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ]
+    }
+  },
+  {
+    "name": "insert_node",
+    "description": "Insert a node. To insert as a new top-level root frame on the canvas, pass parentId: 'canvas' (or omit parentId). To insert inside an existing frame/group, pass its node id.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "parentId": {
+          "type": "string",
+          "description": "Parent frame/group ID, or 'canvas' / omit for top-level canvas frame"
+        },
+        "index": {
+          "type": "number"
+        },
+        "node": {
+          "type": "object",
+          "description": "Node object (e.g. { type: 'frame', name: 'Layout B', width: 1360, height: 920, children: [...] })"
+        }
+      },
+      "required": [
+        "node"
+      ]
+    }
+  },
+  {
+    "name": "place_instances",
+    "description": "Place several instances of one component in a parent, each with its own text. Build the repeated structure once as a normal node, then call this with the values that differ. Cheaper and more consistent than writing the same subtree again: an edit to the component reaches every instance. Use it for list rows, cards, chips, and any structure that repeats.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "componentId": {
+          "type": "string",
+          "description": "Id of the node to instance. It is marked reusable for you."
+        },
+        "parentId": {
+          "type": "string",
+          "description": "Frame the instances go into."
+        },
+        "items": {
+          "type": "array",
+          "description": "One entry per instance. Each is a map of descendant node id to the properties that differ, e.g. { \"row_title\": { \"content\": \"Bella\" }, \"row_meta\": { \"content\": \"7 · Mare\" } }. An empty object places an unmodified copy.",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "componentId",
+        "parentId",
+        "items"
+      ]
+    }
+  },
+  {
+    "name": "duplicate_node",
+    "description": "Duplicate an existing frame, component, or node subtree. When duplicating a root frame, it places the exact clone side-by-side on the canvas with fresh unique IDs for all children. Returns the new node's digest. Use this when asked to make a variation, alternate theme, or new version of an existing screen so no elements are lost!",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID of the node or root frame to duplicate"
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional new name for the duplicated node (e.g. 'Factory Control Panel — Light')"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  {
+    "name": "delete_node",
+    "description": "Remove a node. Returns the parent digest.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  {
+    "name": "move_node",
+    "description": "Move a node to a new parent. Returns both parent digests.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "newParentId": {
+          "type": "string"
+        },
+        "index": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "newParentId"
+      ]
+    }
+  },
+  {
+    "name": "measure",
+    "description": "Return the resolved geometry of a subtree after layout: the computed box of every node, in its parent's coordinate space. Use this to find out what 'fill_container' and 'fit_content' actually resolved to, and whether a region is the size you intended. The digest shows what you declared; measure shows what the engine computed.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Node or frame ID to measure (omit for every top-level frame)"
+        }
+      }
+    }
+  },
+  {
+    "name": "search_icons",
+    "description": "Search available Lucide vector icons by keyword (e.g. 'heart', 'star', 'user', 'message', 'flame', 'arrow', 'filter', 'check', 'x', 'settings', 'bell', 'share', 'camera', 'sparkles', 'compass', etc.). Returns matching icon names you can use with insert_icon or type: 'icon'.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search keyword (e.g. 'heart', 'navigation', 'media', 'social')"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "insert_icon",
+    "description": "Insert a crisp Lucide vector icon into a container frame. Renders crisp vector SVG path geometry at any scale.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "icon": {
+          "type": "string",
+          "description": "Lucide icon name (e.g. 'heart', 'star', 'flame', 'sparkles', 'x', 'check', 'message-circle', 'search', 'user')"
+        },
+        "parentId": {
+          "type": "string",
+          "description": "Target container frame/group ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional layer name (e.g. 'Like Icon')"
+        },
+        "size": {
+          "type": "number",
+          "description": "Icon box size in pixels (default: 24)"
+        },
+        "stroke": {
+          "type": "string",
+          "description": "Icon stroke color or token (e.g. '#FFFFFF', '$cyan', '$red', '$muted')"
+        },
+        "strokeWidth": {
+          "type": "number",
+          "description": "Icon stroke width (default: 2)"
+        },
+        "fill": {
+          "type": "string",
+          "description": "Optional fill color or token (default: 'none')"
+        },
+        "index": {
+          "type": "number",
+          "description": "Optional index in parent container"
+        }
+      },
+      "required": [
+        "icon",
+        "parentId"
+      ]
+    }
+  },
+  {
+    "name": "generate_image",
+    "description": "Generate a realistic image or illustration for an existing canvas node. Create the destination node first and pass nodeId; its measured shape determines the image aspect automatically.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "Detailed description of the image to generate (e.g. 'A majestic Arabian stallion with glossy dark coat galloping in a sunset golden meadow')"
+        },
+        "nodeId": {
+          "type": "string",
+          "description": "Existing destination node ID. Its measured dimensions determine the generated image's aspect."
+        }
+      },
+      "required": [
+        "prompt",
+        "nodeId"
+      ]
+    }
+  }
+]

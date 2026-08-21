@@ -1,10 +1,7 @@
 import { describe, it, expect } from "bun:test";
-import {
-  applyReviewMessage,
-  criticMessages,
-  parseDesignReview,
-  type DesignReview
-} from "../src/agent/review";
+import { applyReviewMessage, applyReviewFixes, type DesignReview } from "../src/agent/review";
+import { CRITIC_PROMPT, criticMessages, parseDesignReview } from "../src/agent/critic";
+import type { Document } from "../src/model/types";
 
 const review: DesignReview = {
   verdict: "refine",
@@ -42,6 +39,24 @@ describe("design review contract", () => {
     expect(Array.isArray(messages[1].content)).toBe(true);
   });
 
+  it("gives the critic the recorded direction contract", () => {
+    const messages = criticMessages({
+      brief: "A reading site",
+      screenshotDataUrl: "data:image/png;base64,xx",
+      digest: "title Home",
+      direction: {
+        thesis: "A journal, not a dashboard",
+        ownWorld: "Ink, paper and hard rules",
+        firstViewport: "One oversized title above a reading column"
+      },
+      audit: "[warning] empty_tail screen: 180px empty"
+    });
+    const content = messages[1].content;
+    expect(Array.isArray(content) && content[0].type === "text" && content[0].text).toContain("THESIS: A journal, not a dashboard");
+    expect(Array.isArray(content) && content[0].type === "text" && content[0].text).toContain("Audit whether the screenshot visibly fulfills each claim");
+    expect(Array.isArray(content) && content[0].type === "text" && content[0].text).toContain("Deterministic measurements:");
+  });
+
   it("marks review issues as an internal revision message", () => {
     const text = applyReviewMessage("A reading site", parseDesignReview(review, "title Home"));
     expect(text.startsWith("[Visual review revision]")).toBe(true);
@@ -49,5 +64,137 @@ describe("design review contract", () => {
     expect(text).toContain("Weak hierarchy (title)");
     expect(text).toContain("Make the heading 28px");
     expect(text).not.toContain("ghost");
+  });
+
+  it("ships the cited subtrees with the instruction that cites them", () => {
+    const doc: Document = {
+      children: [
+        {
+          id: "title",
+          type: "frame",
+          name: "Hero",
+          layout: "vertical",
+          children: [
+            { id: "heading", type: "text", content: "Read slowly", fontSize: 20 },
+            { id: "sub", type: "text", content: "Three essays a week", fontSize: 20 }
+          ]
+        }
+      ]
+    } as unknown as Document;
+
+    const text = applyReviewMessage("A reading site", parseDesignReview(review, "title Home"), doc);
+
+    // One trace opened its revision with six read_digest calls on the ids the
+    // instruction had just quoted. They are already in hand here.
+    expect(text).toContain("The nodes it named, as they stand now:");
+    expect(text).toContain("Read slowly");
+    expect(text).toContain("Three essays a week");
+  });
+
+  it("names only nodes that are still on the canvas", () => {
+    const doc = { children: [] } as unknown as Document;
+    const text = applyReviewMessage("A reading site", parseDesignReview(review, "title Home"), doc);
+    expect(text).not.toContain("The nodes it named");
+  });
+
+  it("says a revision is a revision", () => {
+    const text = applyReviewMessage("A reading site", parseDesignReview(review, "title Home"));
+    // The run that read this instruction spent 45 tool calls against the 33 the
+    // build had used, most of them nudging regions the critic never mentioned.
+    expect(text).toContain("leave the rest of the canvas alone");
+  });
+});
+
+describe("Fixes the critic applies itself", () => {
+  const digestText = "card Card\ntitle Heading\nbody Copy";
+
+  it("keeps a well-formed fix and drops one outside the allowlist", () => {
+    const parsed = parseDesignReview({
+      verdict: "refine",
+      scores: { specificity: 3, hierarchy: 3, usability: 3, craft: 3 },
+      strengths: [],
+      issues: [],
+      fixes: [
+        { nodeId: "title", property: "fontSize", value: 32 },
+        { nodeId: "card", property: "layout", value: "vertical" },
+        { nodeId: "body", property: "content", value: "rewritten" }
+      ]
+    }, digestText);
+    // layout and content restructure or rewrite; those stay the model's call.
+    expect(parsed.fixes).toEqual([{ nodeId: "title", property: "fontSize", value: 32 }]);
+  });
+
+  it("drops a fix whose value is the wrong shape for its property", () => {
+    const parsed = parseDesignReview({
+      verdict: "refine",
+      scores: { specificity: 3, hierarchy: 3, usability: 3, craft: 3 },
+      strengths: [],
+      issues: [],
+      fixes: [
+        { nodeId: "card", property: "gap", value: "large" },
+        { nodeId: "card", property: "fill", value: "reddish" },
+        { nodeId: "card", property: "fill", value: "$surface-secondary" },
+        { nodeId: "card", property: "width", value: "fill_container" }
+      ]
+    }, digestText);
+    expect(parsed.fixes).toEqual([
+      { nodeId: "card", property: "fill", value: "$surface-secondary" },
+      { nodeId: "card", property: "width", value: "fill_container" }
+    ]);
+  });
+
+  it("drops a fix naming a node that is not on the canvas", () => {
+    const parsed = parseDesignReview({
+      verdict: "refine",
+      scores: { specificity: 3, hierarchy: 3, usability: 3, craft: 3 },
+      strengths: [],
+      issues: [],
+      fixes: [{ nodeId: "ghost", property: "fontSize", value: 20 }]
+    }, digestText);
+    expect(parsed.fixes).toEqual([]);
+  });
+
+  it("applies surviving fixes to the document without a model turn", () => {
+    const doc: any = {
+      version: "2.17",
+      children: [{
+        type: "frame", id: "card", name: "Card", width: 300, height: 100, gap: 4,
+        children: [{ type: "text", id: "title", name: "Heading", content: "Hi", fontSize: 14 }]
+      }]
+    };
+    const review = parseDesignReview({
+      verdict: "refine",
+      scores: { specificity: 3, hierarchy: 3, usability: 3, craft: 3 },
+      strengths: [],
+      issues: [],
+      fixes: [
+        { nodeId: "title", property: "fontSize", value: 32 },
+        { nodeId: "card", property: "gap", value: 16 }
+      ]
+    }, digestText);
+
+    const result = applyReviewFixes(doc, review);
+    expect(result.applied).toEqual(["title.fontSize", "card.gap"]);
+    expect(result.doc).not.toBe(doc);
+    expect(result.doc.children[0].gap).toBe(16);
+    expect((result.doc.children[0] as any).children[0].fontSize).toBe(32);
+    // The original is untouched — the caller decides whether to commit.
+    expect(doc.children[0].gap).toBe(4);
+  });
+
+  it("returns the same document when a review carries no fixes", () => {
+    const doc: any = { version: "2.17", children: [] };
+    const review = parseDesignReview({
+      verdict: "pass",
+      scores: { specificity: 4, hierarchy: 4, usability: 4, craft: 4 },
+      strengths: [],
+      issues: []
+    }, digestText);
+    expect(applyReviewFixes(doc, review).doc).toBe(doc);
+  });
+
+  it("tells the critic that a single property belongs in fixes", () => {
+    expect(CRITIC_PROMPT).toContain("belongs in 'fixes'");
+    expect(CRITIC_PROMPT).toContain("fontSize");
   });
 });

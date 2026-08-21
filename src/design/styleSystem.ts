@@ -10,6 +10,12 @@
  * only from the user's brief.
  */
 
+import corePalettes from "./palettes.json";
+import importedPalettes from "./palettes.imported.json";
+import { STYLE_METADATA_KEY, DIRECTION_METADATA_KEY, HARD_SHADOW_ELEVATION } from "./styleKeys";
+
+export { STYLE_METADATA_KEY, DIRECTION_METADATA_KEY, HARD_SHADOW_ELEVATION };
+
 export type Scheme = "light" | "dark";
 
 /** The eight semantic colour roles every palette must define. */
@@ -32,188 +38,18 @@ export interface Palette {
   tokens: PaletteTokens;
 }
 
-export const PALETTES: Palette[] = [
-  {
-    name: "Warm Linen",
-    scheme: "light",
-    mood: "Paper-warm neutrals with a dry olive accent. Editorial, unhurried, analogue.",
-    tokens: {
-      "surface-primary": "#FAF7F2",
-      "surface-secondary": "#F1ECE3",
-      "foreground-primary": "#1F1B16",
-      "foreground-secondary": "#57503F",
-      "foreground-muted": "#8A8170",
-      "border-subtle": "#E2DBCE",
-      "accent-primary": "#4F6B3B",
-      "accent-secondary": "#C2703D"
-    }
-  },
-  {
-    name: "Minimal Ink",
-    scheme: "light",
-    mood: "Achromatic and exact. Black on white, one accent of pure ink. Swiss, quiet, confident.",
-    tokens: {
-      "surface-primary": "#FFFFFF",
-      "surface-secondary": "#F4F4F5",
-      "foreground-primary": "#09090B",
-      "foreground-secondary": "#52525B",
-      "foreground-muted": "#7E7E87",
-      "border-subtle": "#E4E4E7",
-      "accent-primary": "#18181B",
-      "accent-secondary": "#C2410C"
-    }
-  },
-  {
-    name: "Spring Meadow",
-    scheme: "light",
-    mood: "Cream ground with a bright grass accent. Friendly, illustrative, optimistic.",
-    tokens: {
-      "surface-primary": "#FAF9F4",
-      "surface-secondary": "#EFF3E6",
-      "foreground-primary": "#17210F",
-      "foreground-secondary": "#4A5842",
-      "foreground-muted": "#7C8A73",
-      "border-subtle": "#DEE5D2",
-      "accent-primary": "#3B7629",
-      "accent-secondary": "#D2761B"
-    }
-  },
-  {
-    name: "Rose Charcoal",
-    scheme: "light",
-    mood: "Soft off-white and deep charcoal with a dusty rose. Refined, calm, a little romantic.",
-    tokens: {
-      "surface-primary": "#FCFAFA",
-      "surface-secondary": "#F4EFEF",
-      "foreground-primary": "#1C1719",
-      "foreground-secondary": "#584D51",
-      "foreground-muted": "#8B7D82",
-      "border-subtle": "#E7DEE0",
-      "accent-primary": "#A33A55",
-      "accent-secondary": "#6B7280"
-    }
-  },
-  {
-    name: "Cobalt Clean",
-    scheme: "light",
-    mood: "Clinical white with a saturated cobalt. Utility software, dense data, trustworthy.",
-    tokens: {
-      "surface-primary": "#FFFFFF",
-      "surface-secondary": "#F1F5F9",
-      "foreground-primary": "#0F172A",
-      "foreground-secondary": "#475569",
-      "foreground-muted": "#71809A",
-      "border-subtle": "#E2E8F0",
-      "accent-primary": "#1D4ED8",
-      "accent-secondary": "#0E7490"
-    }
-  },
-  {
-    name: "Parchment Gold",
-    scheme: "light",
-    mood: "Aged parchment, walnut text, antique gold. Heritage, craft, printed matter.",
-    tokens: {
-      "surface-primary": "#F7F2E7",
-      "surface-secondary": "#EDE4D1",
-      "foreground-primary": "#241C10",
-      "foreground-secondary": "#5B4A32",
-      "foreground-muted": "#8C7857",
-      "border-subtle": "#DFD2B8",
-      "accent-primary": "#8A5A16",
-      "accent-secondary": "#3F6152"
-    }
-  },
-  {
-    name: "Carbon Frost",
-    scheme: "dark",
-    mood: "Near-black carbon with cool grey and an ice-blue accent. Precise, technical, nocturnal.",
-    tokens: {
-      "surface-primary": "#0B0D10",
-      "surface-secondary": "#16191F",
-      "foreground-primary": "#F2F5F8",
-      "foreground-secondary": "#A8B2BF",
-      "foreground-muted": "#78828F",
-      "border-subtle": "#262B33",
-      "accent-primary": "#5AC8F5",
-      "accent-secondary": "#8B93A1"
-    }
-  },
-  {
-    name: "Deep Space Neon",
-    scheme: "dark",
-    mood: "Ink-navy ground with electric violet. High energy, late night, consumer.",
-    tokens: {
-      "surface-primary": "#0A0A14",
-      "surface-secondary": "#15152A",
-      "foreground-primary": "#F4F3FF",
-      "foreground-secondary": "#AAA6C8",
-      "foreground-muted": "#7C77A0",
-      "border-subtle": "#262445",
-      "accent-primary": "#A78BFA",
-      "accent-secondary": "#F472B6"
-    }
-  },
-  {
-    name: "Terminal Green",
-    scheme: "dark",
-    mood: "True black with phosphor green. Monospaced, operational, no decoration.",
-    tokens: {
-      "surface-primary": "#050706",
-      "surface-secondary": "#0E1411",
-      "foreground-primary": "#DFF5E5",
-      "foreground-secondary": "#8FB79C",
-      "foreground-muted": "#61856E",
-      "border-subtle": "#1B2A21",
-      "accent-primary": "#4ADE80",
-      "accent-secondary": "#FBBF24"
-    }
-  },
-  {
-    name: "Onyx Peach",
-    scheme: "dark",
-    mood: "Warm black with a peach accent. Soft-edged dark mode, editorial, human.",
-    tokens: {
-      "surface-primary": "#100D0C",
-      "surface-secondary": "#1D1817",
-      "foreground-primary": "#F7F1EE",
-      "foreground-secondary": "#B7A9A3",
-      "foreground-muted": "#8A7C76",
-      "border-subtle": "#2C2523",
-      "accent-primary": "#FFAB7B",
-      "accent-secondary": "#7DD3C0"
-    }
-  },
-  {
-    name: "Twilight Garden",
-    scheme: "dark",
-    mood: "Deep plum with a sage accent. Contemplative, botanical, slow.",
-    tokens: {
-      "surface-primary": "#120E17",
-      "surface-secondary": "#1E1826",
-      "foreground-primary": "#F3EFF6",
-      "foreground-secondary": "#B3A7BE",
-      "foreground-muted": "#877B93",
-      "border-subtle": "#2C2437",
-      "accent-primary": "#9BD4A6",
-      "accent-secondary": "#E0A9C8"
-    }
-  },
-  {
-    name: "Amber Night",
-    scheme: "dark",
-    mood: "Roasted brown-black with amber. Industrial, safety-critical, warm under pressure.",
-    tokens: {
-      "surface-primary": "#0E0B08",
-      "surface-secondary": "#1A1510",
-      "foreground-primary": "#F6F1E8",
-      "foreground-secondary": "#B6A995",
-      "foreground-muted": "#897D6B",
-      "border-subtle": "#2A2219",
-      "accent-primary": "#F5A524",
-      "accent-secondary": "#79B4A0"
-    }
-  }
-];
+/**
+ * The catalog the model chooses from. The hand-written core came first;
+ * palettes.imported.json carries the range, derived from OpenDesign
+ * (https://github.com/nexu-io/open-design, Apache-2.0) by scripts/import-palettes.ts.
+ *
+ * Both are data files, not modules. Eight hex strings and a sentence of mood
+ * are not code, and holding them as TypeScript put nine hundred lines of
+ * literal in the middle of the module that reasons about them. `scheme` widens
+ * to string on the way through JSON; the importer only ever writes the two
+ * values, and the palette tests read every entry back.
+ */
+export const PALETTES = [...corePalettes, ...importedPalettes] as Palette[];
 
 export interface RoundnessScale {
   name: string;
@@ -261,6 +97,12 @@ export const ELEVATION: ElevationPreset[] = [
     mood: "Wide, diffuse, weightless. Things hover.",
     sm: `effect: { type: 'shadow', color: '#00000014', x: 0, y: 2, blur: 8, spread: 0, enabled: true }`,
     lg: `effect: { type: 'shadow', color: '#0000001F', x: 0, y: 16, blur: 40, spread: 0, enabled: true }`
+  },
+  {
+    name: "Hard Block",
+    mood: "Zero-blur offset block. Printed, graphic, deliberately crude.",
+    sm: `effect: { type: 'shadow', color: '$foreground-primary', x: 2, y: 2, blur: 0, spread: 0, enabled: true }`,
+    lg: `effect: { type: 'shadow', color: '$foreground-primary', x: 4, y: 4, blur: 0, spread: 0, enabled: true }`
   }
 ];
 
@@ -285,6 +127,85 @@ export const FONT_FAMILIES = [
 
 export type FontFamily = (typeof FONT_FAMILIES)[number];
 
+/**
+ * Typefaces by the job they can do, with the job written down. A hand that is
+ * all sans has no display voice, so the deal draws from each group rather than
+ * from the flat list — but a face's group also has to reach the model, because
+ * a bare list of five names invites the model to fill "captions" with whatever
+ * sits in the third position.
+ */
+interface TypefaceGroup {
+  readonly label: string;
+  readonly faces: readonly FontFamily[];
+  /** How many of this group a hand holds. */
+  readonly deal: number;
+  /** Printed beside the dealt faces: where this group belongs, and where it does not. */
+  readonly job: string;
+}
+
+const TYPEFACE_GROUPS: readonly TypefaceGroup[] = [
+  {
+    label: "Text",
+    faces: ["Inter", "Geist", "DM Sans", "Space Grotesk"],
+    deal: 2,
+    job: "any role"
+  },
+  {
+    label: "Serif",
+    faces: ["Newsreader", "Playfair Display", "Instrument Serif"],
+    deal: 1,
+    job: "headings; body when editorial"
+  },
+  {
+    label: "Display",
+    faces: ["Funnel Display", "Anton"],
+    deal: 1,
+    job: "headings above 28px only"
+  },
+  {
+    label: "Mono",
+    faces: ["Geist Mono", "IBM Plex Mono"],
+    deal: 1,
+    job: "numbers and code only — never labels, chips or tab bars"
+  }
+];
+
+/**
+ * Mono is a specialist. Dealt into every hand it stopped being a choice: a hand
+ * always held one, the caption role is described as "labels, tab labels,
+ * metadata, badges", and the model took the offer — a third of the visible text
+ * on a cat adoption app came out monospaced, which is the wireframe tell the
+ * craft rules already forbid in prose. Roughly one hand in four now holds it, so
+ * reaching for it is a decision about the product rather than about the list.
+ */
+const MONO_GROUP = "Mono";
+const MONO_SHARE = 0.25;
+
+/** The dealt hand, grouped, so the catalog can print each face beside its job. */
+export function dealTypefaceGroups(seed: number): { label: string; job: string; faces: FontFamily[] }[] {
+  // Its own stream, so the typefaces a brief is offered do not move with the
+  // number of palettes dealt before them.
+  const next = dealer((seed ^ 0x27d4eb2d) | 0);
+  // Drawn before the loop so the other three groups deal identically whether or
+  // not this hand includes mono.
+  const monoDraw = next();
+  return TYPEFACE_GROUPS.flatMap((group) => {
+    if (group.label === MONO_GROUP && monoDraw >= MONO_SHARE) return [];
+    return [{ label: group.label, job: group.job, faces: deal([...group.faces], group.deal, next) }];
+  });
+}
+
+/**
+ * The same convergence the palette deal fixed, one axis over. The list is
+ * closed because the renderer only loads these eleven, but printing all of
+ * them in a fixed order put Inter first on every run — and Inter, Geist and
+ * DM Sans are precisely the families a model reaches for when it is not
+ * choosing. Dealing makes the model pick from what it was given.
+ */
+export function dealTypefaces(seed: number): FontFamily[] {
+  return dealTypefaceGroups(seed).flatMap((group) => group.faces);
+}
+
 export interface StyleChoice {
   palette: string;
   roundness: string;
@@ -292,6 +213,12 @@ export interface StyleChoice {
   headings: string;
   body: string;
   captions: string;
+}
+
+export interface DesignDirection {
+  thesis: string;
+  ownWorld: string;
+  firstViewport: string;
 }
 
 export interface ResolvedStyle {
@@ -331,7 +258,7 @@ export function resolveStyle(input: Partial<StyleChoice>): ResolvedStyle {
   const captions = findFont(input.captions);
 
   const problems: string[] = [];
-  if (!palette) problems.push(`palette must be one of: ${PALETTES.map((p) => p.name).join(", ")}`);
+  if (!palette) problems.push(`palette "${input.palette}" is not in the catalog. Use one of the palettes listed in your instructions.`);
   if (!roundness) problems.push(`roundness must be one of: ${ROUNDNESS.map((r) => r.name).join(", ")}`);
   if (!elevation) problems.push(`elevation must be one of: ${ELEVATION.map((e) => e.name).join(", ")}`);
   if (!headings) problems.push(`headings must be one of: ${FONT_FAMILIES.join(", ")}`);
@@ -364,10 +291,69 @@ export function resolveStyle(input: Partial<StyleChoice>): ResolvedStyle {
 }
 
 /** The menu the model reads before it chooses. Feel only — no usage rules. */
-export function styleCatalog(): string {
+/** Deterministic dealer, so one brief always sees one hand. */
+function dealer(seed: number): () => number {
+  // The seed is a hash of the brief, so neighbouring briefs arrive as
+  // neighbouring integers, and a raw LCG started on those stays correlated for
+  // its first several draws — which is exactly where a hand is dealt from.
+  // Measured over 400 seeds it put one dark palette in 41% of hands against a
+  // catalog share of 18%. A murmur3 finalizer plus a short warm-up scatters the
+  // starting states before the first card is turned over.
+  let state = (seed | 0) || 0x9e3779b9;
+  state ^= state >>> 16;
+  state = Math.imul(state, 0x85ebca6b);
+  state ^= state >>> 13;
+  state = Math.imul(state, 0xc2b2ae35);
+  state = (state ^ (state >>> 16)) | 0;
+
+  const next = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) | 0;
+    return ((state >>> 8) & 0xffffff) / 0x1000000;
+  };
+  for (let i = 0; i < 8; i++) next();
+  return next;
+}
+
+function deal<T>(items: T[], count: number, next: () => number): T[] {
+  const pool = items.slice();
+  const out: T[] = [];
+  while (pool.length > 0 && out.length < count) {
+    out.push(pool.splice(Math.floor(next() * pool.length), 1)[0]);
+  }
+  return out;
+}
+
+export const PALETTE_HAND_SIZE = 8;
+
+/**
+ * A hand, not the catalog. Printing every palette is both expensive and
+ * useless: the model ranks them and takes the one whose adjective matches the
+ * brief's category, which is how every warm product came out cream. Dealing a
+ * few forces a real choice, and the seed keeps one brief reproducible.
+ *
+ * Light and dark are dealt separately. Whether a product is dark is a question
+ * about where it is used, and a hand drawn from the whole list would be light
+ * almost every time.
+ */
+export function styleCatalog(seed: number, handSize = PALETTE_HAND_SIZE): string {
+  const next = dealer(seed);
+  const dark = PALETTES.filter((p) => p.scheme === "dark");
+  const light = PALETTES.filter((p) => p.scheme === "light");
+  // Proportional to the catalog, with a floor of two so neither scheme can be
+  // absent. An even split would deal dark far above its share and trade one
+  // monoculture for another.
+  const share = Math.round((handSize * dark.length) / PALETTES.length);
+  const darkCount = Math.min(handSize - 2, Math.max(2, share));
+  const hand = deal(
+    [...deal(dark, darkCount, next), ...deal(light, handSize - darkCount, next)],
+    handSize,
+    next
+  );
+
   const lines: string[] = [];
-  lines.push("PALETTES (name — feel)");
-  for (const p of PALETTES) lines.push(`  ${p.name} (${p.scheme}) — ${p.mood}`);
+  lines.push("PALETTES (name — world). These are the palettes offered this run.");
+  lines.push("  Take light or dark from where the product is used, not from its category.");
+  for (const p of hand) lines.push(`  ${p.name} (${p.scheme}) — ${p.mood}`);
   lines.push("");
   lines.push("ROUNDNESS");
   for (const r of ROUNDNESS) lines.push(`  ${r.name} — ${r.mood}`);
@@ -376,7 +362,9 @@ export function styleCatalog(): string {
   for (const e of ELEVATION) lines.push(`  ${e.name} — ${e.mood}`);
   lines.push("");
   lines.push(`TYPEFACES (choose one each for headings, body, captions)`);
-  lines.push(`  ${FONT_FAMILIES.join(", ")}`);
+  for (const group of dealTypefaceGroups(seed)) {
+    lines.push(`  ${group.label.padEnd(8)}${group.faces.join(", ").padEnd(25)}${group.job}`);
+  }
   return lines.join("\n");
 }
 
@@ -402,13 +390,18 @@ export function styleGuidelines(style: ResolvedStyle): string {
     `                        Below 18px it does not reach 4.5:1 on these surfaces.`,
     `                        Small labels, timestamps and inactive states take $foreground-secondary.`,
     `  $border-subtle     ${palette.tokens["border-subtle"]}   hairlines and 1px separators. Never a fill.`,
-    `  $accent-primary    ${palette.tokens["accent-primary"]}   the primary action, the active tab, links, focus.`,
+    `  $accent-primary    ${palette.tokens["accent-primary"]}   solid fills, icons, indicators, focus rings.`,
+    `                       Not small text. Some accents in this catalog are bright`,
+    `                       enough that 11px of them is unreadable, so a selected`,
+    `                       state takes $foreground-primary at 600 weight and lets`,
+    `                       the accent carry the icon or the indicator beside it.`,
     `  $accent-secondary  ${palette.tokens["accent-secondary"]}   at most 3-4 instances per screen. Status and signal only.`,
     "",
     "  Accent is for interaction and state. Never use an accent as a decorative",
-    "  background for a whole region. One primary action per screen carries",
-    "  $accent-primary as a solid fill; everything else that is accent-coloured is",
-    "  text, icon, or a 1px indicator.",
+    "  background for a whole region. Use it in at most two visible roles per",
+    "  screen; one primary action may carry $accent-primary as a solid fill.",
+    "  State is never carried by colour alone — pair it with weight, size or",
+    "  position so it survives being read at a glance.",
     "",
     `SHAPE — ${choice.roundness}`,
     `  cornerRadius 0 structural regions, status bar, full-bleed rows`,
@@ -431,15 +424,30 @@ export function styleGuidelines(style: ResolvedStyle): string {
     `  $font-caption  ${choice.captions}   labels, tab labels, metadata, badges`,
     "  Set fontFamily on every text node using these three tokens. Never write a",
     "  family name directly.",
-    "  Scale: 28-34 screen title · 20-22 section heading · 15-17 list title ·",
-    "  13-14 body · 11-12 caption. Never below 11.",
+    "  Scale: 44-64 display · 28-34 screen title · 20-22 section heading ·",
+    "  15-17 list title · 13-14 body · 11-12 caption. Never below 11.",
+    "  Use one 44-64 display treatment per composed screen.",
     "  Hierarchy comes from weight and scale together: a heading is both larger",
     "  and heavier, never one alone."
   ].join("\n");
 }
 
-/** Where the chosen style is recorded on the document. */
-export const STYLE_METADATA_KEY = "style";
+export function designDirection(input: unknown): DesignDirection | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const value = input as Record<string, unknown>;
+  if (typeof value.thesis !== "string" || !value.thesis.trim()) return undefined;
+  if (typeof value.ownWorld !== "string" || !value.ownWorld.trim()) return undefined;
+  if (typeof value.firstViewport !== "string" || !value.firstViewport.trim()) return undefined;
+  return {
+    thesis: value.thesis.trim(),
+    ownWorld: value.ownWorld.trim(),
+    firstViewport: value.firstViewport.trim()
+  };
+}
+
+export function currentDirection(doc: { metadata?: Record<string, any> }): DesignDirection | undefined {
+  return designDirection(doc.metadata?.[DIRECTION_METADATA_KEY]);
+}
 
 /**
  * Read back the style a document was built with, so the prompt can restate

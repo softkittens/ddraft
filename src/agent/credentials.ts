@@ -1,5 +1,12 @@
 import type { Provider, ReasoningEffort } from "./provider";
-import { PROVIDER_CATALOG, catalogById, readEnvKey, type CatalogProvider } from "./catalog";
+import {
+  PROVIDER_CATALOG,
+  catalogById,
+  modelSupportsVision,
+  readEnvKey,
+  visionModelFor,
+  type CatalogProvider
+} from "./catalog";
 
 export interface PublicProvider {
   id: CatalogProvider["id"];
@@ -50,6 +57,22 @@ export function loadProvider(
     apiKey,
     reasoningEffort,
     api: selected?.api || "chat",
-    vision: selected?.vision ?? spec.id === "openai"
+    vision: selected ? modelSupportsVision(spec, selected) : false
   };
+}
+
+/**
+ * The same provider, loaded on a model that can read the screenshot.
+ *
+ * Returns null when this provider has no such model left to try, which the
+ * caller reports rather than papering over: a review nobody ran is not a pass.
+ */
+export function loadVisionProvider(
+  id: string,
+  env: Record<string, string | undefined> | undefined,
+  tried: readonly string[],
+  reasoningEffort?: ReasoningEffort
+): Provider | null {
+  const alternate = visionModelFor(id, tried);
+  return alternate ? loadProvider(id, env, alternate.id, reasoningEffort) : null;
 }

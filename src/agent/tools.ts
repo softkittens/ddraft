@@ -5,11 +5,23 @@ import { resolveInstances } from "../model/instance";
 import { digest, digestSubtree } from "../digest/digest";
 import { layoutResolvedDocument, flattenLayoutTree } from "../layout/layout";
 import type { LayoutNode } from "../layout/types";
-import { resolveStyle, styleGuidelines, StyleChoiceError, STYLE_METADATA_KEY } from "../design/styleSystem";
+import {
+  designDirection,
+  resolveStyle,
+  styleGuidelines,
+  StyleChoiceError,
+  DIRECTION_METADATA_KEY,
+  STYLE_METADATA_KEY
+} from "../design/styleSystem";
+// Registers the full icon catalog. Without it every name outside the
+// browser core map resolves to nothing and paints the fallback glyph.
+import "../model/iconCatalog";
 import { searchLucideIcons, getLucideIconPath } from "../model/icons";
+import { insertionNote } from "../design/evaluator";
 import { buildScreen, MOBILE_HEIGHT, MOBILE_WIDTH, type ScreenSpec, type TabSpec } from "../design/scaffold";
 import { generateDesignImage, ImageGenUnavailableError } from "./image_gen";
-import type { Tool } from "./provider";
+import type { FetchFn, Tool } from "./provider";
+import toolDefs from "./tools.json";
 
 const ALLOWED_PROPERTIES = new Set([
   "width", "height", "x", "y", "gap", "padding", "fill", "stroke", "strokeWidth",
@@ -18,6 +30,141 @@ const ALLOWED_PROPERTIES = new Set([
   "opacity", "rotation", "cornerRadius", "clip", "enabled", "layoutPosition",
   "effect", "icon", "strokeWidth", "textGrowth", "reusable", "ref"
 ]);
+
+/**
+ * Icon nodes carry their own geometry so the browser paints any Lucide icon
+ * without bundling the catalog. Only insert_icon resolved it, so every icon
+ * arriving through insert_node or create_screen's tab bar fell through to the
+ * painter's generic fallback glyph.
+ */
+function resolveIconGeometry<T>(node: T): T {
+  const item = node as any;
+  if (!item || typeof item !== "object") return node;
+  if (item.type === "icon" && typeof item.icon === "string" && !item.geometry) {
+    const geom = getLucideIconPath(item.icon);
+    if (geom) item.geometry = geom;
+  }
+  if (Array.isArray(item.children)) {
+    for (const child of item.children) resolveIconGeometry(child);
+  }
+  return node;
+}
+
+/**
+ * An icon rename must carry its geometry across, or the node keeps painting the
+ * shape it had before. An unknown name clears it so the painter falls back
+ * rather than lying with the previous icon.
+ */
+function applyIconRename(doc: Document, id: string, property: string, value: unknown): Document {
+  if (property !== "icon" || typeof value !== "string") return doc;
+  return setProperty(doc, id, "geometry", getLucideIconPath(value) || undefined);
+}
+
+/**
+ * Properties whose effect is a box, not a value.
+ *
+ * A run spent 28 of 96 tool calls on `measure`, against three distinct ids, and
+ * wrote one frame's height five times (410, fit_content, fit_content, 70, 90) —
+ * the second fit_content being an exact repeat of the first. set_property
+ * answered with the declared subtree, which just echoes back the value that was
+ * just written, so the only way to learn what a size change actually did was
+ * another round-trip. Answering with the resolved box removes the reason to ask.
+ */
+const GEOMETRY_PROPERTIES = new Set([
+  "width", "height", "gap", "padding", "layout", "fontSize", "lineHeight",
+  "letterSpacing", "textGrowth", "alignItems", "justifyContent", "strokeWidth"
+]);
+
+/** The measured box of a node and its parent, one line each. */
+function measuredNote(doc: Document, id: string): string {
+  try {
+    const flat = flattenLayoutTree(layoutResolvedDocument(resolveInstances(doc)));
+    const node = flat.get(id);
+    if (!node) return "";
+    const box = (n: { box: { width: number; height: number } }) =>
+      `${Math.round(n.box.width)}x${Math.round(n.box.height)}`;
+    const self = findNode(doc.children, id);
+    const parts = [`measured: ${self?.name ? `"${self.name}"` : id} is now ${box(node)}px`];
+    const parentId = parentOfNode(doc, id);
+    const parent = parentId ? flat.get(parentId) : undefined;
+    if (parent && parentId) {
+      const parentNode = findNode(doc.children, parentId);
+      parts.push(`inside ${parentNode?.name ? `"${parentNode.name}"` : parentId} at ${box(parent)}px`);
+    }
+    return parts.join(", ") + ".";
+  } catch {
+    // Measurement is an extra, never a reason to fail a write.
+    return "";
+  }
+}
+
+function parentOfNode(doc: Document, id: string): string | undefined {
+  let found: string | undefined;
+  function walk(node: PenNode) {
+    for (const child of childrenOf(node)) {
+      if (child.id === id) found = node.id;
+      else walk(child);
+    }
+  }
+  for (const root of doc.children) {
+    if (root.id === id) return undefined;
+    walk(root);
+  }
+  return found;
+}
+
+/**
+ * Write through a synthetic instance id.
+ *
+ * resolveInstances names an instance's descendants "<refId>:<originalId>" so
+ * the resolved tree has unique ids, and `measure` reports those names because
+ * it measures the resolved tree. Nothing accepted them back: a run read
+ * ref_9322:frame_vi6l6f out of a measure result, tried to set a property on it,
+ * and got "node not found" three times. One tool handing out an identifier
+ * another refuses is a trap the tools set themselves.
+ *
+ * The name already says what the write means — this descendant, in this
+ * instance — which is exactly what place_instances takes as an override.
+ */
+function splitInstanceId(doc: Document, id: string): { refId: string; descendantId: string } | undefined {
+  const at = id.indexOf(":");
+  if (at <= 0) return undefined;
+  const refId = id.slice(0, at);
+  const descendantId = id.slice(at + 1);
+  const host = findNode(doc.children, refId);
+  if (!host || host.type !== "ref" || !descendantId) return undefined;
+
+  // The descendant has to exist in the component, or the override is a typo
+  // that writes a key nothing will ever read. place_instances already refuses
+  // those by name; a write through a synthetic id is the same promise.
+  const component = (host as PenNode & { ref?: string }).ref
+    ? findNode(doc.children, (host as PenNode & { ref?: string }).ref!)
+    : null;
+  if (!component) return undefined;
+  let known = false;
+  (function walk(node: PenNode) {
+    if (node.id === descendantId) known = true;
+    for (const child of childrenOf(node)) walk(child);
+  })(component);
+  if (!known) return undefined;
+
+  return { refId, descendantId };
+}
+
+function setInstanceProperty(
+  doc: Document,
+  target: { refId: string; descendantId: string },
+  property: string,
+  value: unknown
+): Document {
+  const host = findNode(doc.children, target.refId) as (PenNode & { descendants?: Record<string, any> }) | null;
+  if (!host) return doc;
+  const descendants = {
+    ...(host.descendants ?? {}),
+    [target.descendantId]: { ...(host.descendants?.[target.descendantId] ?? {}), [property]: value }
+  };
+  return setProperty(doc, target.refId, "descendants", descendants);
+}
 
 function resizesMobileScreen(doc: Document, id: string, property: string): boolean {
   if (property !== "width" && property !== "height") return false;
@@ -29,247 +176,16 @@ function mobileSizeError(id: string): string {
   return `error: ${id} is a fixed ${MOBILE_WIDTH}x${MOBILE_HEIGHT} mobile screen. Keep the root size; shorten or remove content, or reduce inner gaps and padding so it fits.`;
 }
 
-export const TOOL_DEFS: Tool[] = [
-  {
-    name: "set_style",
-    description:
-      "Choose the document's visual system: palette, roundness, elevation and three typefaces. " +
-      "Writes the colour and font tokens onto the document and returns the usage rules for the " +
-      "chosen style. Call this before building anything on an unstyled document. Every argument " +
-      "must name an option from the catalog in the system prompt.",
-    parameters: {
-      type: "object",
-      properties: {
-        palette: { type: "string", description: "Palette name, e.g. 'Carbon Frost'" },
-        roundness: { type: "string", description: "Roundness scale name, e.g. 'Basic'" },
-        elevation: { type: "string", description: "Elevation preset name, e.g. 'Soft Lift'" },
-        headings: { type: "string", description: "Typeface for titles and section headings" },
-        body: { type: "string", description: "Typeface for paragraphs and list titles" },
-        captions: { type: "string", description: "Typeface for labels, metadata and badges" }
-      },
-      required: ["palette", "roundness", "elevation", "headings", "body", "captions"]
-    }
-  },
-  {
-    name: "read_digest",
-    description:
-      "Return a structural digest. Omit id for the whole document. Pass a node id for a subtree.",
-    parameters: { type: "object", properties: { id: { type: "string" } } }
-  },
-  {
-    name: "set_variable",
-    description:
-      "Update a theme token/variable (e.g. name: 'bg', value: '#FFFFFF'). Instantly updates all elements referencing $name across the document.",
-    parameters: {
-      type: "object",
-      properties: {
-        name: { type: "string", description: "Variable name without $ (e.g. 'bg', 'surface', 'surface-raised', 'line', 'text', 'muted')" },
-        value: { type: "string", description: "Hex color code or value (e.g. '#FFFFFF', '#0F172A')" }
-      },
-      required: ["name", "value"]
-    }
-  },
-  {
-    name: "batch_set_properties",
-    description: "Update multiple properties across multiple nodes in one atomic call.",
-    parameters: {
-      type: "object",
-      properties: {
-        updates: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "string" },
-              property: { type: "string" },
-              value: {}
-            },
-            required: ["id", "property", "value"]
-          }
-        }
-      },
-      required: ["updates"]
-    }
-  },
-  {
-    name: "set_property",
-    description: "Set one property on one node. Returns the subtree digest.",
-    parameters: {
-      type: "object",
-      properties: {
-        id: { type: "string" },
-        property: { type: "string" },
-        value: {}
-      },
-      required: ["id", "property"]
-    }
-  },
-  {
-    name: "create_screen",
-    description:
-      "Create a new screen as a top-level frame, with its chrome already built and measured: a mobile screen gets a status bar, one content wrapper that owns the horizontal padding, and an optional capsule tab bar; a desktop screen gets a top bar, a left rail, a dominant main region and a right rail. Returns the id of each slot. Always start a screen with this rather than assembling the chrome by hand. Put the screen's own content inside the returned content or main id.",
-    parameters: {
-      type: "object",
-      properties: {
-        name: { type: "string", description: "What the screen is, e.g. 'Discover' or 'Order Detail'" },
-        kind: { type: "string", enum: ["mobile", "desktop"] },
-        tabs: {
-          type: "array",
-          description: "Mobile only. 3-5 destinations, exactly one marked active. Omit for a screen with no tab bar.",
-          items: {
-            type: "object",
-            properties: {
-              label: { type: "string" },
-              icon: { type: "string", description: "Lucide icon name" },
-              active: { type: "boolean" }
-            },
-            required: ["label", "icon"]
-          }
-        }
-      },
-      required: ["name", "kind"]
-    }
-  },
-  {
-    name: "insert_node",
-    description:
-      "Insert a node. To insert as a new top-level root frame on the canvas, pass parentId: 'canvas' (or omit parentId). To insert inside an existing frame/group, pass its node id.",
-    parameters: {
-      type: "object",
-      properties: {
-        parentId: {
-          type: "string",
-          description: "Parent frame/group ID, or 'canvas' / omit for top-level canvas frame"
-        },
-        index: { type: "number" },
-        node: {
-          type: "object",
-          description: "Node object (e.g. { type: 'frame', name: 'Layout B', width: 1360, height: 920, children: [...] })"
-        }
-      },
-      required: ["node"]
-    }
-  },
-  {
-    name: "place_instances",
-    description:
-      "Place several instances of one component in a parent, each with its own text. Build the repeated structure once as a normal node, then call this with the values that differ. Cheaper and more consistent than writing the same subtree again: an edit to the component reaches every instance. Use it for list rows, cards, chips, and any structure that repeats.",
-    parameters: {
-      type: "object",
-      properties: {
-        componentId: { type: "string", description: "Id of the node to instance. It is marked reusable for you." },
-        parentId: { type: "string", description: "Frame the instances go into." },
-        items: {
-          type: "array",
-          description:
-            "One entry per instance. Each is a map of descendant node id to the properties that differ, e.g. { \"row_title\": { \"content\": \"Bella\" }, \"row_meta\": { \"content\": \"7 · Mare\" } }. An empty object places an unmodified copy.",
-          items: { type: "object" }
-        }
-      },
-      required: ["componentId", "parentId", "items"]
-    }
-  },
-  {
-    name: "duplicate_node",
-    description:
-      "Duplicate an existing frame, component, or node subtree. When duplicating a root frame, it places the exact clone side-by-side on the canvas with fresh unique IDs for all children. Returns the new node's digest. Use this when asked to make a variation, alternate theme, or new version of an existing screen so no elements are lost!",
-    parameters: {
-      type: "object",
-      properties: {
-        id: { type: "string", description: "ID of the node or root frame to duplicate" },
-        name: { type: "string", description: "Optional new name for the duplicated node (e.g. 'Factory Control Panel — Light')" }
-      },
-      required: ["id"]
-    }
-  },
-  {
-    name: "delete_node",
-    description: "Remove a node. Returns the parent digest.",
-    parameters: {
-      type: "object",
-      properties: { id: { type: "string" } },
-      required: ["id"]
-    }
-  },
-  {
-    name: "move_node",
-    description: "Move a node to a new parent. Returns both parent digests.",
-    parameters: {
-      type: "object",
-      properties: {
-        id: { type: "string" },
-        newParentId: { type: "string" },
-        index: { type: "number" }
-      },
-      required: ["id", "newParentId"]
-    }
-  },
-  {
-    name: "measure",
-    description:
-      "Return the resolved geometry of a subtree after layout: the computed box of every node, " +
-      "in its parent's coordinate space. Use this to find out what 'fill_container' and " +
-      "'fit_content' actually resolved to, and whether a region is the size you intended. " +
-      "The digest shows what you declared; measure shows what the engine computed.",
-    parameters: {
-      type: "object",
-      properties: {
-        id: { type: "string", description: "Node or frame ID to measure (omit for every top-level frame)" }
-      }
-    }
-  },
-  {
-    name: "search_icons",
-    description:
-      "Search available Lucide vector icons by keyword (e.g. 'heart', 'star', 'user', 'message', 'flame', 'arrow', 'filter', 'check', 'x', 'settings', 'bell', 'share', 'camera', 'sparkles', 'compass', etc.). Returns matching icon names you can use with insert_icon or type: 'icon'.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Search keyword (e.g. 'heart', 'navigation', 'media', 'social')" }
-      },
-      required: ["query"]
-    }
-  },
-  {
-    name: "insert_icon",
-    description:
-      "Insert a crisp Lucide vector icon into a container frame. Renders crisp vector SVG path geometry at any scale.",
-    parameters: {
-      type: "object",
-      properties: {
-        icon: { type: "string", description: "Lucide icon name (e.g. 'heart', 'star', 'flame', 'sparkles', 'x', 'check', 'message-circle', 'search', 'user')" },
-        parentId: { type: "string", description: "Target container frame/group ID" },
-        name: { type: "string", description: "Optional layer name (e.g. 'Like Icon')" },
-        size: { type: "number", description: "Icon box size in pixels (default: 24)" },
-        stroke: { type: "string", description: "Icon stroke color or token (e.g. '#FFFFFF', '$cyan', '$red', '$muted')" },
-        strokeWidth: { type: "number", description: "Icon stroke width (default: 2)" },
-        fill: { type: "string", description: "Optional fill color or token (default: 'none')" },
-        index: { type: "number", description: "Optional index in parent container" }
-      },
-      required: ["icon", "parentId"]
-    }
-  },
-  {
-    name: "generate_image",
-    description:
-      "Generate a realistic photorealistic image or illustration in the background using Qwen-Image-3.0-Pro (DashScope). Can set as the image fill of an existing frame/card (via nodeId) or insert a new image container (via parentId).",
-    parameters: {
-      type: "object",
-      properties: {
-        prompt: { type: "string", description: "Detailed description of the image to generate (e.g. 'A majestic Arabian stallion with glossy dark coat galloping in a sunset golden meadow')" },
-        nodeId: { type: "string", description: "Optional existing node ID to apply this image fill to" },
-        parentId: { type: "string", description: "Optional parent container ID to insert a new image frame into" },
-        name: { type: "string", description: "Optional layer name (e.g. 'Hero Photo')" },
-        aspectRatio: { type: "string", enum: ["square", "portrait", "landscape"], description: "Image aspect ratio (default: 'portrait')" }
-      },
-      required: ["prompt"]
-    }
-  }
-];
-
 /**
- * Properties every node type understands.
+ * What the model is offered, as the wire format the provider reads.
+ *
+ * The definitions are a JSON Schema per tool plus the sentence that tells the
+ * model when to reach for it — data and prose, not behaviour, and two hundred
+ * and forty lines of object literal when they lived here. tools.json holds them
+ * verbatim; execute() below is the part that is code.
  */
+export const TOOL_DEFS: Tool[] = toolDefs;
+
 const COMMON_KEYS = new Set([
   "id", "type", "name", "x", "y", "width", "height", "fill", "fills", "stroke", "strokes",
   "strokeWidth", "cornerRadius", "rotation", "opacity", "layoutPosition", "clip", "reusable",
@@ -444,8 +360,45 @@ function parentIdOf(doc: Document, id: string): string | undefined {
   return walk(doc.children);
 }
 
-export function createDocumentTools(initial: Document) {
+export function createDocumentTools(
+  initial: Document,
+  image: { providerId?: string; apiKey?: string; fetch?: FetchFn } = {}
+) {
   let doc = initial;
+
+  /**
+   * Every value each property has been given during this session.
+   *
+   * A review pass in one trace wrote frame_qcdz6z.height as 450, 250, 450, 250
+   * and frame_ju30uo.height as fit_content, 188, 188, fit_content — landing back
+   * where it started after four writes. That is not converging on an answer, it
+   * is alternating between two guesses, and nothing in the loop said so. Naming
+   * the repeat turns an invisible oscillation into something the model can act
+   * on: the value is not the problem, so stop trying values.
+   */
+  const writeHistory = new Map<string, string[]>();
+  /**
+   * The repeats since the session loop last asked, so it can price them.
+   *
+   * The note below is advice, and advice is refusable: one run read it four
+   * times and kept alternating, because every round still counted as progress
+   * — the document changed each time. The loop needs the same finding as a
+   * fact it can act on, and it should come from here rather than from a second
+   * history built by re-reading tool arguments, which would be free to drift
+   * from what the tools actually did.
+   */
+  const revisited = new Map<string, string[]>();
+
+  function recordWrite(id: string, property: string, value: unknown): string {
+    const key = `${id}.${property}`;
+    const seen = writeHistory.get(key) ?? [];
+    const encoded = JSON.stringify(value ?? null);
+    const repeat = seen.includes(encoded);
+    writeHistory.set(key, [...seen, encoded]);
+    if (!repeat || seen.length < 2) return "";
+    revisited.set(key, [...seen, encoded]);
+    return `note: ${key} has now been ${seen.length + 1} values this session and is back to one it already had (${seen.map((v) => v).join(" -> ")}). The value is not what decides this box. Change the parent's layout, or delete the node and rebuild it.`;
+  }
 
   async function execute(name: string, args: unknown): Promise<string> {
     const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
@@ -461,15 +414,26 @@ export function createDocumentTools(initial: Document) {
           if (err instanceof StyleChoiceError) return `error: ${err.message}`;
           throw err;
         }
+        const direction = designDirection(a);
+        if (!direction) return "error: thesis, ownWorld and firstViewport are required";
 
         const newDoc: Document = structuredClone(doc);
         newDoc.variables = { ...(newDoc.variables ?? {}), ...style.variables };
-        newDoc.metadata = { ...(newDoc.metadata ?? {}), [STYLE_METADATA_KEY]: style.choice };
+        newDoc.metadata = {
+          ...(newDoc.metadata ?? {}),
+          [STYLE_METADATA_KEY]: style.choice,
+          [DIRECTION_METADATA_KEY]: direction
+        };
         doc = newDoc;
 
         return [
           `ok: style set. ${Object.keys(style.variables).length} tokens written to the document.`,
           "Use these tokens everywhere. Follow these rules for the rest of the design:",
+          "",
+          `DIRECTION — ${direction.thesis}`,
+          `OWN WORLD — ${direction.ownWorld}`,
+          `FIRST VIEWPORT — ${direction.firstViewport}`,
+          "Build and review against this contract. If the canvas contradicts it, revise the canvas.",
           "",
           styleGuidelines(style)
         ].join("\n");
@@ -514,22 +478,66 @@ export function createDocumentTools(initial: Document) {
         for (const u of updates) {
           if (!u || typeof u.id !== "string" || typeof u.property !== "string") continue;
           if (!ALLOWED_PROPERTIES.has(u.property)) continue;
-          if (!findNode(newDoc.children, u.id)) continue;
+          if (!findNode(newDoc.children, u.id)) {
+            const inside = splitInstanceId(newDoc, u.id);
+            if (!inside) continue;
+            newDoc = setInstanceProperty(newDoc, inside, u.property, u.value);
+            modifiedIds.push(`${u.id}.${u.property}`);
+            continue;
+          }
           newDoc = setProperty(newDoc, u.id, u.property, u.value);
+          newDoc = applyIconRename(newDoc, u.id, u.property, u.value);
           modifiedIds.push(`${u.id}.${u.property}`);
         }
 
+        const unchanged = newDoc === doc && modifiedIds.length > 0;
         doc = newDoc;
-        return `ok: updated ${modifiedIds.length} properties (${modifiedIds.slice(0, 6).join(", ")}${modifiedIds.length > 6 ? "..." : ""})`;
+        const head = `ok: updated ${modifiedIds.length} properties (${modifiedIds.slice(0, 6).join(", ")}${modifiedIds.length > 6 ? "..." : ""})`;
+        if (unchanged) {
+          return `${head}\nno change: every value was already set. Something else is deciding these boxes — measure them, or change the parent instead.`;
+        }
+        const touched = [...new Set(
+          updates
+            .filter((u) => u && typeof u.property === "string" && GEOMETRY_PROPERTIES.has(u.property))
+            .map((u) => u.id as string)
+        )].slice(0, 6);
+        const notes = touched.map((id) => measuredNote(doc, id)).filter(Boolean);
+        const loops = updates
+          .filter((u) => u && typeof u.id === "string" && typeof u.property === "string")
+          .map((u) => recordWrite(u.id as string, u.property as string, u.value))
+          .filter(Boolean);
+        return [head, ...notes, ...loops].join("\n");
       }
 
       case "set_property": {
         if (typeof a.id !== "string" || typeof a.property !== "string") return "error: id and property are required";
         if (!ALLOWED_PROPERTIES.has(a.property)) return `error: invalid property "${a.property}"`;
-        if (!findNode(doc.children, a.id)) return `error: node ${a.id} not found`;
+        if (!findNode(doc.children, a.id)) {
+          const inside = splitInstanceId(doc, a.id);
+          if (!inside) return `error: node ${a.id} not found`;
+          const beforeInstance = doc;
+          doc = setInstanceProperty(doc, inside, a.property, a.value);
+          if (doc === beforeInstance) return `error: could not override ${inside.descendantId} in ${inside.refId}`;
+          const loopNote = recordWrite(a.id, a.property, a.value);
+          return [
+            `ok: set ${a.property} on ${inside.descendantId} inside instance ${inside.refId}. Only this instance changed.`,
+            GEOMETRY_PROPERTIES.has(a.property) ? measuredNote(doc, inside.refId) : "",
+            loopNote
+          ].filter(Boolean).join("\n");
+        }
         if (resizesMobileScreen(doc, a.id, a.property)) return mobileSizeError(a.id);
+        const beforeWrite = doc;
         doc = setProperty(doc, a.id, a.property, a.value);
-        return digestSubtree(doc, a.id);
+        doc = applyIconRename(doc, a.id, a.property, a.value);
+        // A write that changed nothing is worth saying out loud. The same value
+        // set twice reads as ok twice, and the model keeps pulling a lever that
+        // is not attached to anything.
+        if (doc === beforeWrite) {
+          return `no change: ${a.id}.${a.property} is already ${JSON.stringify(a.value)}. Something else is deciding this box — measure it, or change the parent instead.`;
+        }
+        const note = GEOMETRY_PROPERTIES.has(a.property) ? measuredNote(doc, a.id) : "";
+        const loop = recordWrite(a.id, a.property, a.value);
+        return [digestSubtree(doc, a.id), note, loop].filter(Boolean).join("\n");
       }
 
       case "create_screen": {
@@ -550,6 +558,7 @@ export function createDocumentTools(initial: Document) {
         let counter = 0;
         const base = getNextNodeId(doc, "n").split("_")[1];
         const scaffold = buildScreen(spec, () => `n${Number(base) + counter++}`);
+        resolveIconGeometry(scaffold.node);
 
         // Screens sit side by side on the canvas. Nesting one inside another is
         // the single most expensive mistake a run can make.
@@ -565,7 +574,14 @@ export function createDocumentTools(initial: Document) {
         const slots = Object.entries(scaffold.slots)
           .map(([role, id]) => `  ${role}: ${id}`)
           .join("\n");
-        return `ok: built ${spec.kind} screen "${name}" (${scaffold.node.id}). Slots:\n${slots}\n\n${digestSubtree(doc, scaffold.node.id)}`;
+        const screenNote = insertionNote(doc, scaffold.node.id);
+        return [
+          `ok: built ${spec.kind} screen "${name}" (${scaffold.node.id}). Slots:`,
+          slots,
+          "",
+          digestSubtree(doc, scaffold.node.id),
+          ...(screenNote ? ["", screenNote] : [])
+        ].join("\n");
       }
 
       case "insert_node": {
@@ -575,7 +591,7 @@ export function createDocumentTools(initial: Document) {
         const targetParent = isRootInsert ? undefined : rawParentId;
 
         const report: NormalizeReport = { renamed: [], unknown: [], defaulted: [] };
-        const nodeToInsert = normalizeNodeTree({ ...(a.node as any) }, report);
+        const nodeToInsert = resolveIconGeometry(normalizeNodeTree({ ...(a.node as any) }, report));
         const normalizationNote = describeNormalization(report);
 
         // If inserting as a root frame, ensure clean side-by-side positioning
@@ -599,7 +615,11 @@ export function createDocumentTools(initial: Document) {
         doc = insertChild(doc, targetParent, nodeToInsert as PenNode, typeof a.index === "number" ? a.index : undefined);
         if (doc === before) return `error: could not insert into ${rawParentId || "canvas"}`;
         const body = targetParent ? digestSubtree(doc, targetParent) : digest(doc);
-        return normalizationNote ? `${normalizationNote}\n${body}` : body;
+        // Measured here rather than at the end of the run: a defect found now
+        // costs one tool result, and the same defect found after three more
+        // sections costs a round-trip that replays the whole context.
+        const note = insertionNote(doc, (nodeToInsert as PenNode).id);
+        return [normalizationNote, body, note].filter(Boolean).join("\n");
       }
 
       case "place_instances": {
@@ -695,7 +715,10 @@ export function createDocumentTools(initial: Document) {
         if (digest(doc) === before) return `error: could not move ${a.id}`;
         const parts = [digestSubtree(doc, a.newParentId)];
         if (oldParent && oldParent !== a.newParentId) parts.unshift(digestSubtree(doc, oldParent));
-        return parts.join("\n---\n");
+        // Where a node lives is a slot like any other, and moving it back and
+        // forth between two parents is the same failure as toggling a value.
+        const loop = recordWrite(a.id, "parent", a.newParentId);
+        return [parts.join("\n---\n"), loop].filter(Boolean).join("\n");
       }
 
       case "measure": {
@@ -765,13 +788,33 @@ export function createDocumentTools(initial: Document) {
         const prompt = typeof a.prompt === "string" ? a.prompt.trim() : "";
         if (!prompt) return "error: prompt is required for image generation";
 
-        const aspectRatio = (a.aspectRatio === "square" || a.aspectRatio === "landscape" || a.aspectRatio === "portrait")
-          ? a.aspectRatio
-          : "portrait";
+        const targetId = digestId(doc, a.nodeId);
+        if (!targetId) return "error: existing nodeId is required for image generation";
+        // A per-instance image is the ordinary case — three list rows showing
+        // three different cats — and the id measure reports for that frame is
+        // the synthetic one. Rejecting it sent one run through three retries
+        // before it gave up and built separate frames instead.
+        const instanceTarget = findNode(doc.children, targetId) ? undefined : splitInstanceId(doc, targetId);
+        if (!findNode(doc.children, targetId) && !instanceTarget) {
+          return `error: node ${targetId} not found. Pass the id of an existing node to fill.`;
+        }
+
+        const target = flattenLayoutTree(layoutResolvedDocument(resolveInstances(doc))).get(targetId);
+        if (!target || target.box.width <= 0 || target.box.height <= 0) {
+          return `error: node ${targetId} must have measurable dimensions before image generation`;
+        }
+        const ratio = target.box.width / target.box.height;
+        const aspectRatio = ratio > 1.15 ? "landscape" : ratio < 0.87 ? "portrait" : "square";
+        const targetSize = `${Math.round(target.box.width)}x${Math.round(target.box.height)}`;
 
         let result;
         try {
-          result = await generateDesignImage(prompt, { aspectRatio });
+          result = await generateDesignImage(prompt, {
+            aspectRatio,
+            providerId: image.providerId,
+            apiKey: image.apiKey,
+            fetch: image.fetch
+          });
         } catch (err) {
           if (err instanceof ImageGenUnavailableError) {
             return `error: ${err.message} Do not retry image generation in this run or replace required photography with a placeholder; report that the imagery could not be completed.`;
@@ -780,34 +823,12 @@ export function createDocumentTools(initial: Document) {
         }
         const imgUrl = result.url;
 
-        // If a target node ID was provided, update its fill to be this image
-        if (typeof a.nodeId === "string") {
-          const targetId = digestId(doc, a.nodeId);
-          if (targetId && findNode(doc.children, targetId)) {
-            doc = setProperty(doc, targetId, "fill", { type: "image", url: imgUrl });
-            return `ok: generated image (${result.provider}) and set fill on ${targetId}\n[IMAGE_PREVIEW]: ${imgUrl}\n${digestSubtree(doc, targetId)}`;
-          }
+        if (instanceTarget) {
+          doc = setInstanceProperty(doc, instanceTarget, "fill", { type: "image", url: imgUrl });
+          return `ok: generated image (${result.provider}) using ${aspectRatio} composition for the ${targetSize} target and set fill on ${instanceTarget.descendantId} inside instance ${instanceTarget.refId}. Only this instance changed.`;
         }
-
-        // If a parent ID was provided, insert a new image card frame
-        if (typeof a.parentId === "string") {
-          const targetParent = digestId(doc, a.parentId);
-          const isLandscape = aspectRatio === "landscape";
-          const imgFrameNode: PenNode = {
-            id: `img_${Math.random().toString(36).slice(2, 8)}`,
-            type: "frame",
-            name: typeof a.name === "string" ? a.name : `Image — ${prompt.slice(0, 24)}`,
-            width: isLandscape ? 350 : 350,
-            height: isLandscape ? 200 : 280,
-            cornerRadius: 20,
-            clip: true,
-            fill: { type: "image", url: imgUrl }
-          };
-          doc = insertChild(doc, targetParent, imgFrameNode);
-          return `ok: generated image (${result.provider}) and inserted frame into ${a.parentId}\n[IMAGE_PREVIEW]: ${imgUrl}\n${digestSubtree(doc, targetParent)}`;
-        }
-
-        return `ok: generated image (${result.provider})\n[IMAGE_PREVIEW]: ${imgUrl}`;
+        doc = setProperty(doc, targetId, "fill", { type: "image", url: imgUrl });
+        return `ok: generated image (${result.provider}) using ${aspectRatio} composition for the ${targetSize} target and set fill on ${targetId}\n${digestSubtree(doc, targetId)}`;
       }
 
       default:
@@ -819,6 +840,12 @@ export function createDocumentTools(initial: Document) {
     execute,
     get doc() {
       return doc;
+    },
+    /** Slots put back to a value they already held, and cleared as they are read. */
+    drainRevisits(): { key: string; values: string[] }[] {
+      const out = [...revisited].map(([key, values]) => ({ key, values }));
+      revisited.clear();
+      return out;
     }
   };
 }

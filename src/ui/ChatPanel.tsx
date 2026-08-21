@@ -9,7 +9,10 @@ import {
   ArrowUp,
   Wrench,
   Layers,
-  Bot
+  Bot,
+  Eye,
+  ImagePlus,
+  Loader
 } from "lucide-solid";
 import {
   chatVisible,
@@ -32,12 +35,16 @@ import type { PublicProvider } from "../agent/credentials";
 import type { Document } from "../model/types";
 import { ModelSelector, parseChoice, choiceValue } from "./ModelSelector";
 import { captureDocumentPng } from "../render/capture";
-import { applyReviewMessage, type DesignReview } from "../agent/review";
+import { applyReviewFixes, applyReviewMessage, type ReviewResponse } from "../agent/review";
 import { digest } from "../digest/digest";
 import { EXAMPLE_PROMPTS } from "./examplePrompts";
+import { currentDirection } from "../design/styleSystem";
+import { STYLE_METADATA_KEY } from "../design/styleKeys";
+import { loadHistory, recordRun, saveHistory } from "../design/history";
+import { auditDocument, formatAudit } from "../design/evaluator";
 
 const SETUP =
-  "No provider key found. Add OPENAI_API_KEY, OPENCODE_GO_API_KEY, or DASHSCOPE_API_KEY to your .env file and restart. Keys stay on your local agent server.";
+  "No provider key found. Add OPENAI_API_KEY, OPENCODE_GO_API_KEY, GEMINI_API_KEY, or DASHSCOPE_API_KEY to your .env file and restart. Keys stay on your local agent server.";
 const AUTO_REVIEW_REVISIONS = 2;
 
 /**
@@ -58,18 +65,193 @@ function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError";
 }
 
+/**
+ * One row of the panel.
+ *
+ * The agent transcript is Message[], but the panel also has to show things that
+ * never reach the model: which model read the screenshot, what it scored, what
+ * it corrected without spending a model turn. Those had nowhere to live, so the
+ * panel printed a summary and then sat silent for the minutes the review and
+ * its revision passes took.
+ */
+type Entry =
+  | { kind: "message"; message: Message; tool?: string }
+  | {
+      kind: "review";
+      pass: number;
+      review: ReviewResponse;
+      applied: number;
+      /** The frame the critic was actually shown, small enough to keep around. */
+      thumbnail?: string;
+    }
+  /**
+   * A line from the run itself. "budget" is its own tone because a run that
+   * spends its rounds is not a failure: it was announced, the canvas is kept,
+   * and asking again continues from there. Rendering it as a red Provider
+   * Notice said the opposite about the one thing that had gone right.
+   */
+  | { kind: "note"; text: string; tone: "info" | "error" | "budget" };
+
+const THUMBNAIL_WIDTH = 320;
+
+/**
+ * Shrink the capture down to something the transcript can hold.
+ *
+ * The card shows what the critic saw, which is the only way to tell a critique
+ * that missed something from one that was shown something else. The capture
+ * itself runs to megabytes, and two of them per send would accumulate for the
+ * life of the session, so what is kept is a thumbnail and not the evidence
+ * frame that went to the model.
+ */
+async function thumbnail(dataUrl: string): Promise<string | undefined> {
+  try {
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
+      image.src = dataUrl;
+    });
+    const scale = Math.min(1, THUMBNAIL_WIDTH / Math.max(image.width, 1));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return undefined;
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.7);
+  } catch {
+    // A missing thumbnail costs a picture, not a review.
+    return undefined;
+  }
+}
+
+function toEntries(messages: Message[]): Entry[] {
+  return messages.map((message, i) => ({
+    kind: "message" as const,
+    message,
+    tool: message.role === "tool" ? toolLabel(messages, i) : undefined
+  }));
+}
+
+/**
+ * What the panel calls a model.
+ *
+ * Read out of the /agent/status reply rather than the provider catalog: the
+ * server already sent every label the picker needs, and importing the catalog
+ * here would ship five providers' endpoints to the browser to spell one name.
+ */
+function modelLabel(providers: PublicProvider[], providerId: string | undefined, model: string): string {
+  const spec = providers.find((p) => p.id === providerId);
+  return spec?.models.find((m) => m.id === model)?.label ?? model;
+}
+
+/**
+ * What the critic saw, and who saw it.
+ *
+ * The review used to leave no trace at all: fixes appeared on the canvas, a
+ * revision pass ran for minutes, and the transcript showed a summary followed
+ * by nothing. The card is the receipt — the verdict, the scores, the number of
+ * corrections applied without a model turn, and the model that actually read
+ * the screenshot when it was not the one drawing.
+ */
+const ReviewCard: Component<{
+  entry: Extract<Entry, { kind: "review" }>;
+  providers: PublicProvider[];
+}> = (props) => {
+  const review = () => props.entry.review;
+  const by = () => review().reviewedBy;
+  const scores = () => Object.entries(review().scores) as [string, number][];
+
+  return (
+    <div class="mr-auto w-full max-w-[96%] rounded-xl border border-indigo-200/70 bg-indigo-50/40 text-xs shadow-2xs overflow-hidden">
+      <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-indigo-200/60 bg-indigo-50/70">
+        <Eye size={11} class="text-indigo-500 shrink-0" />
+        <span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-600">
+          Visual review {props.entry.pass}
+        </span>
+        <span
+          class={`ml-auto text-[9px] font-semibold uppercase tracking-wider rounded px-1.5 py-0.5 ${
+            review().verdict === "pass"
+              ? "bg-emerald-100 text-emerald-700"
+              : "bg-amber-100 text-amber-800"
+          }`}
+        >
+          {review().verdict}
+        </span>
+      </div>
+
+      <div class="px-2.5 py-2 space-y-1.5">
+        <Show when={props.entry.thumbnail}>
+          {(src) => (
+            <img
+              src={src()}
+              alt="The mockup the critic was shown"
+              class="w-full max-h-44 object-contain rounded-md border border-indigo-200/60 bg-white"
+            />
+          )}
+        </Show>
+
+        <Show when={by()}>
+          {(who) => (
+            <div class="text-[10px] text-indigo-900/70 leading-relaxed">
+              Read by <span class="font-medium">{modelLabel(props.providers, who().providerId, who().model)}</span>
+              <Show when={who().handoff}>
+                {(why) => <span class="opacity-70"> — {why()}</span>}
+              </Show>
+            </div>
+          )}
+        </Show>
+
+        <div class="flex flex-wrap gap-1">
+          <For each={scores()}>
+            {([name, value]) => (
+              <span class="rounded bg-white/80 border border-indigo-200/60 px-1.5 py-0.5 text-[10px] text-indigo-900">
+                {name} <span class="font-semibold">{value}</span>/5
+              </span>
+            )}
+          </For>
+        </div>
+
+        <Show when={props.entry.applied > 0}>
+          <div class="text-[10px] text-indigo-900/70">
+            {props.entry.applied} propert{props.entry.applied === 1 ? "y" : "ies"} corrected directly.
+          </div>
+        </Show>
+
+        <Show when={review().issues.length > 0}>
+          <ul class="space-y-1 pt-0.5">
+            <For each={review().issues}>
+              {(issue) => (
+                <li class="text-[11px] text-neutral-700 leading-relaxed">
+                  <span class="font-medium text-neutral-900">{issue.title}</span>
+                  <span class="opacity-70"> — {issue.instruction}</span>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+      </div>
+    </div>
+  );
+};
+
 export const ChatPanel: Component = () => {
   const [configured, setConfigured] = createSignal(false);
   const [providers, setProviders] = createSignal<PublicProvider[]>([]);
   const [choice, setChoice] = createSignal(choiceValue("opencode-go", "gpt-5.6-luna"));
   const [effort, setEffort] = createSignal<"low" | "medium" | "high">("high");
-  const [messages, setMessages] = createSignal<Message[]>([]);
+  const [entries, setEntries] = createSignal<Entry[]>([]);
   const [agentMessages, setAgentMessages] = createSignal<Message[]>([]);
   const [inputPrompt, setInputPrompt] = createSignal("");
   const [running, setRunning] = createSignal(false);
   const [streamText, setStreamText] = createSignal("");
   const [expandedTools, setExpandedTools] = createSignal<Set<number>>(new Set());
   const [lastBrief, setLastBrief] = createSignal("");
+  /** The step in flight, cleared the moment it produces a row of its own. */
+  const [pending, setPending] = createSignal<{ label: string; detail?: string; icon: "tool" | "image" | "review" } | null>(null);
+
+  const note = (text: string, tone: "info" | "error" | "budget" = "info") =>
+    setEntries((prev) => [...prev, { kind: "note", text, tone }]);
 
   function renderMessageText(content: MessageContent | unknown): string {
     if (typeof content === "string") return content;
@@ -81,9 +263,15 @@ export const ChatPanel: Component = () => {
     return String(content ?? "");
   }
 
+  /**
+   * Text that belongs to the model and not to the reader. The revision brief is
+   * one of these: the review card above it already says what the critic asked
+   * for, and reprinting the instruction as a user bubble reads as though the
+   * person typed it.
+   */
   function isInternalMessage(content: MessageContent | unknown): boolean {
     const text = renderMessageText(content).trim();
-    return text.startsWith("[IMAGE_PREVIEW]");
+    return text.startsWith("[IMAGE_PREVIEW]") || text.startsWith("[Visual review revision]");
   }
 
   const toggleTool = (idx: number) => {
@@ -140,8 +328,9 @@ export const ChatPanel: Component = () => {
   };
 
   createEffect(() => {
-    messages();
+    entries();
     streamText();
+    pending();
     scrollToBottom();
   });
 
@@ -153,10 +342,10 @@ export const ChatPanel: Component = () => {
     reviewAbort?.abort();
   });
 
-  async function runAgentPass(text: string, context: Message[], visible: boolean) {
+  async function runAgentPass(text: string, context: Message[], sessionId: string) {
     const next: Message[] = [...context, { role: "user", content: text }];
-    const visibleBase = messages();
-    if (visible) setMessages([...visibleBase, { role: "user", content: text }]);
+    const visibleBase = entries();
+    setEntries([...visibleBase, { kind: "message", message: { role: "user", content: text } }]);
     const controller = new AbortController();
     abort = controller;
     const selected = parseChoice(choice());
@@ -171,12 +360,7 @@ export const ChatPanel: Component = () => {
       if (decision.action === "abort") {
         controller.abort();
         failure = "The canvas changed, so the agent stopped before overwriting it.";
-        if (visible) {
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: failure! }
-          ]);
-        }
+        note(failure, "error");
         return false;
       }
       if (decision.action === "accept") {
@@ -199,7 +383,9 @@ export const ChatPanel: Component = () => {
           selection: Array.from(selectedIds()),
           providerId: selected?.providerId,
           model: selected?.model,
-          reasoningEffort: effort()
+          reasoningEffort: effort(),
+          recentStyles: loadHistory(),
+          sessionId
         }),
         signal: controller.signal
       });
@@ -216,32 +402,52 @@ export const ChatPanel: Component = () => {
           }
         }
         failure = errMessage;
-        if (visible) setMessages((prev) => [...prev, { role: "assistant", content: errMessage }]);
+        note(errMessage, "error");
         return { finished, edited, messages: finalMessages, failure };
       }
 
       let assembled = "";
+      let reasoning = "";
       for await (const data of parseSseData(res.body)) {
         const event = JSON.parse(data) as AgentEvent;
         switch (event.type) {
+          case "status":
+            reasoning = "";
+            setStreamText(event.content);
+            break;
+          case "reasoning":
+            reasoning += event.content;
+            setStreamText(reasoning);
+            break;
           case "delta":
             assembled += event.content;
-            if (visible) setStreamText(assembled);
+            setStreamText(assembled);
+            break;
+          case "tool_start":
+            setStreamText("");
+            setPending(
+              event.name === "generate_image"
+                ? { label: "Generating image", detail: event.detail, icon: "image" }
+                : { label: event.name, detail: event.detail, icon: "tool" }
+            );
             break;
           case "tool":
-            if (visible) setStreamText("");
+            setStreamText("");
+            setPending(null);
             assembled = "";
-            if (visible) {
-              setMessages((prev) => [...prev, { role: "tool", content: event.result, tool_call_id: event.name }]);
-            }
+            setEntries((prev) => [
+              ...prev,
+              { kind: "message", message: { role: "tool", content: event.result }, tool: event.name }
+            ]);
             if (!applyIncoming(event.doc)) {
               return { finished, edited, messages: finalMessages, failure };
             }
             break;
           case "done":
-            if (visible) setStreamText("");
+            setStreamText("");
+            setPending(null);
             finalMessages = event.messages.filter((m) => m.role !== "system");
-            if (visible) setMessages([...visibleBase, ...finalMessages.slice(context.length)]);
+            setEntries([...visibleBase, ...toEntries(finalMessages).slice(context.length)]);
             setSelectedIds((prev) => {
               const nextSel = new Set<string>();
               const valid = nodeMap();
@@ -254,7 +460,8 @@ export const ChatPanel: Component = () => {
             break;
           case "error":
             failure = event.message;
-            if (visible) setMessages((prev) => [...prev, { role: "assistant", content: event.message }]);
+            setPending(null);
+            note(event.message, event.code === "budget" ? "budget" : "error");
             break;
           default: {
             const _never: never = event;
@@ -265,9 +472,10 @@ export const ChatPanel: Component = () => {
     } catch (err) {
       if (!isAbortError(err)) {
         failure = err instanceof Error ? err.message : String(err);
-        if (visible) setMessages((prev) => [...prev, { role: "assistant", content: failure! }]);
+        note(failure, "error");
       }
     } finally {
+      setPending(null);
       if (abort === controller) abort = null;
     }
 
@@ -286,52 +494,100 @@ export const ChatPanel: Component = () => {
 
     let instruction = text;
     let context = agentMessages();
+    const sessionId = crypto.randomUUID();
     try {
       for (let pass = 0; pass <= AUTO_REVIEW_REVISIONS; pass++) {
-        const visible = pass === 0;
-        const result = await runAgentPass(instruction, context, visible);
+        const result = await runAgentPass(instruction, context, sessionId);
         context = result.messages;
         setAgentMessages(context);
 
-        if (result.failure) {
-          if (!visible) {
-            setMessages((prev) => [...prev, {
-              role: "assistant",
-              content: `Background refinement stopped: ${result.failure}`
-            }]);
-          }
-          break;
-        }
+        if (result.failure) break;
         if (!result.finished || !result.edited || pass === AUTO_REVIEW_REVISIONS) break;
 
-        const reviewed = await runReview();
+        const reviewed = await runReview(sessionId);
         if (reviewed.error) {
-          setMessages((prev) => [...prev, {
-            role: "assistant",
-            content: `Visual review could not run: ${reviewed.error}`
-          }]);
+          note(`Visual review could not run: ${reviewed.error}`, "error");
           break;
         }
         const review = reviewed.review;
-        if (!review || review.verdict !== "refine" || review.issues.length === 0) break;
-        instruction = applyReviewMessage(lastBrief(), review);
+        if (!review) break;
+
+        // Property corrections land here, not in another model round. The
+        // critic already decided the node and the value; sending that back as
+        // prose asks a model to re-derive a change we are holding.
+        const beforeFixes = doc();
+        const fixed = applyReviewFixes(beforeFixes, review);
+        if (fixed.applied.length > 0 && doc() === beforeFixes) {
+          const oldPositions = snapshotPositions(layoutTree());
+          updateDoc(fixed.doc);
+          trackLayoutTransitionsFromSnapshot(oldPositions, layoutTree(), 320);
+        }
+        setEntries((prev) => [
+          ...prev,
+          {
+            kind: "review",
+            pass: pass + 1,
+            review,
+            applied: fixed.applied.length,
+            thumbnail: reviewed.thumbnail
+          }
+        ]);
+
+        if (review.verdict !== "refine" || review.issues.length === 0) break;
+        instruction = applyReviewMessage(lastBrief(), review, doc());
       }
     } finally {
       abort = null;
+      setPending(null);
       setRunning(false);
+      rememberStyle(text);
     }
   }
 
-  async function runReview() {
+  /**
+   * Record what this run settled on. Read after the run rather than from the
+   * set_style call, so a style the model chose and then replaced is not
+   * remembered as one it used.
+   *
+   * Read straight off the metadata: resolving it through currentStyle would
+   * drag all fifty-eight palettes into the browser bundle for three strings.
+   */
+  function rememberStyle(brief: string) {
+    const recorded = doc().metadata?.[STYLE_METADATA_KEY] as
+      | { palette?: unknown; headings?: unknown; elevation?: unknown }
+      | undefined;
+    const palette = recorded?.palette;
+    const headings = recorded?.headings;
+    const elevation = recorded?.elevation;
+    if (typeof palette !== "string" || typeof headings !== "string" || typeof elevation !== "string") {
+      return;
+    }
+    const history = loadHistory();
+    const last = history[history.length - 1];
+    if (last?.palette === palette && last?.brief === brief) return;
+    saveHistory(recordRun(history, {
+      at: new Date().toISOString(), brief, palette, headings, elevation
+    }));
+  }
+
+  async function runReview(
+    sessionId: string
+  ): Promise<{ review?: ReviewResponse; error?: string; thumbnail?: string }> {
     const selected = parseChoice(choice());
     reviewAbort?.abort();
     reviewAbort = new AbortController();
     const seq = ++reviewSeq;
     const signal = reviewAbort.signal;
     const captured = doc();
+    setPending({ label: "Rendering the mockup", icon: "review" });
     const capture = await captureDocumentPng(captured);
     if (seq !== reviewSeq || doc() !== captured) return {};
     if (!capture.ok) return { error: "the canvas could not be captured" };
+    setPending({
+      label: "Sending the mockup for review",
+      detail: selected ? modelLabel(providers(), selected.providerId, selected.model) : undefined,
+      icon: "review"
+    });
     try {
       const res = await fetch("/agent/review", {
         method: "POST",
@@ -339,9 +595,13 @@ export const ChatPanel: Component = () => {
         body: JSON.stringify({
           providerId: selected?.providerId,
           model: selected?.model,
+          reasoningEffort: effort(),
           brief: lastBrief(),
           screenshot: capture.dataUrl,
-          digest: digest(captured)
+          digest: digest(captured),
+          direction: currentDirection(captured),
+          audit: formatAudit(auditDocument(captured), "Measured design audit"),
+          sessionId
         }),
         signal
       });
@@ -350,12 +610,14 @@ export const ChatPanel: Component = () => {
         const body = await res.json().catch(() => null) as { error?: unknown } | null;
         return { error: typeof body?.error === "string" ? body.error : `request failed (${res.status})` };
       }
-      const body = (await res.json()) as DesignReview;
+      const body = (await res.json()) as ReviewResponse;
       if (seq !== reviewSeq || doc() !== captured) return {};
-      return { review: body };
+      return { review: body, thumbnail: await thumbnail(capture.dataUrl) };
     } catch (err) {
       if (signal.aborted) return {};
       return { error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      setPending(null);
     }
   }
 
@@ -427,7 +689,7 @@ export const ChatPanel: Component = () => {
               </div>
             </Show>
 
-            <Show when={configured() && messages().length === 0 && doc().children.length === 0}>
+            <Show when={configured() && entries().length === 0 && doc().children.length === 0}>
               <div class="flex flex-col items-center text-center p-4 text-neutral-400">
                 <div class="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-500 mb-3 shadow-xs">
                   <Bot size={20} />
@@ -453,82 +715,153 @@ export const ChatPanel: Component = () => {
               </div>
             </Show>
 
-            <For each={messages()}>
-              {(msg, i) => (
+            <For each={entries()}>
+              {(entry, i) => (
                 <div class="flex flex-col">
-                  {/* User Bubble (clean, no header label, sleek dark pill) */}
-                  <Show when={msg.role === "user" && !isInternalMessage(msg.content)}>
-                    <div class="ml-auto max-w-[88%] bg-neutral-900 text-white rounded-2xl rounded-tr-xs px-3.5 py-2.5 text-xs shadow-xs font-normal leading-relaxed whitespace-pre-wrap">
-                      {renderMessageText(msg.content)}
-                    </div>
-                  </Show>
-
-                  {/* Assistant / Error Bubble */}
-                  <Show when={msg.role === "assistant" && renderMessageText(msg.content).trim().length > 0}>
-                    {(() => {
-                      const text = renderMessageText(msg.content);
-                      const isErr = text.toLowerCase().includes("error") || text.includes("401") || text.includes("403");
-                      return (
+                  <Show when={entry.kind === "note" ? entry : null}>
+                    {(item) => (
+                      <div
+                        class={`mr-auto max-w-[96%] rounded-2xl rounded-tl-xs px-3.5 py-2.5 text-xs shadow-xs leading-relaxed ${
+                          item().tone === "error"
+                            ? "bg-rose-50/90 border border-rose-200 text-rose-900"
+                            : item().tone === "budget"
+                            ? "bg-amber-50/90 border border-amber-200 text-amber-900"
+                            : "bg-white border border-neutral-200/80 text-neutral-800"
+                        }`}
+                      >
                         <div
-                          class={`mr-auto max-w-[96%] rounded-2xl rounded-tl-xs px-3.5 py-2.5 text-xs shadow-xs leading-relaxed ${
-                            isErr
-                              ? "bg-rose-50/90 border border-rose-200 text-rose-900"
-                              : "bg-white border border-neutral-200/80 text-neutral-800"
+                          class={`flex items-center gap-1 text-[10px] font-semibold mb-1 tracking-wider uppercase ${
+                            item().tone === "error"
+                              ? "text-rose-600"
+                              : item().tone === "budget"
+                              ? "text-amber-600"
+                              : "text-neutral-400"
                           }`}
                         >
-                          <div
-                            class={`flex items-center gap-1 text-[10px] font-semibold mb-1 tracking-wider uppercase ${
-                              isErr ? "text-rose-600" : "text-neutral-400"
-                            }`}
-                          >
-                            <Sparkles size={9} class={isErr ? "text-rose-500" : "text-blue-500"} />
-                            <span>{isErr ? "Provider Notice" : "Assistant"}</span>
-                          </div>
-                          <div class="whitespace-pre-wrap">{text}</div>
+                          <Sparkles
+                            size={9}
+                            class={
+                              item().tone === "error"
+                                ? "text-rose-500"
+                                : item().tone === "budget"
+                                ? "text-amber-500"
+                                : "text-blue-500"
+                            }
+                          />
+                          <span>
+                            {item().tone === "error"
+                              ? "Provider Notice"
+                              : item().tone === "budget"
+                              ? "Budget"
+                              : "Assistant"}
+                          </span>
                         </div>
-                      );
-                    })()}
+                        <div class="whitespace-pre-wrap">{item().text}</div>
+                      </div>
+                    )}
                   </Show>
 
-                  {/* Image generation and review stay in model context, not the transcript. */}
-                  <Show when={msg.role === "tool" && toolLabel(messages(), i()) !== "generate_image"}>
-                    {(() => {
-                      const name = toolLabel(messages(), i());
-                      const isMeasure = name === "measure";
+                  <Show when={entry.kind === "review" ? entry : null}>
+                    {(item) => <ReviewCard entry={item()} providers={providers()} />}
+                  </Show>
 
+                  <Show when={entry.kind === "message" ? entry : null}>
+                    {(item) => {
+                      const msg = () => item().message;
                       return (
-                        <div class="mr-auto max-w-[96%] border rounded-lg text-xs shadow-2xs overflow-hidden transition-all bg-slate-50/90 border-slate-200/80 text-slate-700">
-                          <button
-                            onClick={() => toggleTool(i())}
-                            class="w-full px-2.5 py-1.5 flex items-center justify-between gap-2 hover:bg-black/5 transition text-left cursor-pointer"
-                          >
-                            <div class="flex items-center gap-1.5 min-w-0">
-                              <Wrench size={10} class="text-slate-400 shrink-0" />
-                              <span class="font-mono font-medium text-[11px] truncate">{name}</span>
-                              <span class="opacity-40">·</span>
-                              <span class="text-[9px] font-sans font-medium">
-                                {isMeasure ? "measured" : "executed"}
-                              </span>
-                            </div>
-                            <div class="text-[10px] opacity-60 font-sans shrink-0 hover:opacity-100">
-                              {expandedTools().has(i()) ? "hide ▴" : "view ▾"}
-                            </div>
-                          </button>
-
-                          <Show when={expandedTools().has(i())}>
-                            <div class="px-2.5 pb-2 pt-0.5 border-t border-black/5 bg-white/60">
-                              <div class="mt-1 font-mono text-[10px] bg-white rounded p-1.5 border border-black/10 leading-tight whitespace-pre-wrap max-h-36 overflow-y-auto">
-                                {renderMessageText(msg.content)}
-                              </div>
+                        <>
+                          {/* User Bubble (clean, no header label, sleek dark pill) */}
+                          <Show when={msg().role === "user" && !isInternalMessage(msg().content)}>
+                            <div class="ml-auto max-w-[88%] bg-neutral-900 text-white rounded-2xl rounded-tr-xs px-3.5 py-2.5 text-xs shadow-xs font-normal leading-relaxed whitespace-pre-wrap">
+                              {renderMessageText(msg().content)}
                             </div>
                           </Show>
-                        </div>
+
+                          {/* Assistant / Error Bubble */}
+                          <Show when={msg().role === "assistant" && renderMessageText(msg().content).trim().length > 0}>
+                            {(() => {
+                              const text = renderMessageText(msg().content);
+                              return (
+                                <div class="mr-auto max-w-[96%] rounded-2xl rounded-tl-xs px-3.5 py-2.5 text-xs shadow-xs leading-relaxed bg-white border border-neutral-200/80 text-neutral-800">
+                                  <div class="flex items-center gap-1 text-[10px] font-semibold mb-1 tracking-wider uppercase text-neutral-400">
+                                    <Sparkles size={9} class="text-blue-500" />
+                                    <span>Assistant</span>
+                                  </div>
+                                  <div class="whitespace-pre-wrap">{text}</div>
+                                </div>
+                              );
+                            })()}
+                          </Show>
+
+                          <Show when={msg().role === "tool"}>
+                            {(() => {
+                              const name = item().tool ?? "tool";
+                              const isMeasure = name === "measure";
+                              const isImage = name === "generate_image";
+
+                              return (
+                                <div class="mr-auto max-w-[96%] border rounded-lg text-xs shadow-2xs overflow-hidden transition-all bg-slate-50/90 border-slate-200/80 text-slate-700">
+                                  <button
+                                    onClick={() => toggleTool(i())}
+                                    class="w-full px-2.5 py-1.5 flex items-center justify-between gap-2 hover:bg-black/5 transition text-left cursor-pointer"
+                                  >
+                                    <div class="flex items-center gap-1.5 min-w-0">
+                                      <Show when={isImage} fallback={<Wrench size={10} class="text-slate-400 shrink-0" />}>
+                                        <ImagePlus size={10} class="text-violet-500 shrink-0" />
+                                      </Show>
+                                      <span class="font-mono font-medium text-[11px] truncate">{name}</span>
+                                      <span class="opacity-40">·</span>
+                                      <span class="text-[9px] font-sans font-medium">
+                                        {isMeasure ? "measured" : isImage ? "image placed" : "executed"}
+                                      </span>
+                                    </div>
+                                    <div class="text-[10px] opacity-60 font-sans shrink-0 hover:opacity-100">
+                                      {expandedTools().has(i()) ? "hide ▴" : "view ▾"}
+                                    </div>
+                                  </button>
+
+                                  <Show when={expandedTools().has(i())}>
+                                    <div class="px-2.5 pb-2 pt-0.5 border-t border-black/5 bg-white/60">
+                                      <div class="mt-1 font-mono text-[10px] bg-white rounded p-1.5 border border-black/10 leading-tight whitespace-pre-wrap max-h-36 overflow-y-auto">
+                                        {renderMessageText(msg().content)}
+                                      </div>
+                                    </div>
+                                  </Show>
+                                </div>
+                              );
+                            })()}
+                          </Show>
+                        </>
                       );
-                    })()}
+                    }}
                   </Show>
                 </div>
               )}
             </For>
+
+            {/* What is happening right now, while it is happening. */}
+            <Show when={pending()}>
+              {(step) => (
+                <div class="mr-auto max-w-[96%] flex items-center gap-2 rounded-lg border border-blue-200/70 bg-blue-50/60 px-2.5 py-1.5 text-[11px] text-blue-900 shadow-2xs">
+                  <Show
+                    when={step().icon === "image"}
+                    fallback={
+                      <Show when={step().icon === "review"} fallback={<Wrench size={11} class="text-blue-400 shrink-0" />}>
+                        <Eye size={11} class="text-blue-500 shrink-0" />
+                      </Show>
+                    }
+                  >
+                    <ImagePlus size={11} class="text-violet-500 shrink-0" />
+                  </Show>
+                  <span class="font-medium shrink-0">{step().label}</span>
+                  <Show when={step().detail}>
+                    <span class="opacity-40 shrink-0">·</span>
+                    <span class="truncate opacity-70">{step().detail}</span>
+                  </Show>
+                  <Loader size={11} class="ml-auto shrink-0 animate-spin text-blue-400" />
+                </div>
+              )}
+            </Show>
 
             {/* Live Streaming Bubble */}
             <Show when={streamText()}>

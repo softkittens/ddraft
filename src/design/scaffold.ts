@@ -12,7 +12,7 @@ import type { FrameNode, PenNode } from "../model/types";
  *
  * The model still decides everything that is a design decision: how
  * many screens, what they are for, which destinations the tab bar
- * carries, and every element inside the content slot.
+ * carries, and every element inside the inset or full-bleed content slots.
  * ------------------------------------------------------------------ */
 
 export interface TabSpec {
@@ -43,10 +43,18 @@ export const TAB_BAR_HEIGHT = 56;
 const STATUS_ICONS = ["signal", "wifi", "battery-full"];
 
 function tabItem(tab: TabSpec, id: () => string): PenNode {
-  // Not $foreground-muted. An 11px label in muted measures 3.25:1 against the
-  // secondary surface in the worst palette, below the 4.5:1 small text needs.
-  // Secondary clears it in all twelve, worst case 6.73:1.
-  const tone = tab.active ? "$accent-primary" : "$foreground-secondary";
+  // The active tab is marked twice: the icon takes the accent, the label goes
+  // to full foreground and 600 weight. Colour alone is the weakest way to carry
+  // a state, and pinning it to an 11px accent label also forced every palette's
+  // accent to clear 4.5:1 on the bar — which is what kept the boldest worlds
+  // (bright yellows, hot pinks, saturated oranges) out of the catalog entirely.
+  // An icon is a graphic, so 3:1 is the bar it actually has to clear.
+  //
+  // Not $foreground-muted for the inactive label: an 11px label in muted
+  // measures 3.25:1 against the secondary surface in the worst palette.
+  // Secondary clears 4.5:1 in every palette we ship.
+  const iconTone = tab.active ? "$accent-primary" : "$foreground-secondary";
+  const labelTone = tab.active ? "$foreground-primary" : "$foreground-secondary";
   return {
     type: "frame",
     id: id(),
@@ -60,14 +68,15 @@ function tabItem(tab: TabSpec, id: () => string): PenNode {
     // the 44px a finger needs, on every tab of every screen.
     height: "fill_container",
     children: [
-      { type: "icon", id: id(), icon: tab.icon, width: 22, height: 22, stroke: tone },
+      { type: "icon", id: id(), icon: tab.icon, width: 22, height: 22, stroke: iconTone },
       {
         type: "text",
         id: id(),
         content: tab.label,
         fontFamily: "$font-caption",
         fontSize: 11,
-        fill: tone,
+        fontWeight: tab.active ? 600 : 400,
+        fill: labelTone,
         textAlign: "center"
       }
     ]
@@ -115,20 +124,31 @@ function mobileScreen(spec: ScreenSpec, id: () => string, slots: Record<string, 
   } as PenNode;
   children.push(statusBar);
 
-  // One wrapper owns the horizontal padding. Nothing below it adds more, which
-  // is what keeps every element on the screen sharing one left edge.
+  const bleedId = id();
   const contentId = id();
+  slots.bleed = bleedId;
   slots.content = contentId;
   children.push({
     type: "frame",
-    id: contentId,
-    name: "Content",
+    id: bleedId,
+    name: "Bleed Content",
     width: "fill_container",
-    height: "fit_content",
+    height: "fill_container",
     layout: "vertical",
-    padding: [0, 20],
     gap: 24,
-    children: []
+    children: [
+      {
+        type: "frame",
+        id: contentId,
+        name: "Inset Content",
+        width: "fill_container",
+        height: "fit_content",
+        layout: "vertical",
+        padding: [0, 20],
+        gap: 24,
+        children: []
+      } as PenNode
+    ]
   } as PenNode);
 
   if (spec.tabs && spec.tabs.length > 0) {

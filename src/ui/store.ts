@@ -20,8 +20,8 @@ export const [camera, setCamera] = createSignal<Camera>(createCamera(40, 40, 1))
 export const [toolMode, setToolMode] = createSignal<ToolMode>("select");
 export const [layersCollapsed, setLayersCollapsed] = createSignal<Set<string>>(new Set());
 
-export const [layersVisible, setLayersVisible] = createSignal<boolean>(true);
-export const [inspectorVisible, setInspectorVisible] = createSignal<boolean>(true);
+export const [layersVisible, setLayersVisible] = createSignal<boolean>(false);
+export const [inspectorVisible, setInspectorVisible] = createSignal<boolean>(false);
 export const [chatVisible, setChatVisible] = createSignal<boolean>(true);
 export const [chatExpanded, setChatExpanded] = createSignal<boolean>(true);
 

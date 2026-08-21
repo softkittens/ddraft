@@ -11,7 +11,9 @@
     "test": "bun test",
     "test:agreement": "bun test ./test/agreement.oracle.ts",
     "eval": "bun eval/run.ts",
-    "eval:report": "bun eval/report.ts"
+    "eval:report": "bun eval/report.ts",
+    "palettes": "bun scripts/import-palettes.ts",
+    "analyze": "bun scripts/analyze-log.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

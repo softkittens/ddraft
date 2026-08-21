@@ -4,7 +4,7 @@ import type { FetchFn } from "./provider";
 
 export interface ImageGenResult {
   url: string;
-  provider: "qwen" | "openai";
+  provider: "gemini" | "xai" | "qwen" | "openai";
 }
 
 /** Thrown when no image provider is configured or every provider failed. */
@@ -29,28 +29,127 @@ function getEnvKey(key: string, env?: Record<string, string | undefined>): strin
   return undefined;
 }
 
-/**
- * Generate an image using Qwen-Image-3.0-Pro (DashScope),
- * with fallback to OpenAI DALL-E.
- */
+/** Generate with the selected provider, or use the configured Qwen/OpenAI fallback. */
 export async function generateDesignImage(
   prompt: string,
   options: {
     model?: string;
     size?: string;
     aspectRatio?: "square" | "portrait" | "landscape";
+    providerId?: string;
+    apiKey?: string;
     env?: Record<string, string | undefined>;
     fetch?: FetchFn;
   } = {}
 ): Promise<ImageGenResult> {
   const env = options.env;
   const fetchImpl = options.fetch ?? fetch;
+
+  if (options.providerId === "gemini") {
+    const geminiKey = options.apiKey || getEnvKey("GEMINI_API_KEY", env);
+    if (!geminiKey) {
+      throw new ImageGenUnavailableError(
+        "Gemini image generation is not configured. Set GEMINI_API_KEY to enable Nano Banana."
+      );
+    }
+
+    try {
+      const response = await fetchImpl(
+        "https://generativelanguage.googleapis.com/v1beta/interactions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": geminiKey
+          },
+          body: JSON.stringify({
+            model: "gemini-3.1-flash-lite-image",
+            input: [{ type: "text", text: prompt }],
+            response_format: {
+              type: "image",
+              aspect_ratio: options.aspectRatio === "landscape"
+                ? "16:9"
+                : options.aspectRatio === "portrait" ? "3:4" : "1:1",
+              image_size: "1K"
+            }
+          })
+        }
+      );
+      const data = await response.json() as {
+        error?: { message?: string };
+        steps?: { content?: { type?: string; data?: string; mime_type?: string; uri?: string }[] }[];
+      };
+      if (!response.ok) {
+        throw new Error(`Gemini ${response.status}: ${data.error?.message || "request failed"}`);
+      }
+      const image = data.steps?.flatMap((step) => step.content ?? [])
+        .find((part) => part.type === "image" && (part.data || part.uri));
+      if (image?.uri) return { url: image.uri, provider: "gemini" };
+      if (image?.data) {
+        return {
+          url: `data:${image.mime_type || "image/png"};base64,${image.data}`,
+          provider: "gemini"
+        };
+      }
+      throw new Error("Gemini returned no image");
+    } catch (err) {
+      throw new ImageGenUnavailableError(
+        `Image generation failed. ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  if (options.providerId === "xai") {
+    const xaiKey = options.apiKey || getEnvKey("XAI_API_KEY", env);
+    if (!xaiKey) {
+      throw new ImageGenUnavailableError(
+        "xAI image generation is not configured. Set XAI_API_KEY to enable Grok Imagine."
+      );
+    }
+
+    try {
+      const response = await fetchImpl("https://api.x.ai/v1/images/generations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${xaiKey}`
+        },
+        body: JSON.stringify({
+          model: "grok-imagine-image-quality",
+          prompt,
+          n: 1,
+          response_format: "b64_json",
+          aspect_ratio: options.aspectRatio === "landscape"
+            ? "16:9"
+            : options.aspectRatio === "portrait" ? "3:4" : "1:1",
+          resolution: "1k"
+        })
+      });
+      const data = await response.json() as {
+        error?: { message?: string };
+        data?: { url?: string; b64_json?: string }[];
+      };
+      if (!response.ok) {
+        throw new Error(`xAI ${response.status}: ${data.error?.message || "request failed"}`);
+      }
+      const image = data.data?.[0];
+      if (image?.b64_json) {
+        return { url: `data:image/jpeg;base64,${image.b64_json}`, provider: "xai" };
+      }
+      if (image?.url) return { url: image.url, provider: "xai" };
+      throw new Error("xAI returned no image");
+    } catch (err) {
+      throw new ImageGenUnavailableError(
+        `Image generation failed. ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  const failures: string[] = [];
   const qwenKey = getEnvKey("QWEN_API_KEY", env) || getEnvKey("DASHSCOPE_API_KEY", env);
   const qwenBase = getEnvKey("QWEN_BASE_URL", env) || getEnvKey("DASHSCOPE_BASE_URL", env) ||
     catalogById("qwen-studio")?.baseUrl || "";
   const modelName = options.model || "qwen-image-3.0-pro";
-  const failures: string[] = [];
-
   const sizeMap: Record<string, string> = {
     square: "1024*1024",
     portrait: "768*1024",

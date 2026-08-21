@@ -21,6 +21,28 @@ function find(node: PenNode, name: string): PenNode | undefined {
   return hit;
 }
 
+/**
+ * The active tab is marked twice — accent on the icon, full foreground at 600
+ * on the label — because colour alone is the weakest way to carry a state and
+ * an 11px accent label is unreadable in the brightest palettes.
+ */
+function tabStates(roots: unknown[]): { label: string; accentIcon: boolean; boldLabel: boolean }[] {
+  const tabs: { label: string; accentIcon: boolean; boldLabel: boolean }[] = [];
+  walkNodes(roots as never, (node: any) => {
+    if (typeof node?.name !== "string" || !node.name.startsWith("Tab ")) return;
+    const children = node.children ?? [];
+    const icon = children.find((c: any) => c?.type === "icon");
+    const label = children.find((c: any) => c?.type === "text");
+    if (!icon || !label) return;
+    tabs.push({
+      label: label.content,
+      accentIcon: icon.stroke === "$accent-primary",
+      boldLabel: label.fill === "$foreground-primary" && label.fontWeight === 600
+    });
+  });
+  return tabs;
+}
+
 describe("screen scaffold", () => {
   it("applies the chrome numbers the prompt used to ask for", () => {
     const { node } = buildScreen(
@@ -55,11 +77,10 @@ describe("screen scaffold", () => {
       { name: "Home", kind: "mobile", tabs: [{ label: "A", icon: "house", active: true }, { label: "B", icon: "heart" }] },
       ids()
     );
-    let accented = 0;
-    walkNodes([node], (n) => {
-      if ((n as any).stroke === "$accent-primary" || (n as any).fill === "$accent-primary") accented += 1;
-    });
-    expect(accented).toBe(2); // the active tab's icon and its label
+    expect(tabStates([node])).toEqual([
+      { label: "A", accentIcon: true, boldLabel: true },
+      { label: "B", accentIcon: false, boldLabel: false }
+    ]);
   });
 
   it("omits the tab bar when no destinations are given", () => {
@@ -144,7 +165,20 @@ describe("create_screen tool", () => {
     const session = createDocumentTools(empty());
     const out = await session.execute("create_screen", { name: "Home", kind: "mobile" });
     expect(out).toContain("content:");
+    expect(out).toContain("bleed:");
     expect(out).toContain("screen:");
+  });
+
+  it("offers inset and full-bleed mobile composition", () => {
+    const { node, slots } = buildScreen({ name: "Discover", kind: "mobile" }, ids());
+    const bleed = find(node, "Bleed Content")!;
+    const content = find(node, "Inset Content")!;
+
+    expect(bleed.id).toBe(slots.bleed);
+    expect(bleed.padding).toBeUndefined();
+    expect(bleed.width).toBe("fill_container");
+    expect(content.id).toBe(slots.content);
+    expect(content.padding).toEqual([0, 20]);
   });
 
   it("keeps mobile screen roots at one device size", async () => {
@@ -186,11 +220,10 @@ describe("create_screen tool", () => {
       tabs: [{ label: "A", icon: "house" }, { label: "B", icon: "heart" }]
     });
     expect(out).not.toContain("error:");
-    let accented = 0;
-    walkNodes(session.doc.children, (n) => {
-      if ((n as any).stroke === "$accent-primary" || (n as any).fill === "$accent-primary") accented += 1;
-    });
-    expect(accented).toBe(2);
+    expect(tabStates(session.doc.children)).toEqual([
+      { label: "A", accentIcon: true, boldLabel: true },
+      { label: "B", accentIcon: false, boldLabel: false }
+    ]);
   });
 });
 
@@ -253,12 +286,14 @@ describe("guidelines agree with the auditor", () => {
   });
 
   it("holds every token that may carry text to 4.5:1 on both surfaces", () => {
-    // Not just the one that failed last time. $accent-primary carries active
-    // tab labels and links at 11px; one palette sat at 4.45:1 and failed on
-    // every screen that chose it, which is a palette defect, not a model one.
+    // Not just the one that failed last time. $accent-primary is deliberately
+    // absent: it stopped carrying text when the active tab moved to weight, and
+    // holding it to a text ratio is what excluded every bright-accent world
+    // from the catalog. It is measured as a graphic below, and any accent text
+    // the model writes anyway is caught at runtime by the low_contrast rule.
     const { PALETTES } = require("../src/design/styleSystem");
     const { contrastRatio } = require("../src/design/evaluator");
-    const carriesText = ["foreground-primary", "foreground-secondary", "accent-primary"];
+    const carriesText = ["foreground-primary", "foreground-secondary"];
     for (const p of PALETTES) {
       for (const token of carriesText) {
         for (const bg of ["surface-primary", "surface-secondary"]) {
@@ -267,6 +302,22 @@ describe("guidelines agree with the auditor", () => {
             `${p.name} ${token} on ${bg}: ${Math.max(ratio, 4.5).toFixed(2)}`
           );
         }
+      }
+    }
+  });
+
+  it("holds $accent-primary to the 3:1 a graphic needs on both surfaces", () => {
+    // The accent draws icons, indicators, focus rings and solid fills. Those
+    // are graphics, so 3:1 is the real floor — but it is a floor, not a pass:
+    // an accent that vanishes against the bar cannot mark anything.
+    const { PALETTES } = require("../src/design/styleSystem");
+    const { contrastRatio } = require("../src/design/evaluator");
+    for (const p of PALETTES) {
+      for (const bg of ["surface-primary", "surface-secondary"]) {
+        const ratio = contrastRatio(p.tokens["accent-primary"], p.tokens[bg]);
+        expect(`${p.name} accent on ${bg}: ${ratio.toFixed(2)}`).toBe(
+          `${p.name} accent on ${bg}: ${Math.max(ratio, 3).toFixed(2)}`
+        );
       }
     }
   });

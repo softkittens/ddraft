@@ -1,0 +1,182 @@
+[
+  {
+    "name": "Warm Linen",
+    "scheme": "light",
+    "mood": "Paper-warm neutrals with a dry olive accent. Editorial, unhurried, analogue.",
+    "tokens": {
+      "surface-primary": "#FAF7F2",
+      "surface-secondary": "#F1ECE3",
+      "foreground-primary": "#1F1B16",
+      "foreground-secondary": "#57503F",
+      "foreground-muted": "#8A8170",
+      "border-subtle": "#E2DBCE",
+      "accent-primary": "#4F6B3B",
+      "accent-secondary": "#C2703D"
+    }
+  },
+  {
+    "name": "Minimal Ink",
+    "scheme": "light",
+    "mood": "Achromatic and exact. Black on white, one accent of pure ink. Swiss, quiet, confident.",
+    "tokens": {
+      "surface-primary": "#FFFFFF",
+      "surface-secondary": "#F4F4F5",
+      "foreground-primary": "#09090B",
+      "foreground-secondary": "#52525B",
+      "foreground-muted": "#7E7E87",
+      "border-subtle": "#E4E4E7",
+      "accent-primary": "#18181B",
+      "accent-secondary": "#C2410C"
+    }
+  },
+  {
+    "name": "Spring Meadow",
+    "scheme": "light",
+    "mood": "Chalky ivory, leaf green and burnt orange. Graphic, sunlit, high-contrast.",
+    "tokens": {
+      "surface-primary": "#FAF9F4",
+      "surface-secondary": "#EFF3E6",
+      "foreground-primary": "#17210F",
+      "foreground-secondary": "#4A5842",
+      "foreground-muted": "#7C8A73",
+      "border-subtle": "#DEE5D2",
+      "accent-primary": "#3B7629",
+      "accent-secondary": "#D2761B"
+    }
+  },
+  {
+    "name": "Rose Charcoal",
+    "scheme": "light",
+    "mood": "Soft off-white and deep charcoal with a dusty rose. Refined, calm, a little romantic.",
+    "tokens": {
+      "surface-primary": "#FCFAFA",
+      "surface-secondary": "#F4EFEF",
+      "foreground-primary": "#1C1719",
+      "foreground-secondary": "#584D51",
+      "foreground-muted": "#8B7D82",
+      "border-subtle": "#E7DEE0",
+      "accent-primary": "#A33A55",
+      "accent-secondary": "#6B7280"
+    }
+  },
+  {
+    "name": "Cobalt Clean",
+    "scheme": "light",
+    "mood": "Clinical white with a saturated cobalt. Utility software, dense data, trustworthy.",
+    "tokens": {
+      "surface-primary": "#FFFFFF",
+      "surface-secondary": "#F1F5F9",
+      "foreground-primary": "#0F172A",
+      "foreground-secondary": "#475569",
+      "foreground-muted": "#71809A",
+      "border-subtle": "#E2E8F0",
+      "accent-primary": "#1D4ED8",
+      "accent-secondary": "#0E7490"
+    }
+  },
+  {
+    "name": "Parchment Gold",
+    "scheme": "light",
+    "mood": "Aged parchment, walnut text, antique gold. Heritage, craft, printed matter.",
+    "tokens": {
+      "surface-primary": "#F7F2E7",
+      "surface-secondary": "#EDE4D1",
+      "foreground-primary": "#241C10",
+      "foreground-secondary": "#5B4A32",
+      "foreground-muted": "#8C7857",
+      "border-subtle": "#DFD2B8",
+      "accent-primary": "#8A5A16",
+      "accent-secondary": "#3F6152"
+    }
+  },
+  {
+    "name": "Carbon Frost",
+    "scheme": "dark",
+    "mood": "Near-black carbon with cool grey and an ice-blue accent. Precise, technical, nocturnal.",
+    "tokens": {
+      "surface-primary": "#0B0D10",
+      "surface-secondary": "#16191F",
+      "foreground-primary": "#F2F5F8",
+      "foreground-secondary": "#A8B2BF",
+      "foreground-muted": "#78828F",
+      "border-subtle": "#262B33",
+      "accent-primary": "#5AC8F5",
+      "accent-secondary": "#8B93A1"
+    }
+  },
+  {
+    "name": "Deep Space Neon",
+    "scheme": "dark",
+    "mood": "Ink-navy ground with electric violet. High energy, late night, consumer.",
+    "tokens": {
+      "surface-primary": "#0A0A14",
+      "surface-secondary": "#15152A",
+      "foreground-primary": "#F4F3FF",
+      "foreground-secondary": "#AAA6C8",
+      "foreground-muted": "#7C77A0",
+      "border-subtle": "#262445",
+      "accent-primary": "#A78BFA",
+      "accent-secondary": "#F472B6"
+    }
+  },
+  {
+    "name": "Terminal Green",
+    "scheme": "dark",
+    "mood": "True black with phosphor green. Monospaced, operational, no decoration.",
+    "tokens": {
+      "surface-primary": "#050706",
+      "surface-secondary": "#0E1411",
+      "foreground-primary": "#DFF5E5",
+      "foreground-secondary": "#8FB79C",
+      "foreground-muted": "#61856E",
+      "border-subtle": "#1B2A21",
+      "accent-primary": "#4ADE80",
+      "accent-secondary": "#FBBF24"
+    }
+  },
+  {
+    "name": "Onyx Peach",
+    "scheme": "dark",
+    "mood": "Warm black with a peach accent. Soft-edged dark mode, editorial, human.",
+    "tokens": {
+      "surface-primary": "#100D0C",
+      "surface-secondary": "#1D1817",
+      "foreground-primary": "#F7F1EE",
+      "foreground-secondary": "#B7A9A3",
+      "foreground-muted": "#8A7C76",
+      "border-subtle": "#2C2523",
+      "accent-primary": "#FFAB7B",
+      "accent-secondary": "#7DD3C0"
+    }
+  },
+  {
+    "name": "Twilight Garden",
+    "scheme": "dark",
+    "mood": "Deep plum with a sage accent. Contemplative, botanical, slow.",
+    "tokens": {
+      "surface-primary": "#120E17",
+      "surface-secondary": "#1E1826",
+      "foreground-primary": "#F3EFF6",
+      "foreground-secondary": "#B3A7BE",
+      "foreground-muted": "#877B93",
+      "border-subtle": "#2C2437",
+      "accent-primary": "#9BD4A6",
+      "accent-secondary": "#E0A9C8"
+    }
+  },
+  {
+    "name": "Amber Night",
+    "scheme": "dark",
+    "mood": "Roasted brown-black with amber. Industrial, safety-critical, warm under pressure.",
+    "tokens": {
+      "surface-primary": "#0E0B08",
+      "surface-secondary": "#1A1510",
+      "foreground-primary": "#F6F1E8",
+      "foreground-secondary": "#B6A995",
+      "foreground-muted": "#897D6B",
+      "border-subtle": "#2A2219",
+      "accent-primary": "#F5A524",
+      "accent-secondary": "#79B4A0"
+    }
+  }
+]

@@ -36,6 +36,10 @@ export interface RunRow {
   docPath?: string;
   blockers: number;
   warnings: number;
+  /** Consistency findings. Split out when the info tier landed, so a stored
+   *  baseline's warning count still means the same thing it did when written.
+   *  Optional because a baseline recorded before the split has no such field. */
+  infos?: number;
   /** Blocker count by rule, so a regression names itself. */
   byRule: Record<string, number>;
   metrics: CraftMetrics;
@@ -178,6 +182,7 @@ async function runOne(
     toolErrors,
     blockers: findings.filter((f) => f.severity === "blocker").length,
     warnings: findings.filter((f) => f.severity === "warning").length,
+    infos: findings.filter((f) => f.severity === "info").length,
     byRule,
     metrics: craftMetrics(doc)
   };

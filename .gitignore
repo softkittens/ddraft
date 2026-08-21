@@ -6,13 +6,15 @@ dist/
 !.env.example
 
 *.log
+/agent-logs/
 .DS_Store
 
 /fixtures
 /probes
 
-*.md
-!README.md
+# Scratch notes at the root. Markdown that is source — src/agent/rules.md — is not.
+/*.md
+!/README.md
 
 # Eval output. The runs are large and provider-specific; keep the harness, not the data.
 eval/runs/

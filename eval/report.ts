@@ -39,6 +39,7 @@ export function stat(values: number[]): Stat {
 const TRACKED: { key: string; label: string; pick: (r: RunRow) => number; better: "low" | "high" | "none" }[] = [
   { key: "blockers", label: "blockers", pick: (r) => r.blockers, better: "low" },
   { key: "warnings", label: "warnings", pick: (r) => r.warnings, better: "low" },
+  { key: "infos", label: "info", pick: (r) => r.infos ?? 0, better: "low" },
   { key: "toolErrors", label: "tool errors", pick: (r) => r.toolErrors, better: "low" },
   { key: "screens", label: "screens", pick: (r) => r.metrics.screens, better: "none" },
   { key: "nodes", label: "nodes", pick: (r) => r.metrics.nodes, better: "none" },
