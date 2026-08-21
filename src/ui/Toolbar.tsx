@@ -50,7 +50,7 @@ export const Toolbar: Component = () => {
         updateDoc(parsed);
         resetZoom100();
       } catch (err) {
-        console.error("Failed to load document:", err);
+        alert("Error parsing file: " + err);
       }
     };
     reader.readAsText(file);

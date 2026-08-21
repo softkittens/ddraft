@@ -11,6 +11,7 @@ import {
   X
 } from "lucide-solid";
 import type { PenNode } from "../model/types";
+import { childrenOf } from "../model/tree";
 import {
   resolvedDoc,
   selectedIds,
@@ -24,7 +25,7 @@ import {
 const NodeRow: Component<{ node: PenNode; depth: number }> = (props) => {
   const isSelected = () => selectedIds().has(props.node.id);
   const isCollapsed = () => layersCollapsed().has(props.node.id);
-  const hasChildren = () => "children" in props.node && Array.isArray((props.node as any).children) && (props.node as any).children.length > 0;
+  const hasChildren = () => childrenOf(props.node).length > 0;
 
   const getNodeIcon = () => {
     switch (props.node.type) {
@@ -48,8 +49,8 @@ const NodeRow: Component<{ node: PenNode; depth: number }> = (props) => {
 
   const getDisplayName = () => {
     if (props.node.name) return props.node.name;
-    if (props.node.type === "text" && (props.node as any).content) {
-      const txt = (props.node as any).content;
+    if (props.node.type === "text" && props.node.content) {
+      const txt = props.node.content;
       return txt.length > 18 ? txt.slice(0, 18) + "..." : txt;
     }
     return props.node.id;
@@ -90,7 +91,7 @@ const NodeRow: Component<{ node: PenNode; depth: number }> = (props) => {
 
       {/* Recursive Children */}
       <Show when={hasChildren() && !isCollapsed()}>
-        <For each={(props.node as any).children}>
+        <For each={childrenOf(props.node)}>
           {(child) => <NodeRow node={child} depth={props.depth + 1} />}
         </For>
       </Show>

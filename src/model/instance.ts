@@ -1,4 +1,5 @@
-import type { Document, PenNode } from "./types";
+import type { Document, PenNode, RefNode } from "./types";
+import { childrenOf, isParentNode } from "./tree";
 
 export interface ResolveInstancesResult {
   doc: Document;
@@ -8,30 +9,27 @@ export interface ResolveInstancesResult {
 function collectReusables(doc: Document): Map<string, PenNode> {
   const map = new Map<string, PenNode>();
   function walk(node: PenNode) {
-    if ((node as any).reusable) {
+    if (node.reusable) {
       map.set(node.id, node);
     }
-    if ("children" in node && Array.isArray(node.children)) {
-      node.children.forEach(walk);
-    }
+    childrenOf(node).forEach(walk);
   }
   doc.children.forEach(walk);
   return map;
 }
 
 function instantiateRef(
-  refNode: PenNode,
+  refNode: RefNode,
   reusables: Map<string, PenNode>,
   visitedRefs: Set<string>,
   cycles: string[][]
 ): PenNode {
-  const targetId = (refNode as any).ref;
+  const targetId = refNode.ref;
   if (!targetId) return refNode;
 
   const def = reusables.get(targetId);
   if (!def) return refNode;
 
-  // Cycle check: if targetId is already being expanded in the current call chain
   if (visitedRefs.has(targetId)) {
     cycles.push([...visitedRefs, targetId]);
     return refNode;
@@ -40,10 +38,9 @@ function instantiateRef(
   const nextVisited = new Set(visitedRefs);
   nextVisited.add(targetId);
 
-  // Deep clone definition
   const clone: PenNode = structuredClone(def);
-  delete (clone as any).reusable;
-  const descendants = (refNode as any).descendants || {};
+  delete clone.reusable;
+  const descendants = refNode.descendants || {};
 
   function applyDescendantsAndRemapIds(node: PenNode, isRoot: boolean) {
     const origId = node.id;
@@ -53,24 +50,20 @@ function instantiateRef(
     if (descendants[origId]) {
       Object.assign(node, descendants[origId]);
     }
-    if ("children" in node && Array.isArray(node.children)) {
-      node.children.forEach((c) => applyDescendantsAndRemapIds(c, false));
-    }
+    childrenOf(node).forEach((c) => applyDescendantsAndRemapIds(c, false));
   }
 
   applyDescendantsAndRemapIds(clone, true);
 
-  // Instance properties override definition properties
   for (const [k, v] of Object.entries(refNode)) {
     if (k !== "type" && k !== "ref" && k !== "descendants" && v !== undefined) {
-      (clone as any)[k] = v;
+      (clone as Record<string, unknown>)[k] = v;
     }
   }
   clone.id = refNode.id;
 
-  // Resolve nested children with cycle tracking
-  if ("children" in clone && Array.isArray(clone.children)) {
-    clone.children = clone.children.map((c) => resolveTree(c, reusables, nextVisited, cycles));
+  if (isParentNode(clone)) {
+    clone.children = childrenOf(clone).map((c) => resolveTree(c, reusables, nextVisited, cycles));
   }
 
   return clone;
@@ -90,10 +83,10 @@ function resolveTree(
     return cur;
   }
 
-  if ("children" in cur && Array.isArray(cur.children)) {
+  if (isParentNode(cur)) {
     return {
       ...cur,
-      children: cur.children.map((c) => resolveTree(c, reusables, visitedRefs, cycles))
+      children: childrenOf(cur).map((c) => resolveTree(c, reusables, visitedRefs, cycles))
     };
   }
   return cur;

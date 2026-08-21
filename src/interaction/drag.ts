@@ -1,6 +1,7 @@
 import type { Document, PenNode } from "../model/types";
 import type { LayoutNode, Box } from "../layout/types";
 import type { Point } from "./camera";
+import { childrenOf, isParentNode } from "../model/tree";
 
 export const DRAG_THRESHOLD_PX = 3;
 
@@ -40,13 +41,12 @@ function findInParent(
   parent: PenNode,
   nodeId: string
 ): { node: PenNode; parent: PenNode; index: number } | null {
-  if ("children" in parent && Array.isArray(parent.children)) {
-    for (let i = 0; i < parent.children.length; i++) {
-      const child = parent.children[i];
-      if (child.id === nodeId) return { node: child, parent, index: i };
-      const res = findInParent(child, nodeId);
-      if (res) return res;
-    }
+  const kids = childrenOf(parent);
+  for (let i = 0; i < kids.length; i++) {
+    const child = kids[i];
+    if (child.id === nodeId) return { node: child, parent, index: i };
+    const res = findInParent(child, nodeId);
+    if (res) return res;
   }
   return null;
 }
@@ -110,7 +110,7 @@ export function handleDragMove(
     if (targetCtx && targetCtx.layoutNode.id !== session.nodeId) {
       const targetNode = findNodeContext(doc, targetCtx.layoutNode.id)?.node;
 
-      if (targetNode && "children" in targetNode && Array.isArray(targetNode.children)) {
+      if (targetNode && isParentNode(targetNode)) {
         session.targetContainerId = targetCtx.layoutNode.id;
         session.targetContainerWorldPos = targetCtx.worldPos;
         session.targetContainerBox = {
@@ -181,9 +181,10 @@ export function commitDragDrop(doc: Document, session: DragSession): void {
 
   if (session.targetContainerId) {
     const targetCtx = findNodeContext(doc, session.targetContainerId);
-    if (targetCtx && "children" in targetCtx.node && Array.isArray(targetCtx.node.children)) {
-      // Remove from old parent
-      if (parent && "children" in parent && Array.isArray(parent.children)) {
+    if (targetCtx && isParentNode(targetCtx.node)) {
+      const targetChildren = targetCtx.node.children ?? [];
+      targetCtx.node.children = targetChildren;
+      if (parent && isParentNode(parent) && parent.children) {
         parent.children.splice(index, 1);
       } else {
         const rIdx = doc.children.findIndex((c) => c.id === node.id);
@@ -200,13 +201,12 @@ export function commitDragDrop(doc: Document, session: DragSession): void {
         const dropWorldY = session.worldOffset.y + dy;
         node.x = Math.round(dropWorldX - origin.x);
         node.y = Math.round(dropWorldY - origin.y);
-        targetCtx.node.children.push(node);
+        targetChildren.push(node);
       } else {
-        // Flex frame drop: strip explicit coordinates and insert at computed index
-        delete (node as any).x;
-        delete (node as any).y;
-        const insertAt = session.insertIndex !== undefined ? Math.min(session.insertIndex, targetCtx.node.children.length) : targetCtx.node.children.length;
-        targetCtx.node.children.splice(insertAt, 0, node);
+        delete node.x;
+        delete node.y;
+        const insertAt = session.insertIndex !== undefined ? Math.min(session.insertIndex, targetChildren.length) : targetChildren.length;
+        targetChildren.splice(insertAt, 0, node);
       }
       return;
     }
@@ -214,13 +214,13 @@ export function commitDragDrop(doc: Document, session: DragSession): void {
 
   if (parent !== null) {
     // Dropped outside any container frame -> Reparent to root canvas
-    if ("children" in parent && Array.isArray(parent.children)) {
+    if (isParentNode(parent) && parent.children) {
       parent.children.splice(index, 1);
     }
     node.x = Math.round(session.worldOffset.x + dx);
     node.y = Math.round(session.worldOffset.y + dy);
     if (node.layoutPosition === "absolute") {
-      delete (node as any).layoutPosition;
+      delete node.layoutPosition;
     }
     doc.children.push(node);
   }

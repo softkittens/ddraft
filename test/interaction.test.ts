@@ -11,7 +11,7 @@ import { resolveInstances } from "../src/model/instance";
 import { layoutDocument } from "../src/layout/layout";
 import { inspectorFields } from "../src/ui/inspector";
 import { makeDoc, frame, rect, createMockCanvas, EditorDriver, flattenBoxes } from "./harness";
-import { FIXTURES } from "../src/ui/fixtures";
+import { DEFAULT_FIXTURE_RAW } from "../src/ui/fixtures";
 
 
 describe("Interaction & Editor Subsystem", () => {
@@ -171,7 +171,7 @@ describe("Interaction & Editor Subsystem", () => {
 
 describe("End-to-End Editor Integration Reality Tests", () => {
   it("executes full click-selection, inspector property binding, and canvas rendering on Factory Control fixture", () => {
-    const editor = new EditorDriver(FIXTURES.A_control_r1.raw);
+    const editor = new EditorDriver(DEFAULT_FIXTURE_RAW);
 
     // Initial render pass
     const { calls: initialCalls } = editor.renderView();
@@ -194,7 +194,7 @@ describe("End-to-End Editor Integration Reality Tests", () => {
   });
 
   it("maintains invariant zoom anchors under cursor during zoom-in and zoom-out passes", () => {
-    const editor = new EditorDriver(FIXTURES.A_control_r1.raw);
+    const editor = new EditorDriver(DEFAULT_FIXTURE_RAW);
     const cursor = { x: 400, y: 300 };
 
     // Zoom in 3x

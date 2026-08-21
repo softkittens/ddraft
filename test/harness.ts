@@ -1,8 +1,9 @@
 import { expect } from "bun:test";
 import type { Document, FrameNode, PenNode, TextNode } from "../src/model/types";
 import type { LayoutNode, Box } from "../src/layout/types";
+import { flattenLayoutTree, layoutResolvedDocument } from "../src/layout/layout";
+import { indexDocument, cloneDocument } from "../src/model/tree";
 import { parseDocument } from "../src/model/parse";
-import { layoutResolvedDocument } from "../src/layout/layout";
 import { resolveInstances } from "../src/model/instance";
 import { createCamera, screenToWorld, worldToScreen, zoomAtScreenPoint, panCamera, type Camera, type Point } from "../src/interaction/camera";
 import { hitTestScene } from "../src/interaction/hittest";
@@ -63,11 +64,7 @@ export const txt = (
 
 export function flattenBoxes(nodes: LayoutNode[]): Map<string, Box> {
   const map = new Map<string, Box>();
-  function walk(n: LayoutNode) {
-    map.set(n.id, n.box);
-    n.children.forEach(walk);
-  }
-  nodes.forEach(walk);
+  for (const [id, n] of flattenLayoutTree(nodes)) map.set(id, n.box);
   return map;
 }
 
@@ -146,13 +143,7 @@ export class EditorDriver {
   }
 
   get nodeMap(): Map<string, PenNode> {
-    const map = new Map<string, PenNode>();
-    function walk(n: PenNode) {
-      map.set(n.id, n);
-      if ("children" in n && Array.isArray(n.children)) n.children.forEach(walk);
-    }
-    this.doc.children.forEach(walk);
-    return map;
+    return indexDocument(this.doc);
   }
 
   // Pointer Gestures (in Screen Pixel Coordinates)
@@ -189,14 +180,14 @@ export class EditorDriver {
     const world = screenToWorld({ x: screenX, y: screenY }, this.camera);
 
     if (this.pendingPress && !this.dragSession && pastDragThreshold(this.pendingPress.startWorld, world)) {
-      this.preDragDoc = JSON.parse(JSON.stringify(this.doc));
+      this.preDragDoc = cloneDocument(this.doc);
       this.dragSession = this.pendingPress;
       this.pendingPress = null;
     }
 
     if (this.dragSession && this.preDragDoc) {
       if (modifiers.alt && !this.activeDuplicateId) {
-        const fresh = JSON.parse(JSON.stringify(this.preDragDoc));
+        const fresh = cloneDocument(this.preDragDoc);
         const dup = duplicateNode(fresh, this.dragSession.nodeId);
         if (dup) {
           this.doc = dup.doc;
@@ -204,7 +195,7 @@ export class EditorDriver {
           this.selectedIds = new Set([dup.newId]);
         }
       } else if (!modifiers.alt && this.activeDuplicateId) {
-        this.doc = JSON.parse(JSON.stringify(this.preDragDoc));
+        this.doc = cloneDocument(this.preDragDoc);
         this.activeDuplicateId = null;
         this.selectedIds = new Set([this.dragSession.nodeId]);
       }
@@ -249,7 +240,7 @@ export class EditorDriver {
     const res = undoDoc(this.history);
     if (res) {
       this.history = res.history;
-      this.doc = JSON.parse(JSON.stringify(res.doc));
+      this.doc = cloneDocument(res.doc);
       this.selectedIds.clear();
     }
   }
@@ -258,7 +249,7 @@ export class EditorDriver {
     const res = redoDoc(this.history);
     if (res) {
       this.history = res.history;
-      this.doc = JSON.parse(JSON.stringify(res.doc));
+      this.doc = cloneDocument(res.doc);
       this.selectedIds.clear();
     }
   }

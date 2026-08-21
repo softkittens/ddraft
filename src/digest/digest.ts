@@ -1,5 +1,6 @@
 import type { Document, PenNode, FrameNode, TextNode } from "../model/types";
 import { parseSizing } from "../model/parse";
+import { childrenOf } from "../model/tree";
 
 function formatPadding(padding: any): string {
   if (typeof padding === "number") return `p${padding}`;
@@ -56,10 +57,8 @@ export function digest(doc: Document): string {
 
   function walk(node: PenNode, depth: number) {
     lines.push(formatNode(node, depth));
-    if ("children" in node && Array.isArray(node.children)) {
-      for (const child of node.children) {
-        walk(child, depth + 1);
-      }
+    for (const child of childrenOf(node)) {
+      walk(child, depth + 1);
     }
   }
 
@@ -69,6 +68,4 @@ export function digest(doc: Document): string {
 
   return lines.join("\n");
 }
-
-export const extractDigest = digest;
 

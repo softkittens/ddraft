@@ -1,6 +1,7 @@
 import type { LayoutNode } from "../layout/types";
 import type { Document, PenNode, FrameNode, TextNode } from "../model/types";
 import { normalisePadding } from "../layout/padding";
+import { indexDocument, walkNodes } from "../model/tree";
 
 
 export interface GapOverPaddingMetric {
@@ -42,14 +43,12 @@ function calculateMeanAndSpread(values: number[]): { mean: number; spread: numbe
 
 function collectTextSizes(nodes: PenNode[]): number[] {
   const sizes = new Set<number>();
-  function walk(n: PenNode) {
+  walkNodes(nodes, (n) => {
     if (n.type === "text") {
       const textNode = n as TextNode;
       if (textNode.fontSize) sizes.add(textNode.fontSize);
     }
-    if ("children" in n && Array.isArray(n.children)) n.children.forEach(walk);
-  }
-  nodes.forEach(walk);
+  });
   return Array.from(sizes).sort((a, b) => a - b);
 }
 
@@ -60,14 +59,7 @@ export function extract(tree: LayoutNode[], doc?: Document, kind = "dashboard", 
   const gapOverPaddingRatios: number[] = [];
   const spacingSet = new Set<number>();
 
-  const docMap = new Map<string, PenNode>();
-  if (doc) {
-    function index(n: PenNode) {
-      docMap.set(n.id, n);
-      if ("children" in n && Array.isArray(n.children)) n.children.forEach(index);
-    }
-    doc.children.forEach(index);
-  }
+  const docMap = doc ? indexDocument(doc) : new Map<string, PenNode>();
 
   function walk(node: LayoutNode) {
     if (node.type === "frame") {

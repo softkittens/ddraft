@@ -32,11 +32,5 @@ export async function fetchFixtureRaw(key: string): Promise<string> {
   return await loader();
 }
 
-export const FIXTURES: Record<string, { label: string; raw: string }> = new Proxy({} as any, {
-  get: (_target, prop: string) => {
-    return { label: FIXTURE_LABELS[prop] || prop, raw: defaultRaw };
-  }
-});
-
 export const DEFAULT_FIXTURE_KEY = "A_control_r1";
 export const DEFAULT_FIXTURE_RAW = defaultRaw;

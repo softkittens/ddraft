@@ -6,7 +6,7 @@ import { layoutDocument } from "../src/layout/layout";
 import { setProperty, insertChild, removeNode, moveNode, duplicateNode } from "../src/model/edit";
 import { resolveInstances, resolveInstancesWithDiagnostics } from "../src/model/instance";
 import { computeBlastRadius, computeEditLocality } from "../src/design/metrics";
-import { extractDigest } from "../src/digest/digest";
+import { digest } from "../src/digest/digest";
 
 
 import { extract, distance, createMoodboard, addMoodboardItem } from "../src/design/style";
@@ -115,7 +115,7 @@ describe("Model & Design Subsystem", () => {
 
 
   it("generates concise document digest (<15% token budget)", () => {
-    const digestA = extractDigest(docA);
+    const digestA = digest(docA);
     const rawTokens = fileA.length / 4;
     const digestTokens = digestA.length / 4;
     expect(digestTokens / rawTokens).toBeLessThan(0.15);

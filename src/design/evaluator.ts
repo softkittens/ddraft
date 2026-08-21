@@ -1,8 +1,11 @@
 import type { LayoutNode, Box } from "../layout/types";
 import type { Document, TextNode, PenNode, FrameNode } from "../model/types";
+import { childrenOf, indexDocument } from "../model/tree";
+
+export type FindingRule = "collision" | "overflow" | "unreadable_size" | "off_canvas";
 
 export interface Finding {
-  rule: "collision" | "overflow" | "clipping" | "unreadable_size" | "off_canvas";
+  rule: FindingRule;
   nodeId: string;
   message: string;
 }
@@ -81,39 +84,8 @@ export function checkOverflow(nodes: LayoutNode[]): Finding[] {
   return findings;
 }
 
-export function checkClipping(nodes: LayoutNode[]): Finding[] {
+export function checkUnreadableSize(document: Document): Finding[] {
   const findings: Finding[] = [];
-
-  function walk(parent: LayoutNode) {
-    if (parent.type === "frame" && (parent as any).clip) {
-      for (const child of parent.children) {
-
-        const clippedX = child.box.x < 0 || child.box.x + child.box.width > parent.box.width;
-        const clippedY = child.box.y < 0 || child.box.y + child.box.height > parent.box.height;
-        if (clippedX || clippedY) {
-          findings.push({
-            rule: "clipping",
-            nodeId: child.id,
-            message: `Child "${child.id}" is clipped by frame "${parent.id}"`
-          });
-        }
-      }
-    }
-    for (const child of parent.children) {
-      walk(child);
-    }
-  }
-
-  for (const root of nodes) {
-    walk(root);
-  }
-  return findings;
-}
-
-export function checkUnreadableSize(nodesOrTree: any, doc?: Document): Finding[] {
-  const document = doc || (nodesOrTree && "children" in nodesOrTree ? (nodesOrTree as Document) : undefined);
-  const findings: Finding[] = [];
-  if (!document) return findings;
 
   function walk(n: PenNode) {
     if (n.type === "text") {
@@ -126,9 +98,7 @@ export function checkUnreadableSize(nodesOrTree: any, doc?: Document): Finding[]
         });
       }
     }
-    if ("children" in n && Array.isArray(n.children)) {
-      n.children.forEach(walk);
-    }
+    for (const child of childrenOf(n)) walk(child);
   }
 
   document.children.forEach(walk);
@@ -154,7 +124,6 @@ export function evaluateLayoutConstraints(tree: LayoutNode[], doc: Document): Fi
   return [
     ...checkCollision(tree),
     ...checkOverflow(tree),
-    ...checkClipping(tree),
     ...checkUnreadableSize(doc),
     ...checkOffCanvas(tree)
   ];
@@ -207,12 +176,7 @@ export function evaluateB(tree: LayoutNode[], doc: Document): EvaluatorBMetrics 
   const fontSizes = new Set<number>();
   let minContrast = 21.0;
 
-  const nodeMap = new Map<string, PenNode>();
-  function indexNodes(n: PenNode) {
-    nodeMap.set(n.id, n);
-    if ("children" in n && Array.isArray(n.children)) n.children.forEach(indexNodes);
-  }
-  doc.children.forEach(indexNodes);
+  const nodeMap = indexDocument(doc);
 
   function walk(node: LayoutNode, parentBg = "#ffffff") {
     const docNode = nodeMap.get(node.id);

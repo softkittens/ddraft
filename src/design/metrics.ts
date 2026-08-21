@@ -1,5 +1,6 @@
 import type { Document, PenNode } from "../model/types";
 import { layoutDocument, flattenLayoutTree } from "../layout/layout";
+import { indexDocument } from "../model/tree";
 
 /**
  * Calculates the count of innocent spectator nodes shifted by an edit.
@@ -45,16 +46,8 @@ function shallowNodeProps(node: PenNode): Record<string, any> {
  * A semantic edit touches 1 node (locality = 1.0). A block rewrite touches all N nodes (locality = 1/N).
  */
 export function computeEditLocality(docBefore: Document, docAfter: Document): number {
-  const beforeMap = new Map<string, PenNode>();
-  const afterMap = new Map<string, PenNode>();
-
-  function indexNodes(n: PenNode, map: Map<string, PenNode>) {
-    map.set(n.id, n);
-    if ("children" in n && Array.isArray(n.children)) n.children.forEach((c) => indexNodes(c, map));
-  }
-
-  docBefore.children.forEach((n) => indexNodes(n, beforeMap));
-  docAfter.children.forEach((n) => indexNodes(n, afterMap));
+  const beforeMap = indexDocument(docBefore);
+  const afterMap = indexDocument(docAfter);
 
   let modifiedCount = 0;
   for (const [id, nodeAfter] of afterMap.entries()) {

@@ -18,6 +18,7 @@ export interface TextMetricsResult {
 
 
 let cachedCanvasCtx: CanvasRenderingContext2D | null = null;
+const liveWidthCache = new Map<string, number>();
 
 function getCanvasContext(): CanvasRenderingContext2D | null {
   if (cachedCanvasCtx) return cachedCanvasCtx;
@@ -54,11 +55,14 @@ export function measureTextWidth(
   // reported, so a headless run gets the same widths as the browser.
   const replayed = lookupWidth(key);
   if (replayed !== undefined) return replayed;
+  const live = liveWidthCache.get(key);
+  if (live !== undefined) return live;
 
   const ctx = getCanvasContext();
   if (ctx) {
     ctx.font = `${weight} ${fontSize}px ${resolvedFam}`;
     const measured = Math.ceil(ctx.measureText(text).width + text.length * letterSpacing);
+    liveWidthCache.set(key, measured);
     noteMeasurement(key, measured);
     return measured;
   }

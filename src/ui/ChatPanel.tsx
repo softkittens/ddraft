@@ -1,4 +1,4 @@
-import { Component, For, Show, createSignal, createMemo } from "solid-js";
+import { Component, Show, createMemo } from "solid-js";
 import {
   Sparkles,
   Minus,
@@ -16,30 +16,13 @@ import {
   doc
 } from "./store";
 
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-}
+const PLACEHOLDER =
+  "Agent Machine (Unit H) is not connected. Provider loop and canvas tools will be wired in Unit H.";
 
 export const ChatPanel: Component = () => {
-  const [messages] = createSignal<ChatMessage[]>([
-    {
-      id: "m1",
-      role: "system",
-      content: "Agent Machine (Unit H) is not connected. Provider loop and canvas tools will be wired in Unit H."
-    }
-  ]);
-  const [inputPrompt, setInputPrompt] = createSignal("");
-
-  const activeNode = createMemo(() => {
-    const ids = Array.from(selectedIds());
-    if (ids.length === 0) return null;
-    return nodeMap().get(ids[0]) || null;
-  });
-
   const activeContextName = createMemo(() => {
-    const node = activeNode();
+    const ids = Array.from(selectedIds());
+    const node = ids.length > 0 ? nodeMap().get(ids[0]) : null;
     if (!node) {
       const firstChild = doc().children[0];
       return firstChild?.name || firstChild?.id || "Full Canvas";
@@ -54,7 +37,6 @@ export const ChatPanel: Component = () => {
           chatExpanded() ? "w-[440px] h-[380px]" : "w-[400px]"
         }`}
       >
-        {/* Header Bar */}
         <div class="h-7 px-2 flex items-center justify-between text-xs text-neutral-600 mb-1">
           <div class="flex items-center gap-1.5 truncate">
             <Sparkles size={13} class="text-blue-500 shrink-0" />
@@ -85,33 +67,23 @@ export const ChatPanel: Component = () => {
           </div>
         </div>
 
-        {/* Conversation Stream */}
         <Show when={chatExpanded()}>
           <div class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2.5 mb-2">
-            <For each={messages()}>
-              {(msg) => (
-                <div class="flex flex-col text-xs space-y-1">
-                  <div class="bg-neutral-200/80 text-neutral-600 rounded-xl p-3 border border-neutral-300/50 flex items-start gap-2">
-                    <Radio size={14} class="text-amber-500 shrink-0 mt-0.5" />
-                    <div>
-                      <div class="font-semibold text-neutral-700 mb-0.5">Status: Not Connected</div>
-                      <div class="text-neutral-600 leading-relaxed">{msg.content}</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </For>
+            <div class="bg-neutral-200/80 text-neutral-600 rounded-xl p-3 border border-neutral-300/50 flex items-start gap-2 text-xs">
+              <Radio size={14} class="text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <div class="font-semibold text-neutral-700 mb-0.5">Status: Not Connected</div>
+                <div class="text-neutral-600 leading-relaxed">{PLACEHOLDER}</div>
+              </div>
+            </div>
           </div>
         </Show>
 
-        {/* Input Bar */}
         <div class="relative bg-white/95 border border-neutral-200 rounded-xl p-1.5 flex flex-col gap-1.5 shadow-xs">
           <div class="flex items-center px-1">
             <input
               type="text"
               disabled
-              value={inputPrompt()}
-              onInput={(e) => setInputPrompt(e.currentTarget.value)}
               placeholder="Agent not connected..."
               class="flex-1 bg-transparent text-xs text-neutral-400 placeholder:text-neutral-400 focus:outline-none cursor-not-allowed"
             />

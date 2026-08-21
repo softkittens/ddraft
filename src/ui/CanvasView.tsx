@@ -11,7 +11,8 @@ import {
   setToolMode,
   updateDoc,
   layoutTree,
-  nodeMap
+  nodeMap,
+  selectNode
 } from "./store";
 import { screenToWorld, panCamera, zoomAtScreenPoint, type Point } from "../interaction/camera";
 import { hitTestScene, hitTestSceneWorld } from "../interaction/hittest";
@@ -19,21 +20,11 @@ import { setupCanvas, paintNode } from "../render/paint";
 import { paintSelectionOverlay } from "../interaction/selection";
 import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../interaction/drag";
 import { duplicateNode, getNextNodeId, insertChild } from "../model/edit";
+import { cloneDocument } from "../model/tree";
+import { flattenLayoutTree } from "../layout/layout";
 import { trackLayoutTransitionsFromSnapshot, snapshotPositions, pruneFinishedAnimations, getAnimatedPositions, hasActiveAnimations } from "../interaction/animate";
 import { telemetry } from "../telemetry/logger";
-import type { PenNode } from "../model/types";
-import type { LayoutNode } from "../layout/types";
-
-function findLayoutNode(roots: LayoutNode[], id: string): LayoutNode | null {
-  for (const root of roots) {
-    if (root.id === id) return root;
-    if (root.children && root.children.length > 0) {
-      const found = findLayoutNode(root.children, id);
-      if (found) return found;
-    }
-  }
-  return null;
-}
+import type { Document, PenNode } from "../model/types";
 
 export const CanvasView: Component = () => {
   let containerRef: HTMLDivElement | undefined;
@@ -144,7 +135,7 @@ export const CanvasView: Component = () => {
 
     // Paint 60fps fast-path floating elevated drag ghost
     if (currentDrag) {
-      const draggedLayout = findLayoutNode(tree, currentDrag.nodeId);
+      const draggedLayout = flattenLayoutTree(tree).get(currentDrag.nodeId);
       if (draggedLayout) {
         const dx = currentDrag.currentWorld.x - currentDrag.startWorld.x;
         const dy = currentDrag.currentWorld.y - currentDrag.startWorld.y;
@@ -230,14 +221,7 @@ export const CanvasView: Component = () => {
 
     if (hitResult) {
       const hit = hitResult.node;
-      if (!e.metaKey && !e.ctrlKey) {
-        setSelectedIds(new Set([hit.id]));
-      } else {
-        const next = new Set(selectedIds());
-        if (next.has(hit.id)) next.delete(hit.id);
-        else next.add(hit.id);
-        setSelectedIds(next);
-      }
+      selectNode(hit.id, e.metaKey || e.ctrlKey);
 
       // Prepare potential drag session with correct world-space offset
       const targetDoc = nodeMap().get(hit.id);
@@ -257,14 +241,12 @@ export const CanvasView: Component = () => {
 
   const handleMouseMove = (e: MouseEvent) => {
     if (!canvasRef) return;
-    const stopMove = telemetry.startSpan("interaction:mousemove");
 
     if (isPanning) {
       const dx = e.clientX - startPan.x;
       const dy = e.clientY - startPan.y;
       startPan = { x: e.clientX, y: e.clientY };
       setCamera((c) => panCamera(c, dx, dy));
-      stopMove();
       return;
     }
 
@@ -275,7 +257,6 @@ export const CanvasView: Component = () => {
 
     if (shapeStart()) {
       setShapeCurrent(world);
-      stopMove();
       return;
     }
 
@@ -300,7 +281,6 @@ export const CanvasView: Component = () => {
         setHoveredId(newHover);
       }
     }
-    stopMove();
   };
 
   const handleMouseUp = () => {
@@ -320,22 +300,21 @@ export const CanvasView: Component = () => {
 
       let newNode: PenNode;
       if (mode === "frame") {
-        newNode = { type: "frame", id, x, y, width: w, height: h, fill: "#ffffff", stroke: "#e5e5e5", strokeWidth: 1, children: [] } as any;
+        newNode = { type: "frame", id, x, y, width: w, height: h, fill: "#ffffff", stroke: "#e5e5e5", strokeWidth: 1, children: [] };
       } else if (mode === "text") {
-        newNode = { type: "text", id, x, y, content: "New Text", fontSize: 14, fill: "#1e293b" } as any;
+        newNode = { type: "text", id, x, y, content: "New Text", fontSize: 14, fill: "#1e293b" };
       } else {
-        newNode = { type: "rectangle", id, x, y, width: w, height: h, fill: "#0d99ff" } as any;
+        newNode = { type: "rectangle", id, x, y, width: w, height: h, fill: "#0d99ff" };
       }
 
-      // Check if drawn inside a container frame
       const hit = hitTestScene(layoutTree(), { x, y });
-      let nextDoc: any;
+      let nextDoc: Document;
       if (hit && hit.type === "frame") {
         newNode.x = x - hit.box.x;
         newNode.y = y - hit.box.y;
         nextDoc = insertChild(doc(), hit.id, newNode);
       } else {
-        nextDoc = structuredClone(doc());
+        nextDoc = cloneDocument(doc());
         nextDoc.children.push(newNode);
       }
 
@@ -363,7 +342,7 @@ export const CanvasView: Component = () => {
           setSelectedIds(new Set([dup.newId]));
         }
       } else {
-        const nextDoc = structuredClone(doc());
+        const nextDoc = cloneDocument(doc());
         commitDragDrop(nextDoc, current);
         updateDoc(nextDoc);
       }

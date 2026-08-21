@@ -5,6 +5,7 @@ import type {
   PolygonNode,
   TextNode,
   EllipseNode,
+  IconNode,
   Fill,
   ColorStop,
   Effect,
@@ -132,6 +133,23 @@ export function paintStroke(
   }
 }
 
+function strokeCurrentPath(
+  ctx: CanvasRenderingContext2D,
+  data: PenNode | undefined,
+  variables?: Record<string, any>,
+  path?: Path2D
+): void {
+  if (!data?.stroke || !data.strokeWidth) return;
+  const strokeColor = resolveVariable(data.stroke, variables);
+  if (!strokeColor) return;
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = typeof data.strokeWidth === "number" ? data.strokeWidth : 1;
+  if (path) ctx.stroke(path);
+  else ctx.stroke();
+}
+
+const ICON_PATH = "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5";
+
 export function applyEffects(
   ctx: CanvasRenderingContext2D,
   effects: Effect | Effect[],
@@ -195,10 +213,8 @@ export function drawShape(
   variables?: Record<string, any>
 ): void {
   const { box } = layoutNode;
-  const fillVal = data?.fill ?? data?.fills;
-  const fillStyle = resolveFill(ctx, fillVal, box, variables);
-  const rawEffects = data?.effects ?? data?.effect;
-  if (rawEffects) applyEffects(ctx, rawEffects, variables);
+  const fillStyle = resolveFill(ctx, data?.fill, box, variables);
+  if (data?.effects) applyEffects(ctx, data.effects, variables);
 
   ctx.beginPath();
   switch (layoutNode.type) {
@@ -217,14 +233,7 @@ export function drawShape(
           ctx.fillStyle = fillStyle;
           ctx.fill(path2d);
         }
-        if (data?.stroke && data?.strokeWidth) {
-          const strokeColor = resolveVariable(data.stroke, variables);
-          if (strokeColor) {
-            ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = typeof data.strokeWidth === "number" ? data.strokeWidth : 1;
-            ctx.stroke(path2d);
-          }
-        }
+        strokeCurrentPath(ctx, data, variables, path2d);
         ctx.restore();
       }
       break;
@@ -250,18 +259,10 @@ export function drawShape(
           ctx.fillStyle = fillStyle;
           ctx.fill();
         }
-        if (data?.stroke && data?.strokeWidth) {
-          const strokeColor = resolveVariable(data.stroke, variables);
-          if (strokeColor) {
-            ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = typeof data.strokeWidth === "number" ? data.strokeWidth : 1;
-            ctx.stroke();
-          }
-        }
+        strokeCurrentPath(ctx, data, variables);
       }
       break;
     }
-
     case "ellipse": {
       const ellipse = data as EllipseNode;
       const rx = box.width / 2;
@@ -283,14 +284,7 @@ export function drawShape(
         ctx.fillStyle = fillStyle;
         ctx.fill();
       }
-      if (data?.stroke && data?.strokeWidth) {
-        const strokeColor = resolveVariable(data.stroke, variables);
-        if (strokeColor) {
-          ctx.strokeStyle = strokeColor;
-          ctx.lineWidth = typeof data.strokeWidth === "number" ? data.strokeWidth : 1;
-          ctx.stroke();
-        }
-      }
+      strokeCurrentPath(ctx, data, variables);
       break;
     }
     case "text": {
@@ -326,9 +320,9 @@ export function drawShape(
       break;
     }
     case "icon": {
-      const iconNode = data as any;
-      if ((iconNode?.icon || iconNode?.iconName) && typeof Path2D !== "undefined") {
-        const path2d = new Path2D("M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5");
+      const iconNode = data as IconNode;
+      if (iconNode?.icon && typeof Path2D !== "undefined") {
+        const path2d = new Path2D(ICON_PATH);
         ctx.save();
         ctx.scale(box.width / 24, box.height / 24);
         ctx.strokeStyle = resolveVariable(iconNode.fill, variables) || "#1e293b";
@@ -339,8 +333,8 @@ export function drawShape(
       break;
     }
     default: {
-      const radius = (data as any)?.cornerRadius || (layoutNode as any).cornerRadius || 0;
-      if (radius > 0 && typeof ctx.roundRect === "function") {
+      const radius = data?.cornerRadius;
+      if (radius && typeof ctx.roundRect === "function") {
         ctx.roundRect(0, 0, box.width, box.height, radius);
       } else {
         ctx.rect(0, 0, box.width, box.height);
@@ -350,13 +344,13 @@ export function drawShape(
         ctx.fill();
       }
       if (data?.stroke && data?.strokeWidth) {
-        paintStroke(ctx, box, data.stroke, data.strokeWidth, (data as any).strokeAlignment as StrokeAlignment, variables);
+        paintStroke(ctx, box, data.stroke, data.strokeWidth, "center", variables);
       }
       break;
     }
   }
 
-  if (rawEffects) clearEffects(ctx);
+  if (data?.effects) clearEffects(ctx);
 }
 
 export function paintNode(
@@ -392,8 +386,8 @@ export function paintNode(
   if (data?.clip) {
     ctx.save();
     ctx.beginPath();
-    const radius = (data as any)?.cornerRadius || 0;
-    if (radius > 0 && typeof ctx.roundRect === "function") {
+    const radius = data?.cornerRadius;
+    if (radius && typeof ctx.roundRect === "function") {
       ctx.roundRect(0, 0, layoutNode.box.width, layoutNode.box.height, radius);
     } else {
       ctx.rect(0, 0, layoutNode.box.width, layoutNode.box.height);

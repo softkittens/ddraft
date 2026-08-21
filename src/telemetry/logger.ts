@@ -55,8 +55,8 @@ class TelemetrySubsystem {
       else if (name.includes("drag")) this.currentFrameMetrics.dragTime = dur;
       else if (name.includes("hittest")) this.currentFrameMetrics.hitTestTime = dur;
 
-      if (dur > 16.6) {
-        this.warn("perf", `Slow operation detected in [${name}]: ${dur.toFixed(2)}ms (> 16.6ms budget)`, { duration: dur });
+      if (dur > 50) {
+        this.log("warn", "perf", `Slow operation detected in [${name}]: ${dur.toFixed(2)}ms (> 50ms)`, { duration: dur });
       }
 
       return dur;
@@ -129,8 +129,6 @@ class TelemetrySubsystem {
 
     if (level === "error") {
       console.error(`[${category.toUpperCase()}] ${message}`, data || "");
-    } else if (level === "warn") {
-      console.warn(`[${category.toUpperCase()}] ${message}`, data || "");
     }
   }
 
@@ -145,19 +143,6 @@ class TelemetrySubsystem {
 
   getRecentLogs(): LogEntry[] {
     return [...this.logs];
-  }
-
-  getSummary() {
-    if (this.samples.length === 0) return { avgFps: 60, avgPaint: 0, avgLayout: 0, maxFrameTime: 0 };
-    const avgPaint = this.samples.reduce((s, x) => s + x.paintTime, 0) / this.samples.length;
-    const avgLayout = this.samples.reduce((s, x) => s + x.layoutTime, 0) / this.samples.length;
-    const maxFrameTime = Math.max(...this.samples.map((s) => s.totalTime));
-    return {
-      fps: this.currentFps,
-      avgPaint: Number(avgPaint.toFixed(2)),
-      avgLayout: Number(avgLayout.toFixed(2)),
-      maxFrameTime: Number(maxFrameTime.toFixed(2))
-    };
   }
 }
 

@@ -29,23 +29,7 @@ export function pointInNodeLocalSpace(point: Point, box: Box, rotation?: number)
 /**
  * Finds the topmost node under a world-space point.
  * Walks in reverse painter order (front-to-back, leaf children first).
- *
- * Why:
- * Reverse painter order ensures top-layered objects receive clicks before their parents/underlying siblings.
  */
-export function hitTestNode(node: LayoutNode, worldPoint: Point): LayoutNode | null {
-  const localPoint = pointInNodeLocalSpace(worldPoint, node.box, node.rotation);
-  if (!localPoint) return null;
-
-  // Search children in reverse order (top-most layer first)
-  for (let i = node.children.length - 1; i >= 0; i--) {
-    const childHit = hitTestNode(node.children[i], localPoint);
-    if (childHit) return childHit;
-  }
-
-  return node;
-}
-
 export function hitTestScene(roots: LayoutNode[], worldPoint: Point): LayoutNode | null {
   const result = hitTestSceneWorld(roots, worldPoint);
   return result ? result.node : null;

@@ -23,32 +23,7 @@ export function trackLayoutTransitions(
   newTree: LayoutNode[],
   duration = 200
 ): void {
-  const oldMap = new Map<string, { x: number; y: number }>();
-  function collect(nodes: LayoutNode[]) {
-    for (const n of nodes) {
-      oldMap.set(n.id, { x: n.box.x, y: n.box.y });
-      collect(n.children);
-    }
-  }
-  collect(oldTree);
-
-  const now = performance.now();
-  function checkNew(nodes: LayoutNode[]) {
-    for (const n of nodes) {
-      const old = oldMap.get(n.id);
-      if (old && (Math.abs(old.x - n.box.x) > 1 || Math.abs(old.y - n.box.y) > 1)) {
-        activeAnimations.set(n.id, {
-          id: n.id,
-          from: old,
-          to: { x: n.box.x, y: n.box.y },
-          startTime: now,
-          duration
-        });
-      }
-      checkNew(n.children);
-    }
-  }
-  checkNew(newTree);
+  trackLayoutTransitionsFromSnapshot(snapshotPositions(oldTree), newTree, duration);
 }
 
 /**
