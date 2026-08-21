@@ -14,7 +14,7 @@ import {
 import type { PenNode } from "../model/types";
 import { childrenOf } from "../model/tree";
 import {
-  resolvedDoc,
+  doc,
   selectedIds,
   selectNode,
   layersCollapsed,
@@ -130,7 +130,7 @@ export const LayersPanel: Component = () => {
       </div>
 
       <div class="flex-1 overflow-y-auto custom-scrollbar py-1">
-        <For each={resolvedDoc().children}>
+        <For each={doc().children}>
           {(node) => <NodeRow node={node} depth={0} />}
         </For>
       </div>

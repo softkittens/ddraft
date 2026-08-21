@@ -2,7 +2,7 @@ import type { Document, PenNode, IconNode } from "../model/types";
 import { insertChild, moveNode, removeNode, setProperty, duplicateNode, getNextNodeId } from "../model/edit";
 import { childrenOf, findNode, maxNumericId } from "../model/tree";
 import { resolveInstances } from "../model/instance";
-import { digestSubtree } from "../digest/digest";
+import { digest, digestSubtree } from "../digest/digest";
 import { layoutResolvedDocument, flattenLayoutTree } from "../layout/layout";
 import type { LayoutNode } from "../layout/types";
 import { auditDocument, formatAudit } from "../design/evaluator";
@@ -17,7 +17,7 @@ const ALLOWED_PROPERTIES = new Set([
   "name", "content", "fontSize", "fontWeight", "fontFamily", "letterSpacing",
   "lineHeight", "textAlign", "textGrowth", "layout", "justifyContent", "alignItems",
   "opacity", "rotation", "cornerRadius", "clip", "enabled", "layoutPosition",
-  "effect", "effects", "icon", "strokeWidth", "textGrowth", "reusable", "ref"
+  "effect", "icon", "strokeWidth", "textGrowth", "reusable", "ref"
 ]);
 
 export const TOOL_DEFS: Tool[] = [
@@ -279,7 +279,7 @@ export const TOOL_DEFS: Tool[] = [
 const COMMON_KEYS = new Set([
   "id", "type", "name", "x", "y", "width", "height", "fill", "fills", "stroke", "strokes",
   "strokeWidth", "cornerRadius", "rotation", "opacity", "layoutPosition", "clip", "reusable",
-  "enabled", "effect", "effects", "metadata", "children"
+  "enabled", "effect", "metadata", "children"
 ]);
 
 const TYPE_KEYS: Record<string, Set<string>> = {
@@ -289,7 +289,7 @@ const TYPE_KEYS: Record<string, Set<string>> = {
     "content", "fontFamily", "fontSize", "fontWeight", "letterSpacing", "lineHeight",
     "textAlign", "textGrowth"
   ]),
-  icon: new Set(["icon", "library"]),
+  icon: new Set(["icon", "library", "geometry"]),
   rectangle: new Set([]),
   ellipse: new Set(["innerRadius", "startAngle", "sweepAngle"]),
   polygon: new Set(["points"]),
@@ -757,6 +757,7 @@ export function createDocumentTools(initial: Document) {
           type: "icon",
           name: typeof a.name === "string" ? a.name : `${a.icon} icon`,
           icon: a.icon,
+          geometry: geom,
           width: size,
           height: size,
           stroke: typeof a.stroke === "string" ? a.stroke : "$text",
@@ -849,8 +850,4 @@ function formatLayout(node: LayoutNode, doc: Document, depth: number): string {
 
 function round(n: number): number {
   return Math.round(n * 10) / 10;
-}
-
-function digest(doc: Document): string {
-  return digestSubtree(doc);
 }

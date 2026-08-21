@@ -15,8 +15,8 @@ import {
   selectNode
 } from "./store";
 import { screenToWorld, panCamera, zoomAtScreenPoint, type Point } from "../interaction/camera";
-import { hitTestScene, hitTestSceneWorld } from "../interaction/hittest";
-import { setupCanvas, paintNode } from "../render/paint";
+import { hitTestScene, hitTestSceneWorld, nearestFrameHit, worldPointToFrameLocal } from "../interaction/hittest";
+import { setupCanvas, paintNode, setImageInvalidator } from "../render/paint";
 import { paintSelectionOverlay } from "../interaction/selection";
 import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../interaction/drag";
 import { duplicateNode, getNextNodeId, insertChild } from "../model/edit";
@@ -25,6 +25,20 @@ import { flattenLayoutTree } from "../layout/layout";
 import { trackLayoutTransitionsFromSnapshot, snapshotPositions, pruneFinishedAnimations, getAnimatedPositions, hasActiveAnimations } from "../interaction/animate";
 import { telemetry } from "../telemetry/logger";
 import type { Document, PenNode } from "../model/types";
+
+function insertNodeAtWorld(node: PenNode, world: Point, skipFrameId?: string): Document {
+  const hit = hitTestSceneWorld(layoutTree(), world, nodeMap());
+  const frameHit = hit ? nearestFrameHit(hit) : null;
+  if (frameHit && frameHit.node.id !== skipFrameId) {
+    const local = worldPointToFrameLocal(world, frameHit);
+    node.x = Math.round(local.x);
+    node.y = Math.round(local.y);
+    return insertChild(doc(), frameHit.node.id, node);
+  }
+  const next = cloneDocument(doc());
+  next.children.push(node);
+  return next;
+}
 
 export const CanvasView: Component = () => {
   let containerRef: HTMLDivElement | undefined;
@@ -103,7 +117,7 @@ export const CanvasView: Component = () => {
     const alt = isAltHeld();
     const skipId = currentDrag && !alt ? currentDrag.nodeId : undefined;
     for (const root of tree) {
-      paintNode(ctx, root, map, doc().variables, skipId, animPositions);
+      paintNode(ctx, root, map, doc().variables, { skipNodeId: skipId, animatedPositions: animPositions });
     }
 
     // Paint drop target highlights & dashed insertion lines
@@ -192,7 +206,7 @@ export const CanvasView: Component = () => {
     const stopDrag = telemetry.startSpan("interaction:drag");
 
     const updated = { ...current };
-    handleDragMove(doc(), updated, world, layoutTree());
+    handleDragMove(doc(), updated, world, layoutTree(), nodeMap());
     stopDrag();
     setDragSession(updated);
   }
@@ -216,7 +230,7 @@ export const CanvasView: Component = () => {
     }
 
     const stopHit = telemetry.startSpan("interaction:hittest");
-    const hitResult = hitTestSceneWorld(layoutTree(), world);
+    const hitResult = hitTestSceneWorld(layoutTree(), world, nodeMap());
     stopHit();
 
     if (hitResult) {
@@ -274,7 +288,7 @@ export const CanvasView: Component = () => {
       syncDragState(world);
     } else {
       const stopHit = telemetry.startSpan("interaction:hittest");
-      const hit = hitTestScene(layoutTree(), world);
+      const hit = hitTestScene(layoutTree(), world, nodeMap());
       stopHit();
       const newHover = hit ? hit.id : null;
       if (newHover !== hoveredId()) {
@@ -307,18 +321,7 @@ export const CanvasView: Component = () => {
         newNode = { type: "rectangle", id, x, y, width: w, height: h, fill: "#0d99ff" };
       }
 
-      const hit = hitTestScene(layoutTree(), { x, y });
-      let nextDoc: Document;
-      if (hit && hit.type === "frame") {
-        newNode.x = x - hit.box.x;
-        newNode.y = y - hit.box.y;
-        nextDoc = insertChild(doc(), hit.id, newNode);
-      } else {
-        nextDoc = cloneDocument(doc());
-        nextDoc.children.push(newNode);
-      }
-
-      updateDoc(nextDoc);
+      updateDoc(insertNodeAtWorld(newNode, { x, y }));
       setSelectedIds(new Set([id]));
 
       setShapeStart(null);
@@ -421,6 +424,11 @@ export const CanvasView: Component = () => {
     window.addEventListener("keyup", handleKeyUp);
     window.addEventListener("blur", handleBlur);
 
+    setImageInvalidator(() => {
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      animFrameId = requestAnimationFrame(render);
+    });
+
     if (containerRef) {
       resizeObserver = new ResizeObserver(() => {
         if (animFrameId) cancelAnimationFrame(animFrameId);
@@ -431,6 +439,7 @@ export const CanvasView: Component = () => {
   });
 
   onCleanup(() => {
+    setImageInvalidator(null);
     window.removeEventListener("mousemove", handleMouseMove);
     window.removeEventListener("mouseup", handleMouseUp);
     window.removeEventListener("keydown", handleKeyDown);
@@ -506,18 +515,7 @@ export const CanvasView: Component = () => {
             children: []
           };
 
-          const hit = hitTestScene(layoutTree(), dropWorld);
-          let nextDoc: Document;
-          if (hit && hit.type === "frame" && hit.id !== id) {
-            imageNode.x = Math.round(dropWorld.x - hit.box.x);
-            imageNode.y = Math.round(dropWorld.y - hit.box.y);
-            nextDoc = insertChild(doc(), hit.id, imageNode);
-          } else {
-            nextDoc = cloneDocument(doc());
-            nextDoc.children.push(imageNode);
-          }
-
-          updateDoc(nextDoc);
+          updateDoc(insertNodeAtWorld(imageNode, dropWorld, id));
           setSelectedIds(new Set([id]));
         };
         img.src = dataUrl;
@@ -544,6 +542,14 @@ export const CanvasView: Component = () => {
         <div class="absolute inset-0 bg-blue-500/10 border-2 border-dashed border-blue-500 pointer-events-none flex items-center justify-center z-50">
           <div class="bg-blue-600 text-white font-medium text-sm px-4 py-2 rounded-xl shadow-lg flex items-center gap-2">
             <span>Drop image to place reference on canvas</span>
+          </div>
+        </div>
+      </Show>
+      <Show when={doc().children.length === 0 && !isDragOverCanvas()}>
+        <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+          <div class="text-center text-neutral-400 max-w-xs">
+            <div class="text-sm font-medium text-neutral-600 mb-1">Empty canvas</div>
+            <div class="text-xs leading-relaxed">Prompt the agent, or open a .pen file, to start a design.</div>
           </div>
         </div>
       </Show>

@@ -2,6 +2,13 @@ import type { Document, PenNode } from "../model/types";
 import type { LayoutNode, Box } from "../layout/types";
 import type { Point } from "./camera";
 import { childrenOf, isParentNode } from "../model/tree";
+import {
+  hitTestSceneWorld,
+  nearestFrameHit,
+  worldPointToFrameLocal,
+  frameLocalToWorld,
+  type HitResult
+} from "./hittest";
 
 export const DRAG_THRESHOLD_PX = 3;
 
@@ -20,6 +27,7 @@ export interface DragSession {
   targetContainerId?: string;
   targetContainerBox?: Box;
   targetContainerWorldPos?: Point;
+  targetHit?: HitResult;
   insertIndex?: number;
   dropIndicator?: { x1: number; y1: number; x2: number; y2: number };
 }
@@ -51,30 +59,23 @@ function findInParent(
   return null;
 }
 
-function findContainerAtPoint(
+function dropTargetFrame(
   roots: LayoutNode[],
   point: Point,
   excludeId: string,
-  parentWorld: Point = { x: 0, y: 0 }
-): { layoutNode: LayoutNode; worldPos: Point } | null {
-  for (let i = roots.length - 1; i >= 0; i--) {
-    const root = roots[i];
-    if (root.id === excludeId) continue;
-    const curWorld = { x: parentWorld.x + root.box.x, y: parentWorld.y + root.box.y };
-
-    if (
-      point.x >= curWorld.x &&
-      point.x <= curWorld.x + root.box.width &&
-      point.y >= curWorld.y &&
-      point.y <= curWorld.y + root.box.height
-    ) {
-      if (root.type === "frame") {
-        const deeper = findContainerAtPoint(root.children, point, excludeId, curWorld);
-        return deeper || { layoutNode: root, worldPos: curWorld };
-      }
-    }
-  }
-  return null;
+  nodeMap?: Map<string, PenNode>
+): HitResult | null {
+  const hit = hitTestSceneWorld(roots, point, nodeMap);
+  if (!hit) return null;
+  const cut = hit.path.findIndex((n) => n.id === excludeId);
+  const path = cut >= 0 ? hit.path.slice(0, cut) : hit.path;
+  if (path.length === 0) return null;
+  return nearestFrameHit({
+    node: path[path.length - 1],
+    worldX: hit.worldX,
+    worldY: hit.worldY,
+    path
+  });
 }
 
 /**
@@ -85,12 +86,14 @@ export function handleDragMove(
   doc: Document,
   session: DragSession,
   currentWorld: Point,
-  layoutTree?: LayoutNode[]
+  layoutTree?: LayoutNode[],
+  nodeMap?: Map<string, PenNode>
 ): void {
   session.currentWorld = currentWorld;
   session.targetContainerId = undefined;
   session.targetContainerBox = undefined;
   session.targetContainerWorldPos = undefined;
+  session.targetHit = undefined;
   session.dropIndicator = undefined;
   session.insertIndex = undefined;
 
@@ -105,39 +108,37 @@ export function handleDragMove(
   const ghostCenterY = session.worldOffset.y + dy + session.dimensions.height / 2;
 
   if (layoutTree) {
-    const targetCtx = findContainerAtPoint(layoutTree, { x: ghostCenterX, y: ghostCenterY }, session.nodeId);
+    const frameHit = dropTargetFrame(layoutTree, { x: ghostCenterX, y: ghostCenterY }, session.nodeId, nodeMap);
 
-    if (targetCtx && targetCtx.layoutNode.id !== session.nodeId) {
-      const targetNode = findNodeContext(doc, targetCtx.layoutNode.id)?.node;
+    if (frameHit && frameHit.node.id !== session.nodeId) {
+      const targetNode = findNodeContext(doc, frameHit.node.id)?.node;
 
       if (targetNode && isParentNode(targetNode)) {
-        session.targetContainerId = targetCtx.layoutNode.id;
-        session.targetContainerWorldPos = targetCtx.worldPos;
+        session.targetContainerId = frameHit.node.id;
+        session.targetHit = frameHit;
+        session.targetContainerWorldPos = { x: frameHit.worldX, y: frameHit.worldY };
         session.targetContainerBox = {
-          x: targetCtx.worldPos.x,
-          y: targetCtx.worldPos.y,
-          width: targetCtx.layoutNode.box.width,
-          height: targetCtx.layoutNode.box.height
+          x: frameHit.worldX,
+          y: frameHit.worldY,
+          width: frameHit.node.box.width,
+          height: frameHit.node.box.height
         };
 
         const targetLayout = targetNode.type === "frame" ? targetNode.layout || "horizontal" : "none";
 
-        // For layout: "none" freeform frames, no flex insertion index or line is computed
         if (targetLayout === "none") {
           return;
         }
 
         const isHoriz = targetLayout === "horizontal";
-        const siblings = targetCtx.layoutNode.children.filter((c) => c.id !== session.nodeId);
+        const siblings = frameHit.node.children.filter((c) => c.id !== session.nodeId);
+        const localGhost = worldPointToFrameLocal({ x: ghostCenterX, y: ghostCenterY }, frameHit);
 
         let insertIdx = siblings.length;
         for (let i = 0; i < siblings.length; i++) {
           const s = siblings[i];
-          const mid = isHoriz
-            ? targetCtx.worldPos.x + s.box.x + s.box.width / 2
-            : targetCtx.worldPos.y + s.box.y + s.box.height / 2;
-
-          const cursorCoord = isHoriz ? ghostCenterX : ghostCenterY;
+          const mid = isHoriz ? s.box.x + s.box.width / 2 : s.box.y + s.box.height / 2;
+          const cursorCoord = isHoriz ? localGhost.x : localGhost.y;
           if (cursorCoord < mid) {
             insertIdx = i;
             break;
@@ -145,16 +146,18 @@ export function handleDragMove(
         }
         session.insertIndex = insertIdx;
 
-        // Draw dashed blue insertion line for flex containers
         if (siblings.length > 0) {
           const ref = siblings[Math.min(insertIdx, siblings.length - 1)];
-          const linePos = isHoriz
-            ? targetCtx.worldPos.x + (insertIdx >= siblings.length ? ref.box.x + ref.box.width + 4 : ref.box.x - 4)
-            : targetCtx.worldPos.y + (insertIdx >= siblings.length ? ref.box.y + ref.box.height + 4 : ref.box.y - 4);
-
-          session.dropIndicator = isHoriz
-            ? { x1: linePos, y1: targetCtx.worldPos.y + 4, x2: linePos, y2: targetCtx.worldPos.y + targetCtx.layoutNode.box.height - 4 }
-            : { x1: targetCtx.worldPos.x + 4, y1: linePos, x2: targetCtx.worldPos.x + targetCtx.layoutNode.box.width - 4, y2: linePos };
+          const lineLocal = isHoriz
+            ? (insertIdx >= siblings.length ? ref.box.x + ref.box.width + 4 : ref.box.x - 4)
+            : (insertIdx >= siblings.length ? ref.box.y + ref.box.height + 4 : ref.box.y - 4);
+          const a = isHoriz
+            ? frameLocalToWorld({ x: lineLocal, y: 4 }, frameHit)
+            : frameLocalToWorld({ x: 4, y: lineLocal }, frameHit);
+          const b = isHoriz
+            ? frameLocalToWorld({ x: lineLocal, y: frameHit.node.box.height - 4 }, frameHit)
+            : frameLocalToWorld({ x: frameHit.node.box.width - 4, y: lineLocal }, frameHit);
+          session.dropIndicator = { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
         }
         return;
       }
@@ -194,13 +197,16 @@ export function commitDragDrop(doc: Document, session: DragSession): void {
       const targetLayout = targetCtx.node.type === "frame" ? targetCtx.node.layout || "horizontal" : "none";
 
       if (targetLayout === "none") {
-
-        // Freeform frame drop: convert drop world coordinates to frame local space
-        const origin = session.targetContainerWorldPos || { x: targetCtx.node.x ?? 0, y: targetCtx.node.y ?? 0 };
-        const dropWorldX = session.worldOffset.x + dx;
-        const dropWorldY = session.worldOffset.y + dy;
-        node.x = Math.round(dropWorldX - origin.x);
-        node.y = Math.round(dropWorldY - origin.y);
+        const dropWorld = { x: session.worldOffset.x + dx, y: session.worldOffset.y + dy };
+        if (session.targetHit) {
+          const local = worldPointToFrameLocal(dropWorld, session.targetHit);
+          node.x = Math.round(local.x);
+          node.y = Math.round(local.y);
+        } else {
+          const origin = session.targetContainerWorldPos || { x: targetCtx.node.x ?? 0, y: targetCtx.node.y ?? 0 };
+          node.x = Math.round(dropWorld.x - origin.x);
+          node.y = Math.round(dropWorld.y - origin.y);
+        }
         targetChildren.push(node);
       } else {
         delete node.x;
@@ -213,7 +219,6 @@ export function commitDragDrop(doc: Document, session: DragSession): void {
   }
 
   if (parent !== null) {
-    // Dropped outside any container frame -> Reparent to root canvas
     if (isParentNode(parent) && parent.children) {
       parent.children.splice(index, 1);
     }

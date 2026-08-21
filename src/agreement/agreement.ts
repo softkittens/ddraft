@@ -8,8 +8,8 @@
  *
  * It has a second job. While it measures, it records every text advance width Chrome
  * produced. Press "Copy recording" (or read `window.__penMetrics`) and save the result
- * to `probes/text-metrics.json`. `bun test` then replays that file and can run the
- * same comparison with no browser at all — see `test/agreement.test.ts`.
+ * to `probes/text-metrics.json`. `bun run test:agreement` then replays that file and can run the
+ * same comparison with no browser at all — see `test/agreement.oracle.ts`.
  */
 import { parseDocument } from "../model/parse";
 import { layoutDocument } from "../layout/layout";

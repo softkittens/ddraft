@@ -2,7 +2,7 @@ import { defineConfig, loadEnv, type Plugin } from "vite";
 import { resolve } from "path";
 import solidPlugin from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
-import { handleAgentRequest } from "./src/agent/http";
+import { handleAgentRequest, abortSignalFromNode } from "./src/agent/http";
 import type { IncomingMessage, ServerResponse } from "http";
 
 function agentDevMiddleware(env: Record<string, string>): Plugin {
@@ -41,6 +41,7 @@ function agentDevMiddleware(env: Record<string, string>): Plugin {
             method,
             headers,
             body,
+            signal: abortSignalFromNode(req, res),
             // @ts-ignore
             duplex: "half"
           });
@@ -92,8 +93,7 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         input: {
-          main: resolve(__dirname, "index.html"),
-          agreement: resolve(__dirname, "agreement.html")
+          main: resolve(__dirname, "index.html")
         }
       }
     }

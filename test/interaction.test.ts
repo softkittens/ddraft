@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import type { LayoutNode } from "../src/layout/types";
 import { createCamera, worldToScreen, screenToWorld, zoomAtScreenPoint, panCamera } from "../src/interaction/camera";
-import { hitTestScene } from "../src/interaction/hittest";
+import { hitTestScene, hitTestSceneWorld, nearestFrameHit, worldPointToFrameLocal } from "../src/interaction/hittest";
 import { createSelectionState, paintSelectionOverlay } from "../src/interaction/selection";
 import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../src/interaction/drag";
 import { trackLayoutTransitions, hasActiveAnimations, getAnimatedPosition } from "../src/interaction/animate";
@@ -11,7 +11,6 @@ import { resolveInstances } from "../src/model/instance";
 import { layoutDocument } from "../src/layout/layout";
 import { inspectorFields } from "../src/ui/inspector";
 import { makeDoc, frame, rect, createMockCanvas, EditorDriver, flattenBoxes } from "./harness";
-import { DEFAULT_FIXTURE_RAW } from "../src/ui/fixtures";
 
 
 describe("Interaction & Editor Subsystem", () => {
@@ -58,6 +57,168 @@ describe("Interaction & Editor Subsystem", () => {
     // Point inside unrotated box (140, 60) is outside the 30-deg rotated geometry
     expect(hitTestScene(rotTree, { x: 140, y: 60 })).toBeNull();
   });
+});
+
+describe("hit testing visibility, clipping, rotation, and insertion", () => {
+  it("does not select a disabled node or its children", () => {
+    const tree: LayoutNode[] = [{
+      id: "parent",
+      type: "frame",
+      box: { x: 0, y: 0, width: 200, height: 200 },
+      children: [{ id: "child", type: "rectangle", box: { x: 10, y: 10, width: 40, height: 40 }, children: [] }]
+    }];
+    const map = new Map<string, any>([
+      ["parent", { id: "parent", type: "frame", enabled: false }],
+      ["child", { id: "child", type: "rectangle" }]
+    ]);
+    expect(hitTestScene(tree, { x: 20, y: 20 }, map)).toBeNull();
+  });
+
+  it("does not select children outside a clipped parent", () => {
+    const tree: LayoutNode[] = [{
+      id: "parent",
+      type: "frame",
+      box: { x: 0, y: 0, width: 80, height: 80 },
+      children: [{ id: "overflow", type: "rectangle", box: { x: 100, y: 10, width: 40, height: 40 }, children: [] }]
+    }];
+    const map = new Map<string, any>([
+      ["parent", { id: "parent", type: "frame", clip: true }],
+      ["overflow", { id: "overflow", type: "rectangle" }]
+    ]);
+    expect(hitTestScene(tree, { x: 110, y: 20 }, map)).toBeNull();
+  });
+
+  it("selects children outside an unclipped parent", () => {
+    const tree: LayoutNode[] = [{
+      id: "parent",
+      type: "frame",
+      box: { x: 0, y: 0, width: 80, height: 80 },
+      children: [{ id: "overflow", type: "rectangle", box: { x: 100, y: 10, width: 40, height: 40 }, children: [] }]
+    }];
+    const map = new Map<string, any>([
+      ["parent", { id: "parent", type: "frame", clip: false }],
+      ["overflow", { id: "overflow", type: "rectangle" }]
+    ]);
+    expect(hitTestScene(tree, { x: 110, y: 20 }, map)?.id).toBe("overflow");
+  });
+
+  it("uses transformed local coordinates under a rotated parent", () => {
+    const tree: LayoutNode[] = [{
+      id: "parent",
+      type: "frame",
+      box: { x: 0, y: 0, width: 100, height: 100 },
+      rotation: 90,
+      children: [{ id: "child", type: "rectangle", box: { x: 10, y: 10, width: 20, height: 20 }, children: [] }]
+    }];
+    // 90° clockwise around parent origin: local (20, 20) → world (20, -20)?
+    // Forward: x' = x cos - y sin, y' = x sin + y cos, 90°: x' = -y, y' = x
+    // Child local center (20, 20) in parent local → world (-20, 20)
+    const hit = hitTestSceneWorld(tree, { x: -20, y: 20 });
+    expect(hit?.node.id).toBe("child");
+  });
+
+  it("walks the path back to the nearest nested frame for insertion over text", () => {
+    const tree: LayoutNode[] = [{
+      id: "outer",
+      type: "frame",
+      box: { x: 0, y: 0, width: 400, height: 400 },
+      children: [{
+        id: "inner",
+        type: "frame",
+        box: { x: 40, y: 40, width: 200, height: 200 },
+        children: [{ id: "label", type: "text", box: { x: 10, y: 10, width: 80, height: 20 }, children: [] }]
+      }]
+    }];
+    const hit = hitTestSceneWorld(tree, { x: 60, y: 55 });
+    expect(hit?.node.id).toBe("label");
+    expect(hit?.path.map((n) => n.id)).toEqual(["outer", "inner", "label"]);
+    const frameHit = nearestFrameHit(hit!);
+    expect(frameHit?.node.id).toBe("inner");
+    expect(frameHit?.worldX).toBe(40);
+    expect(frameHit?.worldY).toBe(40);
+  });
+
+  it("reports local coordinates relative to the hit node's world origin", () => {
+    const tree: LayoutNode[] = [{
+      id: "frame",
+      type: "frame",
+      box: { x: 100, y: 50, width: 200, height: 100 },
+      children: []
+    }];
+    const hit = hitTestSceneWorld(tree, { x: 130, y: 70 });
+    expect(hit?.node.id).toBe("frame");
+    expect(hit?.worldX).toBe(100);
+    expect(hit?.worldY).toBe(50);
+  });
+
+  it("leaves insertion at the root when no frame is on the path", () => {
+    const tree: LayoutNode[] = [{
+      id: "shape",
+      type: "rectangle",
+      box: { x: 0, y: 0, width: 40, height: 40 },
+      children: []
+    }];
+    const hit = hitTestSceneWorld(tree, { x: 10, y: 10 });
+    expect(hit?.node.id).toBe("shape");
+    expect(nearestFrameHit(hit!)).toBeNull();
+  });
+
+  it("reports the world origin of a frame nested under a rotated grandparent", () => {
+    const tree: LayoutNode[] = [{
+      id: "gp",
+      type: "frame",
+      box: { x: 0, y: 0, width: 100, height: 100 },
+      rotation: 90,
+      children: [{
+        id: "inner",
+        type: "frame",
+        box: { x: 10, y: 0, width: 50, height: 50 },
+        children: []
+      }]
+    }];
+    const hit = hitTestSceneWorld(tree, { x: -25, y: 35 });
+    expect(hit?.node.id).toBe("inner");
+    const frameHit = nearestFrameHit(hit!);
+    expect(frameHit?.node.id).toBe("inner");
+    expect(frameHit?.worldX).toBeCloseTo(0);
+    expect(frameHit?.worldY).toBeCloseTo(10);
+    const local = worldPointToFrameLocal({ x: -25, y: 35 }, frameHit!);
+    expect(local.x).toBeCloseTo(25);
+    expect(local.y).toBeCloseTo(25);
+  });
+
+  it("accumulates nested rotations when reporting a grandchild frame origin", () => {
+    const tree: LayoutNode[] = [{
+      id: "outer",
+      type: "frame",
+      box: { x: 0, y: 0, width: 200, height: 200 },
+      rotation: 30,
+      children: [{
+        id: "mid",
+        type: "frame",
+        box: { x: 100, y: 0, width: 80, height: 80 },
+        rotation: 20,
+        children: [{
+          id: "inner",
+          type: "frame",
+          box: { x: 50, y: 0, width: 20, height: 20 },
+          children: []
+        }]
+      }]
+    }];
+    const hit = hitTestSceneWorld(tree, { x: 117.51, y: 102.39 });
+    expect(hit?.node.id).toBe("inner");
+    const frameHit = nearestFrameHit(hit!);
+    expect(frameHit?.node.id).toBe("inner");
+    expect(frameHit?.worldX).toBeCloseTo(118.74, 1);
+    expect(frameHit?.worldY).toBeCloseTo(88.30, 1);
+    const local = worldPointToFrameLocal({ x: 117.51, y: 102.39 }, frameHit!);
+    expect(local.x).toBeCloseTo(10, 1);
+    expect(local.y).toBeCloseTo(10, 1);
+  });
+});
+
+describe("Interaction & Editor Subsystem (continued)", () => {
 
 
   it("handles drag threshold, sibling reordering, and canvas reparenting", () => {
@@ -119,6 +280,30 @@ describe("Interaction & Editor Subsystem", () => {
     const droppedItem = (freeformDoc.children[0] as any).children[0];
     expect(droppedItem.x).toBe(50);
     expect(droppedItem.y).toBe(20);
+
+    const rotatedDoc = makeDoc(
+      frame("rotated", 100, 100, [], { x: 0, y: 0, rotation: 90, layout: "none" } as any),
+      rect("piece", 20, 20, { x: 200, y: 200 } as any)
+    );
+    const rotatedTree: LayoutNode[] = [
+      { id: "rotated", type: "frame", box: { x: 0, y: 0, width: 100, height: 100 }, rotation: 90, children: [] },
+      { id: "piece", type: "rectangle", box: { x: 200, y: 200, width: 20, height: 20 }, children: [] }
+    ];
+    const rotatedSession: DragSession = {
+      nodeId: "piece",
+      startWorld: { x: 200, y: 200 },
+      currentWorld: { x: -60, y: 40 },
+      initialNodeX: 200,
+      initialNodeY: 200,
+      worldOffset: { x: 200, y: 200 },
+      dimensions: { width: 20, height: 20 }
+    };
+    handleDragMove(rotatedDoc, rotatedSession, { x: -60, y: 40 }, rotatedTree);
+    expect(rotatedSession.targetContainerId).toBe("rotated");
+    commitDragDrop(rotatedDoc, rotatedSession);
+    const rotatedDrop = (rotatedDoc.children[0] as any).children[0];
+    expect(rotatedDrop.x).toBe(40);
+    expect(rotatedDrop.y).toBe(60);
   });
 
   it("manages undo/redo history and layer reordering", () => {
@@ -170,8 +355,12 @@ describe("Interaction & Editor Subsystem", () => {
 });
 
 describe("End-to-End Editor Integration Reality Tests", () => {
-  it("executes full click-selection, inspector property binding, and canvas rendering on Factory Control fixture", () => {
-    const editor = new EditorDriver(DEFAULT_FIXTURE_RAW);
+  const editorDoc = makeDoc(frame("screen", 1360, 800, [
+    frame("jUqCC", "fill_container", 50, [], { name: "Header" })
+  ], { padding: 28, layout: "vertical" }));
+
+  it("executes full click-selection, inspector property binding, and canvas rendering", () => {
+    const editor = new EditorDriver(editorDoc);
 
     // Initial render pass
     const { calls: initialCalls } = editor.renderView();
@@ -194,7 +383,7 @@ describe("End-to-End Editor Integration Reality Tests", () => {
   });
 
   it("maintains invariant zoom anchors under cursor during zoom-in and zoom-out passes", () => {
-    const editor = new EditorDriver(DEFAULT_FIXTURE_RAW);
+    const editor = new EditorDriver(editorDoc);
     const cursor = { x: 400, y: 300 };
 
     // Zoom in 3x

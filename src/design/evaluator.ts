@@ -17,15 +17,6 @@ export interface Finding {
   message: string;
 }
 
-export interface EvaluatorBMetrics {
-  deadSpaceRatio: number;
-  alignmentResidual: number;
-  spacingConformance: number;
-  typeConformance: number;
-  contrastRatioMin: number;
-  collisionCount: number;
-}
-
 function boxesOverlap(a: Box, b: Box): boolean {
   return (
     a.x < b.x + b.width &&
@@ -35,14 +26,21 @@ function boxesOverlap(a: Box, b: Box): boolean {
   );
 }
 
-export function checkCollision(nodes: LayoutNode[]): Finding[] {
+export function checkCollision(nodes: LayoutNode[], doc: Document): Finding[] {
   const findings: Finding[] = [];
+  const map = indexDocument(doc);
 
   function checkSiblings(siblings: LayoutNode[]) {
     for (let i = 0; i < siblings.length; i++) {
       for (let j = i + 1; j < siblings.length; j++) {
         const a = siblings[i];
         const b = siblings[j];
+        const aDoc = map.get(a.id);
+        const bDoc = map.get(b.id);
+
+        if (aDoc?.enabled === false || bDoc?.enabled === false) continue;
+        if (aDoc?.layoutPosition === "absolute" || bDoc?.layoutPosition === "absolute") continue;
+
         if (a.box.width > 0 && a.box.height > 0 && b.box.width > 0 && b.box.height > 0) {
           if (boxesOverlap(a.box, b.box)) {
             findings.push({
@@ -53,7 +51,7 @@ export function checkCollision(nodes: LayoutNode[]): Finding[] {
           }
         }
       }
-      if (siblings[i].children.length > 0) {
+      if (map.get(siblings[i].id)?.enabled !== false && siblings[i].children.length > 0) {
         checkSiblings(siblings[i].children);
       }
     }
@@ -63,12 +61,21 @@ export function checkCollision(nodes: LayoutNode[]): Finding[] {
   return findings;
 }
 
-export function checkOverflow(nodes: LayoutNode[]): Finding[] {
+export function checkOverflow(nodes: LayoutNode[], doc: Document): Finding[] {
   const findings: Finding[] = [];
+  const map = indexDocument(doc);
 
   function walk(parent: LayoutNode) {
+    if (map.get(parent.id)?.enabled === false) return;
     if (parent.type === "frame" && parent.box.width > 0 && parent.box.height > 0) {
+      const parentDoc = map.get(parent.id) as FrameNode | undefined;
+      const isClipped = parentDoc?.clip === true;
+
       for (const child of parent.children) {
+        const childDoc = map.get(child.id);
+        if (childDoc?.enabled === false) continue;
+        if (!isClipped) continue;
+
         const overRight = child.box.x + child.box.width - parent.box.width;
         const overBottom = child.box.y + child.box.height - parent.box.height;
         const parts: string[] = [];
@@ -103,6 +110,7 @@ export function checkUnreadableSize(document: Document): Finding[] {
   const findings: Finding[] = [];
 
   function walk(n: PenNode) {
+    if (n.enabled === false) return;
     if (n.type === "text") {
       const textNode = n as TextNode;
       if (textNode.fontSize !== undefined && textNode.fontSize < HARD_MIN_FONT_SIZE) {
@@ -137,8 +145,8 @@ export function checkOffCanvas(nodes: LayoutNode[]): Finding[] {
 
 export function evaluateLayoutConstraints(tree: LayoutNode[], doc: Document): Finding[] {
   return [
-    ...checkCollision(tree),
-    ...checkOverflow(tree),
+    ...checkCollision(tree, doc),
+    ...checkOverflow(tree, doc),
     ...checkUnreadableSize(doc),
     ...checkOffCanvas(tree)
   ];
@@ -170,83 +178,6 @@ function getRelativeLuminance(rgb: { r: number; g: number; b: number }): number 
     c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
   );
   return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
-}
-
-function computeWCAGContrast(fgColor: string, bgColor: string): number {
-  const fg = parseHexColor(fgColor);
-  const bg = parseHexColor(bgColor);
-  if (!fg || !bg) return 4.5;
-  const l1 = getRelativeLuminance(fg);
-  const l2 = getRelativeLuminance(bg);
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
-export function evaluateB(tree: LayoutNode[], doc: Document): EvaluatorBMetrics {
-  let totalContainerArea = 0;
-  let totalChildArea = 0;
-  const siblingXOffsets = new Set<number>();
-  const spacingValues = new Set<number>();
-  const fontSizes = new Set<number>();
-  let minContrast = 21.0;
-
-  const nodeMap = indexDocument(doc);
-
-  function walk(node: LayoutNode, parentBg = "#ffffff") {
-    const docNode = nodeMap.get(node.id);
-    let currentBg = parentBg;
-    if (docNode && "fill" in docNode && typeof docNode.fill === "string") {
-      currentBg = docNode.fill;
-    }
-
-    if (node.type === "frame" && node.children.length > 0) {
-      const containerArea = node.box.width * node.box.height;
-      let childrenArea = 0;
-
-      for (const child of node.children) {
-        childrenArea += child.box.width * child.box.height;
-        siblingXOffsets.add(Math.round(child.box.x));
-      }
-
-      totalContainerArea += containerArea;
-      totalChildArea += Math.min(childrenArea, containerArea);
-
-      const frameNode = docNode as FrameNode;
-      if (frameNode) {
-        if (frameNode.gap !== undefined && typeof frameNode.gap === "number") spacingValues.add(frameNode.gap);
-        if (frameNode.padding !== undefined && typeof frameNode.padding === "number") spacingValues.add(frameNode.padding);
-      }
-    }
-
-    if (node.type === "text") {
-      const textNode = docNode as TextNode;
-      if (textNode) {
-        if (textNode.fontSize) fontSizes.add(textNode.fontSize);
-        const textFill = typeof textNode.fill === "string" ? textNode.fill : "#000000";
-        const contrast = computeWCAGContrast(textFill, parentBg);
-        if (contrast < minContrast) minContrast = contrast;
-      }
-    }
-
-    for (const child of node.children) {
-      walk(child, currentBg);
-    }
-  }
-
-  tree.forEach((r) => walk(r));
-
-  const collisions = checkCollision(tree);
-  const deadSpace = totalContainerArea > 0 ? (totalContainerArea - totalChildArea) / totalContainerArea : 0;
-
-  return {
-    deadSpaceRatio: Number(deadSpace.toFixed(3)),
-    alignmentResidual: siblingXOffsets.size,
-    spacingConformance: spacingValues.size,
-    typeConformance: fontSizes.size,
-    contrastRatioMin: Number(minContrast.toFixed(2)),
-    collisionCount: collisions.length
-  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -367,6 +298,7 @@ function checkContrast(tree: LayoutNode[], doc: Document, map: Map<string, PenNo
 
   function walk(node: LayoutNode, inheritedBg: string | undefined, unmeasurable: boolean) {
     const data = map.get(node.id);
+    if (data?.enabled === false) return;
     const ownFill = solidFillOf(data);
     const bg = ownFill ?? inheritedBg;
     const nowUnmeasurable = unmeasurable || overUnmeasurableBackground(data);
@@ -418,6 +350,7 @@ function checkTextClipping(
 
   function walk(node: LayoutNode) {
     const data = map.get(node.id);
+    if (data?.enabled === false) return;
     if (data?.type === "text") {
       const text = data as TextNode;
       const content = text.content ?? "";
@@ -465,6 +398,7 @@ function checkTapTargets(tree: LayoutNode[], map: Map<string, PenNode>): AuditFi
 
   function walk(node: LayoutNode) {
     const data = map.get(node.id);
+    if (data?.enabled === false) return;
     const named = INTERACTIVE_NAME.test(data?.name ?? "");
     if (named && node.box.width > 0 && node.box.height > 0) {
       const w = Math.round(node.box.width);
@@ -501,6 +435,7 @@ function checkScaleDiscipline(root: LayoutNode, map: Map<string, PenNode>): Audi
 
   function walk(node: LayoutNode) {
     const data = map.get(node.id);
+    if (data?.enabled === false) return;
     if (!data) {
       for (const child of node.children) walk(child);
       return;
@@ -604,6 +539,7 @@ function checkTokenBypass(doc: Document): AuditFinding[] {
   if (!variables || Object.keys(variables).length === 0) return findings;
 
   function walk(node: PenNode, underImage: boolean) {
+    if (node.enabled === false) return;
     const nowUnderImage = underImage || overUnmeasurableBackground(node);
     if (!nowUnderImage) {
       for (const prop of ["fill", "stroke"] as const) {
@@ -668,7 +604,7 @@ function checkDuplicateRegions(doc: Document): AuditFinding[] {
   const findings: AuditFinding[] = [];
 
   function screensOf(node: PenNode, out: PenNode[]) {
-    if (isScreen(node)) out.push(node);
+    if (isScreen(node) && node.enabled !== false) out.push(node);
     for (const child of childrenOf(node)) screensOf(child, out);
   }
   const screens: PenNode[] = [];
@@ -678,6 +614,7 @@ function checkDuplicateRegions(doc: Document): AuditFinding[] {
     for (const { role, pattern } of REGION_ROLES) {
       const matches: PenNode[] = [];
       function collect(node: PenNode) {
+        if (node.enabled === false) return;
         if (node !== screen && pattern.test(node.name ?? "")) matches.push(node);
         for (const child of childrenOf(node)) collect(child);
       }
@@ -722,6 +659,7 @@ function checkAccentOveruse(doc: Document): AuditFinding[] {
   const findings: AuditFinding[] = [];
 
   function countIn(node: PenNode, hits: PenNode[]): void {
+    if (node.enabled === false) return;
     if (BACKGROUND_TYPES.has(node.type)) {
       const fill = (node as any).fill;
       const value = typeof fill === "string" ? fill : fill?.color ?? fill?.value;
@@ -751,6 +689,7 @@ function checkNestedScreens(doc: Document): AuditFinding[] {
   const findings: AuditFinding[] = [];
 
   function walk(node: PenNode, outerScreen: PenNode | undefined) {
+    if (node.enabled === false) return;
     const screenHere = isScreen(node);
     if (screenHere && outerScreen) {
       findings.push({
@@ -771,6 +710,7 @@ function checkNestedScreens(doc: Document): AuditFinding[] {
 function checkEmptyContainers(doc: Document, map: Map<string, LayoutNode>): AuditFinding[] {
   const findings: AuditFinding[] = [];
   function walk(node: PenNode) {
+    if (node.enabled === false) return;
     if (node.type === "frame") {
       const kids = childrenOf(node);
       // The resolved box, not the declared size. Read from `width` alone, a

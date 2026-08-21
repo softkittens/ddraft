@@ -12,10 +12,11 @@
 
 import { writeFileSync, mkdirSync } from "fs";
 import { dirname } from "path";
+import { createHash } from "crypto";
 import { loadProvider } from "../src/agent/credentials";
 import { runSession } from "../src/agent/session";
 import { auditDocument } from "../src/design/evaluator";
-import type { Document } from "../src/model/types";
+import { createDefaultDocument } from "../src/model/defaultDocument";
 import { BRIEFS, type Brief } from "./briefs";
 import { craftMetrics, type CraftMetrics } from "./metrics";
 
@@ -40,12 +41,41 @@ export interface RunRow {
   metrics: CraftMetrics;
 }
 
+export interface RunFile {
+  provider: string;
+  model: string;
+  briefHash: string;
+  at: string;
+  rows: RunRow[];
+}
+
+export function briefSetHash(briefs: Array<{ id: string; text: string }>): string {
+  const payload = [...briefs]
+    .map((b) => `${b.id}\n${b.text}`)
+    .sort()
+    .join("\n");
+  return createHash("sha256").update(payload).digest("hex").slice(0, 16);
+}
+
+export function rowKey(row: RunRow): string {
+  return `${row.brief}#${row.attempt}`;
+}
+
+export function duplicateRowKey(rows: RunRow[]): string | undefined {
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const key = rowKey(row);
+    if (seen.has(key)) return key;
+    seen.add(key);
+  }
+}
+
+export function rowKeys(rows: RunRow[]): string[] {
+  return [...new Set(rows.map(rowKey))].sort();
+}
+
 /** Longest a single run may take before the harness gives up on it. */
 const RUN_TIMEOUT_MS = 240_000;
-
-function emptyDoc(): Document {
-  return { version: "1.0", children: [], variables: {} };
-}
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -71,7 +101,7 @@ async function runOne(
   const calls: Record<string, number> = {};
   let toolErrors = 0;
   let turns = 0;
-  let doc = emptyDoc();
+  let doc = createDefaultDocument();
   let ok = false;
   let error: string | undefined;
 
@@ -185,7 +215,13 @@ async function main() {
       // Written after every run, not at the end. The first batch lost ten runs
       // to a crash on the eleventh.
       mkdirSync(dirname(out), { recursive: true });
-      writeFileSync(out, JSON.stringify({ model, providerId, at: new Date().toISOString(), rows }, null, 2));
+      writeFileSync(out, JSON.stringify({
+        provider: providerId,
+        model,
+        briefHash: briefSetHash(briefs),
+        at: new Date().toISOString(),
+        rows
+      } satisfies RunFile, null, 2));
       process.stderr.write(
         row.ok
           ? `${row.blockers} blockers, ${row.metrics.screens} screens, ${row.seconds}s\n`

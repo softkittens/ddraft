@@ -10,12 +10,15 @@
  * ------------------------------------------------------------------ */
 
 import { readFileSync } from "fs";
-import type { RunRow } from "./run";
+import type { RunFile, RunRow } from "./run";
+import { duplicateRowKey, rowKey, rowKeys } from "./run";
 
-interface RunFile {
+interface LoadedRunFile {
   model: string;
   at: string;
   rows: RunRow[];
+  provider?: string;
+  briefHash?: string;
 }
 
 export interface Stat {
@@ -94,15 +97,68 @@ export function summarize(rows: RunRow[]): string {
   return lines.join("\n");
 }
 
-export function compare(after: RunRow[], before: RunRow[]): string {
+export function compare(after: RunFile, before: RunFile): string {
+  if (!after.provider || !before.provider) {
+    return "Cannot compare: missing provider metadata.";
+  }
+  if (after.provider !== before.provider) {
+    return `Cannot compare: provider "${after.provider}" vs "${before.provider}".`;
+  }
+  if (!after.model || !before.model) {
+    return "Cannot compare: missing model metadata.";
+  }
+  if (after.model !== before.model) {
+    return `Cannot compare: model "${after.model}" vs "${before.model}".`;
+  }
+  if (!after.briefHash || !before.briefHash) {
+    return "Cannot compare: missing brief-set hash.";
+  }
+  if (after.briefHash !== before.briefHash) {
+    return `Cannot compare: brief set changed (${after.briefHash} vs ${before.briefHash}).`;
+  }
+
+  const duplicate = duplicateRowKey(after.rows) ?? duplicateRowKey(before.rows);
+  if (duplicate) {
+    return `Cannot compare: duplicate row key (${duplicate}).`;
+  }
+
+  const afterKeys = rowKeys(after.rows);
+  const beforeKeys = rowKeys(before.rows);
+  if (afterKeys.join("\n") !== beforeKeys.join("\n")) {
+    return `Cannot compare: row keys differ (${before.rows.length} baseline rows vs ${after.rows.length} candidate rows). Pair by brief + attempt.`;
+  }
+
+  const beforeByKey = new Map(before.rows.map((r) => [rowKey(r), r]));
+  const pairs: Array<{ after: RunRow; before: RunRow }> = [];
+  const failed: Array<{ after: RunRow; before: RunRow }> = [];
+  for (const row of after.rows) {
+    const matched = beforeByKey.get(rowKey(row));
+    if (!matched) {
+      return `Cannot compare: missing baseline for ${row.brief} #${row.attempt}.`;
+    }
+    if (!row.ok || !matched.ok) failed.push({ after: row, before: matched });
+    else pairs.push({ after: row, before: matched });
+  }
+
   const lines: string[] = [];
+  if (failed.length > 0) {
+    lines.push(`${failed.length} paired run${failed.length === 1 ? "" : "s"} failed and ${failed.length === 1 ? "is" : "are"} excluded from quality medians:`);
+    for (const p of failed) {
+      const err = !p.after.ok ? p.after.error : p.before.error;
+      lines.push(`  ${p.after.brief} #${p.after.attempt}: ${err ?? "did not finish"}`);
+    }
+    lines.push("");
+  }
+
+  const matchedAfter = pairs.map((p) => p.after);
+  const matchedBefore = pairs.map((p) => p.before);
+
+  lines.push(`Comparing ${pairs.length} completed pairs:`);
   lines.push(`${pad("", 18)}${padL("before", 9)}${padL("after", 9)}${padL("delta", 9)}`);
   for (const t of TRACKED) {
-    const b = stat(before.map(t.pick)).median;
-    const a = stat(after.map(t.pick)).median;
+    const b = stat(matchedBefore.map(t.pick)).median;
+    const a = stat(matchedAfter.map(t.pick)).median;
     const d = Number((a - b).toFixed(2));
-    // A metric with no better direction gets no verdict. Fewer screens is not
-    // automatically worse, and neither is a deeper tree.
     const mark = t.better === "none" || d === 0 ? "" : (t.better === "low") === d < 0 ? "  better" : "  worse";
     const sign = d > 0 ? `+${d}` : String(d);
     lines.push(`${pad(t.label, 18)}${padL(String(b), 9)}${padL(String(a), 9)}${padL(sign, 9)}${mark}`);
@@ -111,7 +167,14 @@ export function compare(after: RunRow[], before: RunRow[]): string {
 }
 
 function load(path: string): RunFile {
-  return JSON.parse(readFileSync(path, "utf8")) as RunFile;
+  const raw = JSON.parse(readFileSync(path, "utf8")) as LoadedRunFile;
+  return {
+    provider: raw.provider || "",
+    model: raw.model,
+    briefHash: raw.briefHash || "",
+    at: raw.at,
+    rows: raw.rows
+  };
 }
 
 if (import.meta.main) {
@@ -131,6 +194,6 @@ if (import.meta.main) {
     console.log("");
     console.log(`Against ${before.model} — ${before.at}`);
     console.log("");
-    console.log(compare(after.rows, before.rows));
+    console.log(compare(after, before));
   }
 }

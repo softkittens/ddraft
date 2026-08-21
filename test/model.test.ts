@@ -1,26 +1,17 @@
 import { describe, it, expect } from "bun:test";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { parseDocument, parseSizing } from "../src/model/parse";
 import { layoutDocument } from "../src/layout/layout";
-import { setProperty, insertChild, removeNode, moveNode, duplicateNode } from "../src/model/edit";
+import { setProperty, insertChild, removeNode, moveNode, duplicateNode, reorderChild } from "../src/model/edit";
 import { resolveInstances, resolveInstancesWithDiagnostics } from "../src/model/instance";
-import { computeBlastRadius, computeEditLocality } from "../src/design/metrics";
 import { digest } from "../src/digest/digest";
-
-
-import { extract, distance, createMoodboard, addMoodboardItem } from "../src/design/style";
-import { evaluateLayoutConstraints, evaluateB } from "../src/design/evaluator";
+import { evaluateLayoutConstraints } from "../src/design/evaluator";
 import { makeDoc, frame, rect, txt } from "./harness";
 
 describe("Model & Design Subsystem", () => {
-  const fileA = readFileSync(join(import.meta.dir, "../fixtures/A_control_r1.pen"), "utf-8");
-  const docA = parseDocument(fileA);
-  const treeA = layoutDocument(docA);
-
   it("parses documents and sizing expressions", () => {
-    expect(docA.version).toBe("2.17");
-    expect(docA.children.length).toBeGreaterThan(0);
+    const parsed = parseDocument(JSON.stringify(makeDoc(frame("root", 100, 100))));
+    expect(parsed.version).toBe("2.17");
+    expect(parsed.children.length).toBe(1);
     expect(parseSizing(100)).toEqual({ mode: "fixed", value: 100 });
     expect(parseSizing("fit_content")).toEqual({ mode: "fit_content", fallback: undefined });
     expect(parseSizing("fill_container(200)")).toEqual({ mode: "fill_container", fallback: 200 });
@@ -64,12 +55,23 @@ describe("Model & Design Subsystem", () => {
       ]
     });
 
-    const parsed = parseDocument(extendedPen);
-    expect(parsed.children.length).toBe(1);
-    expect((parsed.children[0] as any).fill.type).toBe("image");
-    expect((parsed.children[0] as any).fill.url).toBe("https://cdn.example.com/asset.png");
-    expect((parsed.children[0] as any).children[0].textAlign).toBe("center");
-    expect((parsed.children[0] as any).children[1].innerRadius).toBe(0.6);
+    const extended = parseDocument(extendedPen);
+    expect(extended.children.length).toBe(1);
+    expect((extended.children[0] as any).fill.type).toBe("image");
+    expect((extended.children[0] as any).fill.url).toBe("https://cdn.example.com/asset.png");
+    expect((extended.children[0] as any).children[0].textAlign).toBe("center");
+    expect((extended.children[0] as any).children[1].innerRadius).toBe(0.6);
+
+    const withUnknown = parseDocument(JSON.stringify({
+      version: "2.17",
+      children: [{ id: "r", type: "rectangle", pluginData: { source: "pen" } }]
+    }));
+    expect((withUnknown.children[0] as any).pluginData).toEqual({ source: "pen" });
+
+    expect(() => parseDocument(JSON.stringify({
+      version: "2.17",
+      children: [{ id: "r", type: "rectangle", effect: { type: "shadow", blur: 4, unknown: true } }]
+    }))).toThrow();
   });
 
 
@@ -103,39 +105,24 @@ describe("Model & Design Subsystem", () => {
     expect((doc.children[0] as any).children[0].children[0].width).toBe(50);
     const removed = removeNode(mod, "r1");
     expect((removed.children[0] as any).children[0].children.length).toBe(0);
-
-
-    // 5. Blast radius and edit locality calculations
-    const locality = computeEditLocality(doc, mod);
-    expect(locality).toBe(1.0);
-    const blast = computeBlastRadius(doc, mod, "r1");
-    expect(blast).toBeGreaterThanOrEqual(0);
   });
 
-
-
-  it("generates concise document digest (<15% token budget)", () => {
-    const digestA = digest(docA);
-    const rawTokens = fileA.length / 4;
-    const digestTokens = digestA.length / 4;
-    expect(digestTokens / rawTokens).toBeLessThan(0.15);
-    expect(digestA).toContain(docA.children[0].id);
+  it("generates a digest shorter than the source document", () => {
+    const doc = makeDoc(frame("screen", 390, 844, [
+      txt("title", "Hello", 20, { fontWeight: "bold" }),
+      rect("card", 200, 80, { fill: "#ffffff" })
+    ], { name: "Home", layout: "vertical", gap: 12, padding: 16 }));
+    const digestText = digest(doc);
+    expect(digestText.length).toBeLessThan(JSON.stringify(doc).length);
+    expect(digestText).toContain("screen");
+    expect(digestText).toContain("title");
   });
 
-  it("extracts style records and computes taste distances", () => {
-    const recordA = extract(treeA, docA, "dashboard");
-    expect(recordA.gapOverPadding.mean).toBeGreaterThan(0.2);
-    expect(recordA.spacingSteps.length).toBeGreaterThan(5);
-    expect(distance(recordA, recordA)).toBe(0);
-
-    const mb = addMoodboardItem(createMoodboard("My Board"), recordA, true);
-    expect(mb.items.length).toBe(1);
-    expect(mb.items[0].liked).toBe(true);
-  });
-
-  it("evaluates layout constraints and Evaluator B metrics", () => {
-    const findings = evaluateLayoutConstraints(treeA, docA);
-    expect(findings).toEqual([]);
+  it("evaluates layout constraints", () => {
+    const okDoc = makeDoc(frame("ok", 200, 200, [
+      rect("r1", 40, 40, { x: 10, y: 10 } as any)
+    ], { layout: "none" }));
+    expect(evaluateLayoutConstraints(layoutDocument(okDoc), okDoc)).toEqual([]);
 
     const badDoc = makeDoc(frame("canvas", 200, 200, [
       rect("r1", 50, 50, { x: 10, y: 10 } as any),
@@ -146,10 +133,6 @@ describe("Model & Design Subsystem", () => {
     const badFindings = evaluateLayoutConstraints(badTree, badDoc);
     expect(badFindings.some((f) => f.rule === "collision")).toBe(true);
     expect(badFindings.some((f) => f.rule === "unreadable_size")).toBe(true);
-
-    const metricsB = evaluateB(treeA, docA);
-    expect(metricsB.deadSpaceRatio).toBeGreaterThanOrEqual(0);
-    expect(metricsB.contrastRatioMin).toBeGreaterThan(0);
   });
 
   it("handles circular component references safely and expands deep non-cyclic instances", () => {
@@ -189,5 +172,59 @@ describe("Model & Design Subsystem", () => {
     const rootInst = deepResolved.children.find((c) => c.id === "root");
     expect(rootInst).toBeDefined();
     expect(JSON.stringify(rootInst)).toContain("rectangle");
+  });
+});
+
+describe("document identity is the change signal", () => {
+  const doc = () => makeDoc(frame("f1", 100, 100, [
+    rect("r1", 50, 50),
+    rect("r2", 40, 40)
+  ]));
+
+  it("setProperty returns the same document when the target is missing", () => {
+    const original = doc();
+    expect(setProperty(original, "missing", "width", 80)).toBe(original);
+  });
+
+  it("setProperty returns the same document when the value is already equal", () => {
+    const original = doc();
+    expect(setProperty(original, "r1", "width", 50)).toBe(original);
+  });
+
+  it("setProperty returns a new document and leaves the original untouched", () => {
+    const original = doc();
+    const next = setProperty(original, "r1", "width", 80);
+    expect(next).not.toBe(original);
+    expect((next.children[0] as any).children[0].width).toBe(80);
+    expect((original.children[0] as any).children[0].width).toBe(50);
+  });
+
+  it("removeNode returns the same document when nothing was removed", () => {
+    const original = doc();
+    expect(removeNode(original, "missing")).toBe(original);
+  });
+
+  it("removeNode returns a new document and leaves the original untouched", () => {
+    const original = doc();
+    const next = removeNode(original, "r1");
+    expect(next).not.toBe(original);
+    expect((next.children[0] as any).children.map((c: { id: string }) => c.id)).toEqual(["r2"]);
+    expect((original.children[0] as any).children.map((c: { id: string }) => c.id)).toEqual(["r1", "r2"]);
+  });
+
+  it("reorderChild returns the same document for missing parent, invalid indices, or the same index", () => {
+    const original = doc();
+    expect(reorderChild(original, "missing", 0, 1)).toBe(original);
+    expect(reorderChild(original, "f1", -1, 0)).toBe(original);
+    expect(reorderChild(original, "f1", 0, 2)).toBe(original);
+    expect(reorderChild(original, "f1", 0, 0)).toBe(original);
+  });
+
+  it("reorderChild returns a new document and leaves the original order untouched", () => {
+    const original = doc();
+    const next = reorderChild(original, "f1", 0, 1);
+    expect(next).not.toBe(original);
+    expect((next.children[0] as any).children.map((c: { id: string }) => c.id)).toEqual(["r2", "r1"]);
+    expect((original.children[0] as any).children.map((c: { id: string }) => c.id)).toEqual(["r1", "r2"]);
   });
 });

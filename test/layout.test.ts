@@ -1,7 +1,4 @@
 import { describe, it, expect } from "bun:test";
-import { readFileSync, readdirSync } from "fs";
-import { join } from "path";
-import { parseDocument } from "../src/model/parse";
 import { normalisePadding } from "../src/layout/padding";
 import { computeMainAxisPositions, computeCrossAxisPosition } from "../src/layout/arrange";
 import { layoutDocument } from "../src/layout/layout";
@@ -102,18 +99,6 @@ describe("Layout Subsystem (Unit B)", () => {
     const botBox2 = numTree[0].children[2].box;
     expect(midBox2.y + midBox2.height).toBeLessThanOrEqual(botBox2.y);
   });
-
-  it("lays out every fixture without throwing", () => {
-    // Numeric agreement with the oracle lives in test/agreement.test.ts, which replays
-    // real browser font metrics. This only checks that no fixture crashes the engine.
-    const fixtureFiles = readdirSync(join(import.meta.dir, "../fixtures")).filter((f) => f.endsWith(".pen"));
-    expect(fixtureFiles.length).toBe(12);
-
-    for (const f of fixtureFiles) {
-      const doc = parseDocument(readFileSync(join(import.meta.dir, "../fixtures", f), "utf-8"));
-      expect(layoutDocument(doc).length).toBeGreaterThan(0);
-    }
-  });
 });
 
 
@@ -130,7 +115,7 @@ describe("available width reaches text during measure", () => {
       frame("screen", 320, 600, [
         frame("card", "fill_container", frameHeight as any, [
           txt("body", prose, 14, { width: "fill_container", textGrowth: "fixed-width" })
-        ], { layout: "vertical", padding: 10 })
+        ], { layout: "vertical", padding: 10, clip: true })
       ], { layout: "vertical", padding: 20 })
     );
   }

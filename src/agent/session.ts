@@ -6,11 +6,23 @@ import { completeStream, assembleToolCalls } from "./stream";
 import { TOOL_DEFS, createDocumentTools } from "./tools";
 import { withSystemPrompt } from "./prompt";
 
+export type AgentErrorCode = "provider" | "invalid_response" | "budget" | "aborted";
+
 export type AgentEvent =
   | { type: "delta"; content: string }
   | { type: "tool"; name: string; result: string; doc?: Document }
   | { type: "done"; messages: Message[]; doc: Document }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; code: AgentErrorCode };
+
+export function isAbortError(err: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  return err instanceof Error && (err.name === "AbortError" || err.message === "aborted");
+}
+
+function classifyError(err: unknown): AgentErrorCode {
+  if (err instanceof SyntaxError) return "invalid_response";
+  return "provider";
+}
 
 export async function* runSession(
   provider: Provider,
@@ -74,6 +86,8 @@ export async function* runSession(
         if (delta.toolCallParts) partGroups.push(delta.toolCallParts);
       }
 
+      if (opts.signal?.aborted) break;
+
       const toolCalls = assembleToolCalls(partGroups).filter((c) => c.id || c.function.name);
       out.push({
         role: "assistant",
@@ -83,17 +97,13 @@ export async function* runSession(
 
       if (toolCalls.length === 0) {
         // The model thinks it is finished. Measure the document and hand back
-        // any blocker it left behind. This replaces an earlier loop that sent
-        // a rendered screenshot: the server has no font or image rasteriser,
-        // so that image was a stack of blank rectangles and the model was
-        // being asked to judge a picture of nothing. Numbers name the node.
+        // any blocker it left behind.
         const blockers = auditDocument(session.doc).filter(
           (f) => f.severity === "blocker"
         );
 
         // A document with nothing in it satisfies every rule, so a clean audit
-        // is not evidence on its own. Without this, a turn that produced no
-        // tool calls at all scores as a perfect run.
+        // is not evidence on its own.
         if (session.doc.children.length === 0 && corrections < MAX_CORRECTIONS && turn < maxTurns - 1) {
           corrections += 1;
           out.push({
@@ -126,7 +136,8 @@ export async function* runSession(
           });
           continue;
         }
-        break;
+        yield { type: "done", messages: sanitizeSessionMessages(out), doc: session.doc };
+        return;
       }
 
       const visionPreviews: { name: string; url: string }[] = [];
@@ -143,13 +154,14 @@ export async function* runSession(
           yield { type: "tool", name: call.function.name, result };
           continue;
         }
+        const before = session.doc;
         const result = await session.execute(call.function.name, parsed);
+        const changed = session.doc !== before;
         out.push({ role: "tool", content: result, tool_call_id: call.id });
-        yield { type: "tool", name: call.function.name, result, doc: session.doc };
+        yield { type: "tool", name: call.function.name, result, doc: changed ? session.doc : undefined };
 
         // The marker is followed by the url and then, usually, a digest. Take
-        // the url only — an earlier version took the rest of the message too,
-        // which produced an unfetchable url every time.
+        // the url only.
         const marker = /\[IMAGE_PREVIEW\]: (\S+)/.exec(typeof result === "string" ? result : "");
         const previewUrl = marker?.[1];
         if (previewUrl && /^(https?:|data:image\/)/.test(previewUrl)) {
@@ -158,8 +170,9 @@ export async function* runSession(
         }
       }
 
-      // Images produced by generate_image are real photographs, so showing them
-      // back is honest. Renders are not sent: see the note on the gate above.
+      if (opts.signal?.aborted) break;
+
+      // Images produced by generate_image are real photographs, so showing them back is honest.
       for (const prev of visionPreviews) {
         out.push({
           role: "user",
@@ -177,18 +190,28 @@ export async function* runSession(
       }
     }
   } catch (err) {
-    if (opts.signal?.aborted || (err instanceof Error && err.name === "AbortError")) {
-      yield { type: "done", messages: sanitizeSessionMessages(out), doc: session.doc };
+    if (isAbortError(err, opts.signal)) {
+      yield { type: "error", code: "aborted", message: err instanceof Error ? err.message : "aborted" };
       return;
     }
-    // An error ends the session. This used to fall through to the `done` below,
-    // so a run that never reached the provider still reported as finished with
-    // an untouched document, and every caller believed it.
-    yield { type: "error", message: err instanceof Error ? err.message : String(err) };
+    yield {
+      type: "error",
+      code: classifyError(err),
+      message: err instanceof Error ? err.message : String(err)
+    };
     return;
   }
 
-  yield { type: "done", messages: sanitizeSessionMessages(out), doc: session.doc };
+  if (opts.signal?.aborted) {
+    yield { type: "error", code: "aborted", message: "aborted" };
+    return;
+  }
+
+  yield {
+    type: "error",
+    code: "budget",
+    message: `Turn budget exceeded (${maxTurns} turns reached without model completion)`
+  };
 }
 
 function sanitizeSessionMessages(msgs: Message[]): Message[] {

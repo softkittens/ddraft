@@ -30,6 +30,7 @@ export interface ImageFill {
   type: "image";
   url?: string;
   src?: string;
+  data?: string;
   mode?: "fill" | "fit" | "tile" | "stretch" | "crop" | string;
   enabled?: boolean;
   opacity?: number;
@@ -44,24 +45,22 @@ export type Fill =
   | Record<string, any>;
 
 export interface ShadowEffect {
-  type: "shadow" | "inner_shadow" | string;
+  type: "shadow" | "inner_shadow";
   color?: string;
   x?: number;
   y?: number;
   blur?: number;
   spread?: number;
   enabled?: boolean;
-  [key: string]: any;
 }
 
 export interface BlurEffect {
-  type: "blur" | "background_blur" | string;
+  type: "blur" | "background_blur";
   radius?: number;
   enabled?: boolean;
-  [key: string]: any;
 }
 
-export type Effect = ShadowEffect | BlurEffect | { type: string; enabled?: boolean; [key: string]: any };
+export type Effect = ShadowEffect | BlurEffect;
 
 export interface BaseNode {
   id: string;
@@ -84,7 +83,6 @@ export interface BaseNode {
   reusable?: boolean;
   enabled?: boolean;
   effect?: Effect | Effect[];
-  effects?: Effect[];
   metadata?: Record<string, any>;
   [key: string]: any;
 }
@@ -131,6 +129,7 @@ export interface IconNode extends BaseNode {
   type: "icon";
   icon?: string;
   library?: string;
+  geometry?: string;
   stroke?: string;
   strokeWidth?: number;
   fill?: Fill | Fill[] | string;

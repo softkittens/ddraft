@@ -38,10 +38,13 @@ export type FetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<
 export interface CompleteOptions {
   fetch?: FetchFn;
   signal?: AbortSignal;
+  /** Keep image_url parts even when the provider is not classified as vision-capable. */
+  keepImages?: boolean;
 }
 
-export function toApiMessages(messages: Message[], p?: Provider) {
-  const isVisionCapable = p?.id === "openai" || p?.model?.includes("gpt-4o") || p?.model?.includes("vl");
+export function toApiMessages(messages: Message[], p?: Provider, keepImages = false) {
+  const isVisionCapable =
+    keepImages || p?.id === "openai" || p?.model?.includes("gpt-4o") || p?.model?.includes("vl");
   return messages.map((m) => {
     let content = m.content;
     if (Array.isArray(content) && !isVisionCapable) {
@@ -66,7 +69,7 @@ export async function complete(
   const fetchImpl = opts.fetch ?? fetch;
   const body: Record<string, unknown> = {
     model: p.model,
-    messages: toApiMessages(messages, p),
+    messages: toApiMessages(messages, p, opts.keepImages),
     ...(p.reasoningEffort ? { reasoning_effort: p.reasoningEffort } : {})
   };
   if (tools && tools.length > 0) {

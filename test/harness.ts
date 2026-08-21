@@ -204,7 +204,7 @@ export class EditorDriver {
         ? { ...this.dragSession, nodeId: this.activeDuplicateId }
         : this.dragSession;
 
-      handleDragMove(this.doc, active, world, this.layoutTree);
+      handleDragMove(this.doc, active, world, this.layoutTree, this.nodeMap);
     } else {
       const hit = hitTestScene(this.layoutTree, world);
       this.hoveredId = hit ? hit.id : null;

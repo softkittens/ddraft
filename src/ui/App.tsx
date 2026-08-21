@@ -101,7 +101,9 @@ export const App: Component = () => {
           <InspectorPanel />
         </Show>
 
-        <PerfHUD />
+        <Show when={typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1"}>
+          <PerfHUD />
+        </Show>
       </div>
     </div>
   );

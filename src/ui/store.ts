@@ -1,19 +1,17 @@
-import { createSignal, createMemo } from "solid-js";
+import { createSignal, createMemo, createRoot } from "solid-js";
 import type { Document } from "../model/types";
-import { parseDocument } from "../model/parse";
 import { createHistory, pushDocument, undo as undoDoc, redo as redoDoc, type HistoryState } from "../model/history";
 import { removeNode } from "../model/edit";
 import { layoutResolvedDocument } from "../layout/layout";
 import { resolveInstances } from "../model/instance";
 import { createCamera, zoomAtScreenPoint, type Camera } from "../interaction/camera";
 import { indexDocument } from "../model/tree";
-import { DEFAULT_FIXTURE_KEY, DEFAULT_FIXTURE_RAW, fetchFixtureRaw } from "./fixtures";
+import { createDefaultDocument } from "../model/defaultDocument";
 
 export type ToolMode = "select" | "frame" | "rect" | "text";
 
-const initialDoc = parseDocument(DEFAULT_FIXTURE_RAW);
+const initialDoc = createDefaultDocument();
 
-export const [selectedFixture, setSelectedFixture] = createSignal<string>(DEFAULT_FIXTURE_KEY);
 export const [doc, setDocState] = createSignal<Document>(initialDoc);
 export const [historyState, setHistoryState] = createSignal<HistoryState>(createHistory(initialDoc));
 export const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set<string>());
@@ -27,21 +25,15 @@ export const [inspectorVisible, setInspectorVisible] = createSignal<boolean>(tru
 export const [chatVisible, setChatVisible] = createSignal<boolean>(true);
 export const [chatExpanded, setChatExpanded] = createSignal<boolean>(true);
 
-export async function loadFixture(key: string) {
-  setSelectedFixture(key);
-  const raw = await fetchFixtureRaw(key);
-  const parsed = parseDocument(raw);
-  setDocState(parsed);
-  setHistoryState(createHistory(parsed));
-  setSelectedIds(new Set<string>());
-  setCamera(createCamera(40, 40, 1));
-}
-
-export const resolvedDoc = createMemo(() => resolveInstances(doc()));
-export const nodeMap = createMemo(() => indexDocument(resolvedDoc()));
-export const layoutTree = createMemo(() => layoutResolvedDocument(resolvedDoc()));
+export const { resolvedDoc, nodeMap, layoutTree } = createRoot(() => {
+  const resolvedDoc = createMemo(() => resolveInstances(doc()));
+  const nodeMap = createMemo(() => indexDocument(resolvedDoc()));
+  const layoutTree = createMemo(() => layoutResolvedDocument(resolvedDoc()));
+  return { resolvedDoc, nodeMap, layoutTree };
+});
 
 export function updateDoc(newDoc: Document) {
+  if (newDoc === doc()) return;
   setDocState(newDoc);
   setHistoryState((prev) => pushDocument(prev, newDoc));
 }
@@ -99,19 +91,26 @@ export function deleteSelectedNodes() {
   const ids = selectedIds();
   if (ids.size === 0) return;
   let nextDoc = doc();
-  for (const id of ids) {
-    nextDoc = removeNode(nextDoc, id);
+  for (const rawId of ids) {
+    const targetId = rawId.includes(":") ? rawId.split(":")[0] : rawId;
+    nextDoc = removeNode(nextDoc, targetId);
   }
   setSelectedIds(new Set<string>());
-  updateDoc(nextDoc);
+  if (nextDoc !== doc()) {
+    updateDoc(nextDoc);
+  }
 }
 
-export function deleteNodeById(id: string) {
-  const nextDoc = removeNode(doc(), id);
+export function deleteNodeById(rawId: string) {
+  const targetId = rawId.includes(":") ? rawId.split(":")[0] : rawId;
+  const nextDoc = removeNode(doc(), targetId);
   setSelectedIds((prev) => {
     const next = new Set(prev);
-    next.delete(id);
+    next.delete(rawId);
+    next.delete(targetId);
     return next;
   });
-  updateDoc(nextDoc);
+  if (nextDoc !== doc()) {
+    updateDoc(nextDoc);
+  }
 }

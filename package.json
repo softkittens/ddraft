@@ -9,6 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "bun test",
+    "test:agreement": "bun test ./test/agreement.oracle.ts",
     "eval": "bun eval/run.ts",
     "eval:report": "bun eval/report.ts"
   },

@@ -247,20 +247,20 @@ export const ELEVATION: ElevationPreset[] = [
   {
     name: "Soft Lift",
     mood: "Barely there. A card feels placed rather than floating.",
-    sm: `effect: { type: 'shadow', shadowType: 'outer', color: '#0000000F', offset: { x: 0, y: 1 }, blur: 2 }`,
-    lg: `effect: [{ type: 'shadow', shadowType: 'outer', color: '#00000008', offset: { x: 0, y: 1 }, blur: 3 }, { type: 'shadow', shadowType: 'outer', color: '#0000000A', offset: { x: 0, y: 8 }, blur: 24 }]`
+    sm: `effect: { type: 'shadow', color: '#0000000F', x: 0, y: 1, blur: 2, spread: 0, enabled: true }`,
+    lg: `effect: [{ type: 'shadow', color: '#00000008', x: 0, y: 1, blur: 3, spread: 0, enabled: true }, { type: 'shadow', color: '#0000000A', x: 0, y: 8, blur: 24, spread: 0, enabled: true }]`
   },
   {
     name: "Sharp Depth",
     mood: "Tight, dark, close shadow. Crisp and deliberate.",
-    sm: `effect: { type: 'shadow', shadowType: 'outer', color: '#00000029', offset: { x: 0, y: 1 }, blur: 2 }`,
-    lg: `effect: { type: 'shadow', shadowType: 'outer', color: '#00000033', offset: { x: 0, y: 4 }, blur: 8 }`
+    sm: `effect: { type: 'shadow', color: '#00000029', x: 0, y: 1, blur: 2, spread: 0, enabled: true }`,
+    lg: `effect: { type: 'shadow', color: '#00000033', x: 0, y: 4, blur: 8, spread: 0, enabled: true }`
   },
   {
     name: "Soft Cloud",
     mood: "Wide, diffuse, weightless. Things hover.",
-    sm: `effect: { type: 'shadow', shadowType: 'outer', color: '#00000014', offset: { x: 0, y: 2 }, blur: 8 }`,
-    lg: `effect: { type: 'shadow', shadowType: 'outer', color: '#0000001F', offset: { x: 0, y: 16 }, blur: 40 }`
+    sm: `effect: { type: 'shadow', color: '#00000014', x: 0, y: 2, blur: 8, spread: 0, enabled: true }`,
+    lg: `effect: { type: 'shadow', color: '#0000001F', x: 0, y: 16, blur: 40, spread: 0, enabled: true }`
   }
 ];
 

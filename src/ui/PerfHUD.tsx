@@ -72,12 +72,6 @@ export const PerfHUD: Component = () => {
               </span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-neutral-500">Layout Engine:</span>
-              <span class="font-bold text-neutral-800">
-                {(latestSample()?.layoutTime || 0).toFixed(2)} ms
-              </span>
-            </div>
-            <div class="flex items-center justify-between">
               <span class="text-neutral-500">Drag Move Latency:</span>
               <span class="font-bold text-neutral-800">
                 {(latestSample()?.dragTime || 0).toFixed(2)} ms

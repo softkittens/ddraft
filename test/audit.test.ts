@@ -11,8 +11,10 @@ import {
   styleGuidelines,
   StyleChoiceError,
   STYLE_METADATA_KEY,
-  FONT_FAMILIES
+  FONT_FAMILIES,
+  ELEVATION
 } from "../src/design/styleSystem";
+import { effectSchema } from "../src/model/parse";
 import { agentSystemPrompt } from "../src/agent/prompt";
 import { createDocumentTools } from "../src/agent/tools";
 import type { Document } from "../src/model/types";
@@ -69,7 +71,8 @@ describe("Design audit — every rule must be able to fail", () => {
     // does not fit inside it.
     const doc = makeDoc(
       frame("card", 200, 40, [txt("bio", "A line of copy that is far too long for this box", 14)], {
-        layout: "vertical"
+        layout: "vertical",
+        clip: true
       })
     );
     const found = audit(doc).find((f) => f.rule === "clipped");
@@ -77,6 +80,53 @@ describe("Design audit — every rule must be able to fail", () => {
     expect(found!.nodeId).toBe("bio");
     expect(found!.message).toMatch(/\d+px past the (right|bottom) edge/);
     expect(found!.message).toContain("clipped");
+  });
+
+  it("clipped: does not fire when the parent is unclipped", () => {
+    const doc = makeDoc(
+      frame("card", 200, 40, [txt("bio", "A line of copy that is far too long for this box", 14)], {
+        layout: "vertical",
+        clip: false
+      })
+    );
+    expect(audit(doc).some((f) => f.rule === "clipped")).toBe(false);
+  });
+
+  it("clipped: ignores a disabled overflowing child", () => {
+    const doc = makeDoc(
+      frame("card", 80, 80, [rect("r", 200, 200, { enabled: false })], { layout: "none", clip: true })
+    );
+    expect(audit(doc).some((f) => f.rule === "clipped")).toBe(false);
+  });
+
+  it("collision: ignores a disabled sibling", () => {
+    const doc = makeDoc(
+      frame("canvas", 200, 200, [
+        rect("a", 50, 50, { x: 10, y: 10, enabled: false }),
+        rect("b", 50, 50, { x: 20, y: 20 })
+      ], { layout: "none" })
+    );
+    expect(audit(doc).some((f) => f.rule === "collision")).toBe(false);
+  });
+
+  it("collision: ignores collisions inside a disabled frame", () => {
+    const doc = makeDoc(
+      frame("hidden", 200, 200, [
+        rect("a", 50, 50, { x: 10, y: 10 }),
+        rect("b", 50, 50, { x: 20, y: 20 })
+      ], { layout: "none", enabled: false })
+    );
+    expect(audit(doc).some((f) => f.rule === "collision")).toBe(false);
+  });
+
+  it("collision: exempts explicit absolute overlap", () => {
+    const doc = makeDoc(
+      frame("canvas", 200, 200, [
+        rect("a", 50, 50, { x: 10, y: 10 }),
+        rect("b", 50, 50, { x: 20, y: 20, layoutPosition: "absolute" })
+      ], { layout: "none" })
+    );
+    expect(audit(doc).some((f) => f.rule === "collision")).toBe(false);
   });
 
   it("text_clipped: catches a sentence that never wraps", () => {
@@ -322,7 +372,8 @@ describe("Design audit — scoping", () => {
   const doc = makeDoc(
     frame("screen", 390, 600, [
       frame("card", 200, 40, [txt("bio", "A line of copy that is far too long for this box", 14)], {
-        layout: "vertical"
+        layout: "vertical",
+        clip: true
       })
     ])
   );
@@ -336,10 +387,12 @@ describe("Design audit — scoping", () => {
   it("excludes nodes outside the scope", () => {
     const two = makeDoc(
       frame("a", 200, 40, [txt("t1", "A line of copy that is far too long for this box", 14)], {
-        layout: "vertical"
+        layout: "vertical",
+        clip: true
       }),
       frame("b", 200, 40, [txt("t2", "A line of copy that is far too long for this box", 14)], {
-        layout: "vertical"
+        layout: "vertical",
+        clip: true
       })
     );
     expect(audit(two, "a").map((f) => f.nodeId)).not.toContain("t2");
@@ -492,6 +545,29 @@ describe("Style system", () => {
     });
     expect(result).toStartWith("error:");
     expect(result).toContain("Carbon Frost");
+  });
+
+  it("parses every elevation effect example into painter-facing shadow fields", () => {
+    for (const preset of ELEVATION) {
+      for (const raw of [preset.sm, preset.lg]) {
+        if (raw.startsWith("no shadow")) continue;
+        const body = raw.replace(/^effect:\s*/, "");
+        const value = Function(`"use strict"; return (${body})`)();
+        const list = (Array.isArray(value) ? value : [value]).map((item) => effectSchema.parse(item));
+        for (const eff of list) {
+          expect(eff).toEqual(expect.objectContaining({
+            type: "shadow",
+            color: expect.any(String),
+            x: expect.any(Number),
+            y: expect.any(Number),
+            blur: expect.any(Number),
+            spread: expect.any(Number),
+            enabled: true
+          }));
+          expect(eff).not.toHaveProperty("offset");
+        }
+      }
+    }
   });
 });
 

@@ -1,4 +1,4 @@
-import { Component, For } from "solid-js";
+import { Component } from "solid-js";
 import {
   MousePointer,
   Square,
@@ -28,12 +28,8 @@ import {
   setInspectorVisible,
   chatVisible,
   setChatVisible,
-  updateDoc,
-  selectedFixture,
-  loadFixture
+  updateDoc
 } from "./store";
-
-import { FIXTURE_LABELS } from "./fixtures";
 
 import { parseDocument } from "../model/parse";
 
@@ -75,20 +71,6 @@ export const Toolbar: Component = () => {
           <FolderOpen size={14} />
           <span>Open</span>
         </button>
-
-        <select
-          value={selectedFixture()}
-          onChange={(e) => loadFixture(e.currentTarget.value)}
-          class="h-7 px-2 text-xs font-medium text-neutral-700 bg-neutral-100 hover:bg-neutral-200/80 border border-neutral-200 rounded-md outline-none cursor-pointer transition"
-          title="Load curriculum fixture"
-        >
-          <For each={Object.entries(FIXTURE_LABELS)}>
-            {([key, label]) => (
-              <option value={key}>{label}</option>
-            )}
-          </For>
-        </select>
-
 
         <div class="h-4 w-px bg-neutral-200 mx-1.5" />
 

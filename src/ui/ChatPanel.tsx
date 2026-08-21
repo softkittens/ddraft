@@ -29,9 +29,15 @@ import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../intera
 import type { Message, MessageContent } from "../agent/provider";
 import { parseSseData } from "../agent/stream";
 import type { AgentEvent } from "../agent/session";
+import { decideAgentDocument } from "./agentDocument";
 import type { PublicProvider } from "../agent/credentials";
 import type { Document } from "../model/types";
 import { ModelSelector, parseChoice, choiceValue } from "./ModelSelector";
+import { DesignReviewCard } from "./DesignReviewCard";
+import { captureDocumentPng } from "../render/capture";
+import { applyReviewMessage, type DesignReview } from "../agent/review";
+import { digest } from "../digest/digest";
+import { EXAMPLE_PROMPTS } from "./examplePrompts";
 
 const SETUP =
   "No provider key found. Add OPENAI_API_KEY, OPENCODE_GO_API_KEY, or DASHSCOPE_API_KEY to your .env file and restart. Keys stay on your local agent server.";
@@ -50,6 +56,17 @@ function toolLabel(messages: Message[], index: number): string {
   return id.startsWith("call_") || id.startsWith("chatcmpl") ? "tool" : id;
 }
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
+type ReviewUi =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "reviewing"; doc: Document }
+  | { status: "ready"; review: DesignReview; doc: Document }
+  | { status: "failed" };
+
 export const ChatPanel: Component = () => {
   const [configured, setConfigured] = createSignal(false);
   const [providers, setProviders] = createSignal<PublicProvider[]>([]);
@@ -61,6 +78,8 @@ export const ChatPanel: Component = () => {
   const [streamText, setStreamText] = createSignal("");
   const [expandedTools, setExpandedTools] = createSignal<Set<number>>(new Set());
   const [previewModalImg, setPreviewModalImg] = createSignal<string | null>(null);
+  const [reviewUi, setReviewUi] = createSignal<ReviewUi>({ status: "idle" });
+  const [lastBrief, setLastBrief] = createSignal("");
 
   function renderMessageText(content: MessageContent | unknown): string {
     if (typeof content === "string") return content;
@@ -96,6 +115,8 @@ export const ChatPanel: Component = () => {
   };
 
   let abort: AbortController | null = null;
+  let reviewAbort: AbortController | null = null;
+  let reviewSeq = 0;
   let messagesContainerRef: HTMLDivElement | undefined;
 
   const activeContextName = createMemo(() => {
@@ -146,19 +167,46 @@ export const ChatPanel: Component = () => {
   onMount(() => {
     void refreshStatus();
   });
-  onCleanup(() => abort?.abort());
+  onCleanup(() => {
+    abort?.abort();
+    reviewAbort?.abort();
+  });
 
-  async function send() {
-    const text = inputPrompt().trim();
+  async function sendText(text: string, recordBrief: boolean) {
     if (!text || !configured() || running()) return;
     setChatExpanded(true);
     const next: Message[] = [...messages(), { role: "user", content: text }];
     setMessages(next);
+    if (recordBrief) setLastBrief(text);
     setInputPrompt("");
     setStreamText("");
     setRunning(true);
+    setReviewUi({ status: "idle" });
+    reviewAbort?.abort();
+    reviewSeq += 1;
     abort = new AbortController();
     const selected = parseChoice(choice());
+    let expectedDoc = doc();
+    let finished = false;
+
+    const applyIncoming = (incoming: Document | undefined): boolean => {
+      const decision = decideAgentDocument(doc(), expectedDoc, incoming);
+      if (decision.action === "abort") {
+        abort?.abort();
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: "The canvas changed, so the agent stopped before overwriting it." }
+        ]);
+        return false;
+      }
+      if (decision.action === "accept") {
+        expectedDoc = decision.expected;
+        const oldPositions = snapshotPositions(layoutTree());
+        updateDoc(decision.expected);
+        trackLayoutTransitionsFromSnapshot(oldPositions, layoutTree(), 320);
+      }
+      return true;
+    };
 
     try {
       const res = await fetch("/agent/run", {
@@ -166,7 +214,7 @@ export const ChatPanel: Component = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: next,
-          doc: doc(),
+          doc: expectedDoc,
           selection: Array.from(selectedIds()),
           providerId: selected?.providerId,
           model: selected?.model,
@@ -202,21 +250,11 @@ export const ChatPanel: Component = () => {
             setStreamText("");
             assembled = "";
             setMessages((prev) => [...prev, { role: "tool", content: event.result, tool_call_id: event.name }]);
-            if (event.doc) {
-              const oldPositions = snapshotPositions(layoutTree());
-              updateDoc(event.doc as Document);
-              trackLayoutTransitionsFromSnapshot(oldPositions, layoutTree(), 320);
-            }
+            if (!applyIncoming(event.doc)) return;
             break;
           case "done":
             setStreamText("");
             setMessages(event.messages.filter((m) => m.role !== "system"));
-            if (event.doc) {
-              const oldPositions = snapshotPositions(layoutTree());
-              updateDoc(event.doc as Document);
-              trackLayoutTransitionsFromSnapshot(oldPositions, layoutTree(), 320);
-            }
-            // Sanitize selection if any selected nodes were deleted or mutated
             setSelectedIds((prev) => {
               const nextSel = new Set<string>();
               const valid = nodeMap();
@@ -225,6 +263,7 @@ export const ChatPanel: Component = () => {
               }
               return nextSel;
             });
+            finished = true;
             break;
           case "error":
             setMessages((prev) => [...prev, { role: "assistant", content: event.message }]);
@@ -236,13 +275,81 @@ export const ChatPanel: Component = () => {
         }
       }
     } catch (err) {
-      if (err instanceof Error && err.name !== "AbortError") {
-        setMessages((prev) => [...prev, { role: "assistant", content: err.message }]);
+      if (!isAbortError(err)) {
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          content: err instanceof Error ? err.message : String(err)
+        }]);
       }
     } finally {
       setRunning(false);
       abort = null;
     }
+
+    if (finished && doc().children.length > 0) {
+      await runReview();
+    }
+  }
+
+  async function runReview() {
+    const selected = parseChoice(choice());
+    reviewAbort?.abort();
+    reviewAbort = new AbortController();
+    const seq = ++reviewSeq;
+    const signal = reviewAbort.signal;
+    setReviewUi({ status: "checking" });
+    const captured = doc();
+    const capture = await captureDocumentPng(captured);
+    if (seq !== reviewSeq) return;
+    if (doc() !== captured) {
+      setReviewUi({ status: "idle" });
+      return;
+    }
+    if (!capture.ok) {
+      setReviewUi({ status: "failed" });
+      return;
+    }
+    setReviewUi({ status: "reviewing", doc: captured });
+    try {
+      const res = await fetch("/agent/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerId: selected?.providerId,
+          model: selected?.model,
+          brief: lastBrief(),
+          screenshot: capture.dataUrl,
+          digest: digest(captured)
+        }),
+        signal
+      });
+      if (seq !== reviewSeq) return;
+      if (!res.ok) {
+        setReviewUi({ status: "failed" });
+        return;
+      }
+      const body = (await res.json()) as DesignReview;
+      if (seq !== reviewSeq) return;
+      if (doc() !== captured) {
+        setReviewUi({ status: "idle" });
+        return;
+      }
+      setReviewUi({ status: "ready", review: body, doc: captured });
+    } catch (err) {
+      if (isAbortError(err)) return;
+      if (seq !== reviewSeq) return;
+      setReviewUi({ status: "failed" });
+    }
+  }
+
+  async function send() {
+    await sendText(inputPrompt().trim(), true);
+  }
+
+  async function applyReview() {
+    const ui = reviewUi();
+    if (ui.status !== "ready" || ui.review.verdict !== "refine" || doc() !== ui.doc) return;
+    await sendText(applyReviewMessage(lastBrief(), ui.review), false);
   }
 
   return (
@@ -309,14 +416,28 @@ export const ChatPanel: Component = () => {
               </div>
             </Show>
 
-            <Show when={configured() && messages().length === 0}>
-              <div class="h-full flex flex-col items-center justify-center text-center p-6 text-neutral-400">
+            <Show when={configured() && messages().length === 0 && doc().children.length === 0}>
+              <div class="flex flex-col items-center text-center p-4 text-neutral-400">
                 <div class="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-500 mb-3 shadow-xs">
                   <Bot size={20} />
                 </div>
-                <div class="font-medium text-neutral-700 text-xs mb-1">Canvas AI Assistant</div>
-                <div class="text-[11px] text-neutral-400 max-w-[200px] leading-relaxed">
-                  Ask to modify layout, adjust colors, align components, or inspect constraints.
+                <div class="font-medium text-neutral-700 text-xs mb-1">Start from a brief</div>
+                <div class="text-[11px] text-neutral-400 max-w-[220px] leading-relaxed mb-3">
+                  Pick a goal. Clicking fills the input; it does not send.
+                </div>
+                <div class="w-full space-y-1.5">
+                  <For each={EXAMPLE_PROMPTS}>
+                    {(example) => (
+                      <button
+                        type="button"
+                        class="w-full text-left rounded-lg border border-neutral-200 bg-white px-2.5 py-2 hover:border-blue-300 hover:bg-blue-50/40 transition"
+                        onClick={() => setInputPrompt(example.text)}
+                      >
+                        <div class="text-[11px] font-medium text-neutral-700">{example.title}</div>
+                        <div class="text-[10px] text-neutral-500 leading-relaxed mt-0.5">{example.text}</div>
+                      </button>
+                    )}
+                  </For>
                 </div>
               </div>
             </Show>
@@ -437,6 +558,30 @@ export const ChatPanel: Component = () => {
                 </div>
               )}
             </For>
+
+            <Show when={reviewUi().status === "checking" || reviewUi().status === "reviewing"}>
+              <div class="mr-auto text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-2.5 py-1.5">
+                {reviewUi().status === "checking" ? "Checking layout…" : "Reviewing design…"}
+              </div>
+            </Show>
+            <Show when={reviewUi().status === "failed"}>
+              <div class="mr-auto max-w-[96%] text-[11px] text-neutral-700 bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-2 space-y-1.5">
+                <div>Visual review could not run. The design is unchanged.</div>
+                <button
+                  type="button"
+                  class="rounded-md bg-neutral-800 text-white text-[11px] font-medium px-2.5 py-1"
+                  onClick={() => void runReview()}
+                >
+                  Retry
+                </button>
+              </div>
+            </Show>
+            <Show when={(() => {
+              const ui = reviewUi();
+              return ui.status === "ready" && ui.doc === doc() ? ui.review : undefined;
+            })()}>
+              {(review) => <DesignReviewCard review={review()} onApply={applyReview} />}
+            </Show>
 
             {/* Live Streaming Bubble */}
             <Show when={streamText()}>

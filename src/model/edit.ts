@@ -22,14 +22,18 @@ function removeFromList(list: PenNode[], id: string): PenNode | null {
 }
 
 export function setProperty(doc: Document, id: string, key: string, value: unknown): Document {
+  const target = findNode(doc.children, id);
+  if (!target) return doc;
+  if (Object.is((target as Record<string, unknown>)[key], value)) return doc;
+
   const newDoc = cloneDocument(doc);
-  const target = findNode(newDoc.children, id);
-  if (!target) return newDoc;
+  const cloned = findNode(newDoc.children, id);
+  if (!cloned) return doc;
 
   if (value === undefined) {
-    delete (target as Record<string, unknown>)[key];
+    delete (cloned as Record<string, unknown>)[key];
   } else {
-    (target as Record<string, unknown>)[key] = value;
+    (cloned as Record<string, unknown>)[key] = value;
   }
   return newDoc;
 }
@@ -73,6 +77,7 @@ export function insertChild(
 }
 
 export function removeNode(doc: Document, id: string): Document {
+  if (!findNode(doc.children, id)) return doc;
   const newDoc = cloneDocument(doc);
   removeFromList(newDoc.children, id);
   return newDoc;
@@ -144,17 +149,21 @@ export function duplicateNode(doc: Document, id: string): { doc: Document; newId
 }
 
 export function reorderChild(doc: Document, parentId: string, from: number, to: number): Document {
-  const newDoc = cloneDocument(doc);
-  const parent = findNode(newDoc.children, parentId);
-  if (!parent) return newDoc;
+  const parent = findNode(doc.children, parentId);
+  if (!parent) return doc;
 
   const children = childrenOf(parent);
   if (from < 0 || from >= children.length || to < 0 || to >= children.length || from === to) {
-    return newDoc;
+    return doc;
   }
 
-  const [moved] = children.splice(from, 1);
-  if (!moved) return newDoc;
-  children.splice(to, 0, moved);
+  const newDoc = cloneDocument(doc);
+  const cloned = findNode(newDoc.children, parentId);
+  if (!cloned) return doc;
+
+  const list = childrenOf(cloned);
+  const [moved] = list.splice(from, 1);
+  if (!moved) return doc;
+  list.splice(to, 0, moved);
   return newDoc;
 }

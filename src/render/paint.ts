@@ -19,6 +19,11 @@ import { getLucideIconPath } from "../model/icons";
 import { getSpawnAnimation } from "../interaction/animate";
 
 const imageCache = new Map<string, HTMLImageElement>();
+let imageInvalidator: (() => void) | null = null;
+
+export function setImageInvalidator(cb: (() => void) | null): void {
+  imageInvalidator = cb;
+}
 
 export function getCachedImage(url: string): HTMLImageElement | null {
   if (typeof Image === "undefined" || !url) return null;
@@ -26,10 +31,31 @@ export function getCachedImage(url: string): HTMLImageElement | null {
   if (!img) {
     img = new Image();
     img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (imageInvalidator) imageInvalidator();
+    };
     img.src = url;
     imageCache.set(url, img);
   }
   return img.complete && img.naturalWidth > 0 ? img : null;
+}
+
+export function preloadCachedImage(url: string, timeoutMs: number): Promise<void> {
+  if (typeof Image === "undefined" || !url) return Promise.resolve();
+  getCachedImage(url);
+  const img = imageCache.get(url);
+  if (!img) return Promise.resolve();
+  if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    const finish = () => resolve();
+    const timer = setTimeout(finish, timeoutMs);
+    const done = () => {
+      clearTimeout(timer);
+      finish();
+    };
+    img.addEventListener("load", done, { once: true });
+    img.addEventListener("error", done, { once: true });
+  });
 }
 
 export type { Fill, ColorStop, Effect, ShadowEffect, BlurEffect };
@@ -175,16 +201,23 @@ export function applyEffects(
   const list = Array.isArray(effects) ? effects : [effects];
   for (const eff of list) {
     if (!eff || eff.enabled === false) continue;
-    if (eff.type === "shadow" || eff.type === "inner_shadow") {
-      const shadow = eff as ShadowEffect;
-      ctx.shadowColor = resolveVariable(shadow.color, variables) || "rgba(0,0,0,0.25)";
-      ctx.shadowBlur = shadow.blur || 0;
-      ctx.shadowOffsetX = shadow.x || 0;
-      ctx.shadowOffsetY = shadow.y || 0;
-    } else if (eff.type === "blur" || eff.type === "background_blur") {
-      const blur = eff as BlurEffect;
-      if (blur.radius) {
-        ctx.filter = `blur(${blur.radius}px)`;
+    switch (eff.type) {
+      case "shadow":
+      case "inner_shadow": {
+        ctx.shadowColor = resolveVariable(eff.color, variables) || "rgba(0,0,0,0.25)";
+        ctx.shadowBlur = eff.blur || 0;
+        ctx.shadowOffsetX = eff.x || 0;
+        ctx.shadowOffsetY = eff.y || 0;
+        break;
+      }
+      case "blur":
+      case "background_blur": {
+        if (eff.radius) ctx.filter = `blur(${eff.radius}px)`;
+        break;
+      }
+      default: {
+        const _never: never = eff;
+        void _never;
       }
     }
   }
@@ -231,7 +264,7 @@ export function drawShape(
 ): void {
   const { box } = layoutNode;
   const fillStyle = resolveFill(ctx, data?.fill, box, variables);
-  if (data?.effects) applyEffects(ctx, data.effects, variables);
+  if (data?.effect) applyEffects(ctx, data.effect, variables);
 
   ctx.beginPath();
   switch (layoutNode.type) {
@@ -339,7 +372,7 @@ export function drawShape(
     case "icon": {
       const iconNode = data as IconNode;
       const iconName = iconNode?.icon || iconNode?.name || "sparkles";
-      const geom = getLucideIconPath(iconName) || ICON_PATH;
+      const geom = iconNode?.geometry || getLucideIconPath(iconName) || ICON_PATH;
       if (typeof Path2D !== "undefined") {
         const path2d = new Path2D(geom);
         ctx.save();
@@ -403,7 +436,13 @@ export function drawShape(
     }
   }
 
-  if (data?.effects) clearEffects(ctx);
+  if (data?.effect) clearEffects(ctx);
+}
+
+export interface PaintNodeOptions {
+  skipNodeId?: string;
+  animatedPositions?: Map<string, { x: number; y: number }>;
+  animate?: boolean;
 }
 
 export function paintNode(
@@ -411,9 +450,9 @@ export function paintNode(
   layoutNode: LayoutNode,
   nodeMap: Map<string, PenNode>,
   variables?: Record<string, any>,
-  skipNodeId?: string,
-  animatedPositions?: Map<string, { x: number; y: number }>
+  options: PaintNodeOptions = {}
 ): void {
+  const { skipNodeId, animatedPositions, animate = true } = options;
   const data = nodeMap.get(layoutNode.id);
   if (data?.enabled === false) return;
   if (layoutNode.id === skipNodeId) return;
@@ -432,7 +471,7 @@ export function paintNode(
     ctx.translate(posX, posY);
   }
 
-  const spawn = getSpawnAnimation(layoutNode.id);
+  const spawn = animate ? getSpawnAnimation(layoutNode.id) : null;
   if (spawn) {
     ctx.globalAlpha *= spawn.opacity;
     ctx.translate(0, spawn.offsetY);
@@ -480,7 +519,7 @@ export function paintNode(
 
   if (layoutNode.children && layoutNode.children.length > 0) {
     for (const child of layoutNode.children) {
-      paintNode(ctx, child, nodeMap, variables, skipNodeId, animatedPositions);
+      paintNode(ctx, child, nodeMap, variables, options);
     }
   }
 

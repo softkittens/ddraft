@@ -1,7 +1,8 @@
 import { describe, it, expect } from "bun:test";
 import { craftMetrics } from "../eval/metrics";
 import { stat, summarize, compare } from "../eval/report";
-import type { RunRow } from "../eval/run";
+import type { RunFile, RunRow } from "../eval/run";
+import { briefSetHash } from "../eval/run";
 import { BRIEFS } from "../eval/briefs";
 import { makeDoc, frame, txt, rect } from "./harness";
 
@@ -159,17 +160,28 @@ describe("eval reporting", () => {
     expect(out).toContain("screens 1-4");
   });
 
+  function file(rows: RunRow[], over: Partial<RunFile> = {}): RunFile {
+    return {
+      provider: "openai",
+      model: "test",
+      briefHash: "abc",
+      at: "t",
+      rows,
+      ...over
+    };
+  }
+
   it("calls fewer blockers better and fewer components worse", () => {
-    const before = [row({ blockers: 10, metrics: { ...craftMetrics(makeDoc()), components: 3 } })];
-    const after = [row({ blockers: 2, metrics: { ...craftMetrics(makeDoc()), components: 0 } })];
+    const before = file([row({ blockers: 10, metrics: { ...craftMetrics(makeDoc()), components: 3 } })]);
+    const after = file([row({ blockers: 2, metrics: { ...craftMetrics(makeDoc()), components: 0 } })]);
     const out = compare(after, before);
     expect(out).toMatch(/blockers.*-8.*better/);
     expect(out).toMatch(/components.*-3.*worse/);
   });
 
   it("gives no verdict on a metric with no better direction", () => {
-    const before = [row({ metrics: { ...craftMetrics(makeDoc()), screens: 1 } })];
-    const after = [row({ metrics: { ...craftMetrics(makeDoc()), screens: 4 } })];
+    const before = file([row({ metrics: { ...craftMetrics(makeDoc()), screens: 1 } })]);
+    const after = file([row({ metrics: { ...craftMetrics(makeDoc()), screens: 4 } })]);
     const line = compare(after, before).split("\n").find((l) => l.startsWith("screens"))!;
     expect(line).toContain("+3");
     expect(line).not.toContain("better");
@@ -180,6 +192,67 @@ describe("eval reporting", () => {
     const out = summarize([row({ ok: false, error: "turn budget spent" })]);
     expect(out).toContain("did not finish");
     expect(out).toContain("turn budget spent");
+  });
+
+  it("refuses comparison when attempt counts differ", () => {
+    const before = file([row(), row({ attempt: 2 })]);
+    const after = file([row()]);
+    expect(compare(after, before)).toMatch(/row keys differ/);
+  });
+
+  it("refuses comparison when a brief+attempt key is duplicated", () => {
+    const before = file([row({ brief: "horses" }), row({ brief: "horses" })]);
+    const after = file([row({ brief: "horses" }), row({ brief: "horses" })]);
+    expect(compare(after, before)).toMatch(/duplicate row key/);
+  });
+
+  it("refuses comparison when a brief is missing", () => {
+    const before = file([row({ brief: "horses" }), row({ brief: "cafe" })]);
+    const after = file([row({ brief: "horses" }), row({ brief: "cafe", attempt: 2 })]);
+    expect(compare(after, before)).toMatch(/row keys differ/);
+  });
+
+  it("refuses comparison when the brief set hash changes", () => {
+    const rows = [row()];
+    const before = file(rows, { briefHash: briefSetHash([{ id: "horses", text: "old" }]) });
+    const after = file(rows, { briefHash: briefSetHash([{ id: "horses", text: "new" }]) });
+    expect(compare(after, before)).toMatch(/brief set changed/);
+  });
+
+  it("refuses comparison when provider or model differ", () => {
+    const rows = [row()];
+    expect(compare(file(rows, { provider: "openai" }), file(rows, { provider: "qwen" }))).toMatch(/provider/);
+    expect(compare(file(rows, { model: "a" }), file(rows, { model: "b" }))).toMatch(/model/);
+  });
+
+  it("refuses comparison when provider or brief hash is missing", () => {
+    const rows = [row()];
+    expect(compare(file(rows, { provider: "" }), file(rows))).toMatch(/missing provider/);
+    expect(compare(file(rows, { briefHash: "" }), file(rows))).toMatch(/missing brief/);
+  });
+
+  it("reports failed pairs separately and excludes them from quality medians", () => {
+    const before = file([
+      row({ blockers: 10 }),
+      row({ attempt: 2, ok: false, error: "budget", blockers: 99 })
+    ]);
+    const after = file([
+      row({ blockers: 2 }),
+      row({ attempt: 2, ok: false, error: "budget", blockers: 0 })
+    ]);
+    const out = compare(after, before);
+    expect(out).toContain("failed");
+    expect(out).toContain("horses #2");
+    expect(out).toMatch(/blockers.*-8.*better/);
+    expect(out).not.toContain("99");
+  });
+
+  it("accepts a valid same-cohort comparison", () => {
+    const before = file([row({ blockers: 4 }), row({ attempt: 2, blockers: 6 })]);
+    const after = file([row({ blockers: 1 }), row({ attempt: 2, blockers: 3 })]);
+    const out = compare(after, before);
+    expect(out).toContain("Comparing 2 completed pairs");
+    expect(out).toMatch(/blockers.*-3.*better/);
   });
 });
 
@@ -223,6 +296,52 @@ const testProvider: Provider = {
   apiKey: "k"
 };
 
+function sseEvent(payload: unknown): string {
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+function contentSse(text: string): Response {
+  return new Response(sse([sseEvent({ choices: [{ delta: { content: text } }] }), "data: [DONE]\n\n"]), {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" }
+  });
+}
+
+function toolSse(name: string, args: unknown, id = "c1"): Response {
+  return new Response(
+    sse([
+      sseEvent({
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              id,
+              function: { name, arguments: JSON.stringify(args) }
+            }]
+          }
+        }]
+      }),
+      "data: [DONE]\n\n"
+    ]),
+    { status: 200, headers: { "Content-Type": "text/event-stream" } }
+  );
+}
+
+function scriptedFetch(responses: Array<() => Response | Promise<Response>>): FetchFn {
+  let i = 0;
+  return async () => {
+    const next = responses[Math.min(i, responses.length - 1)];
+    i += 1;
+    return next();
+  };
+}
+
+async function collect(gen: AsyncGenerator<{ type: string }>) {
+  const events: { type: string }[] = [];
+  for await (const ev of gen) events.push(ev);
+  return events;
+}
+
 describe("failures that used to read as success", () => {
   it("does not report done after the provider fails", async () => {
     const failing: FetchFn = async () => new Response("upstream is down", { status: 502 });
@@ -235,6 +354,133 @@ describe("failures that used to read as success", () => {
     expect(events).not.toContain("done");
   });
 
+  it("tags a provider failure with code provider", async () => {
+    const failing: FetchFn = async () => new Response("upstream is down", { status: 502 });
+    const events = [];
+    for await (const ev of runSession(testProvider, [{ role: "user", content: "build it" }],
+      { version: "1.0", children: [] } as Document, { fetch: failing })) {
+      events.push(ev);
+    }
+    const err = events.find((e) => e.type === "error");
+    expect(err).toEqual(expect.objectContaining({ type: "error", code: "provider" }));
+    expect(events.filter((e) => e.type === "done")).toHaveLength(0);
+  });
+
+  it("emits one done on a clean completion", async () => {
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "hi" }],
+      makeDoc(frame("f", 100, 100, [rect("r", 40, 40)])),
+      { fetch: async () => contentSse("All done") }
+    ));
+    expect(events.filter((e) => e.type === "done")).toHaveLength(1);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+  });
+
+  it("emits budget, never done, when the model never stops calling tools", async () => {
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "hi" }],
+      makeDoc(frame("f", 100, 100)),
+      {
+        maxTurns: 3,
+        fetch: async () => toolSse("read_digest", {})
+      }
+    ));
+    const errors = events.filter((e) => e.type === "error") as Array<{ code?: string }>;
+    expect(errors).toHaveLength(1);
+    expect(errors[0].code).toBe("budget");
+    expect(events.filter((e) => e.type === "done")).toHaveLength(0);
+  });
+
+  it("emits aborted, never done, when the run is cancelled", async () => {
+    const ac = new AbortController();
+    let calls = 0;
+    const fetchImpl: FetchFn = async (_input, init) => {
+      calls += 1;
+      if (calls === 1) return toolSse("read_digest", {});
+      ac.abort();
+      if (init?.signal?.aborted) throw new DOMException("aborted", "AbortError");
+      throw new DOMException("aborted", "AbortError");
+    };
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "hi" }],
+      makeDoc(frame("f", 100, 100, [rect("r", 10, 10)])),
+      { fetch: fetchImpl, signal: ac.signal }
+    ));
+    const errors = events.filter((e) => e.type === "error") as Array<{ code?: string }>;
+    expect(errors).toHaveLength(1);
+    expect(errors[0].code).toBe("aborted");
+    expect(events.filter((e) => e.type === "done")).toHaveLength(0);
+  });
+});
+
+describe("tool events carry a document only when the document changed", () => {
+  it("omits doc from read_digest", async () => {
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "summarise" }],
+      makeDoc(frame("f", 100, 100, [rect("r", 40, 40)])),
+      { fetch: scriptedFetch([() => toolSse("read_digest", {}), () => contentSse("ok")]) }
+    ));
+    const tool = events.find((e) => e.type === "tool") as { doc?: Document };
+    expect(tool).toBeDefined();
+    expect(tool.doc).toBeUndefined();
+  });
+
+  it("includes doc from create_screen", async () => {
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "build" }],
+      { version: "1.0", children: [] } as Document,
+      { fetch: scriptedFetch([() => toolSse("create_screen", { name: "Home", kind: "mobile" }), () => contentSse("ok")]) }
+    ));
+    const tool = events.find((e) => e.type === "tool") as { name?: string; doc?: Document };
+    expect(tool?.name).toBe("create_screen");
+    expect(tool?.doc).toBeDefined();
+    expect(tool?.doc?.children.length).toBeGreaterThan(0);
+  });
+
+  it("includes doc from place_instances", async () => {
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "place" }],
+      makeDoc(
+        frame("row", 100, 40, [], { reusable: true }),
+        frame("list", 100, 200)
+      ),
+      {
+        fetch: scriptedFetch([
+          () => toolSse("place_instances", { componentId: "row", parentId: "list", items: [{}] }),
+          () => contentSse("ok")
+        ])
+      }
+    ));
+    const tool = events.find((e) => e.type === "tool") as { name?: string; doc?: Document };
+    expect(tool?.name).toBe("place_instances");
+    expect(tool?.doc).toBeDefined();
+  });
+
+  it("omits doc from a failed mutation", async () => {
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "edit" }],
+      makeDoc(frame("f", 100, 100)),
+      {
+        fetch: scriptedFetch([
+          () => toolSse("set_property", { id: "missing", property: "width", value: 40 }),
+          () => contentSse("ok")
+        ])
+      }
+    ));
+    const tool = events.find((e) => e.type === "tool") as { doc?: Document; result?: string };
+    expect(tool?.result).toMatch(/^error:/);
+    expect(tool?.doc).toBeUndefined();
+  });
+});
+
+describe("failures that used to read as success — remaining", () => {
   it("sends the model back when it stops with an empty canvas", async () => {
     let calls = 0;
     const silent: FetchFn = async () => {

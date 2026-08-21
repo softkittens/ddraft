@@ -1,6 +1,8 @@
 /**
- * Dynamic Lucide Icon Loader
- * Pulls icons on-demand without embedding the entire 1,770+ icon library into the static bundle.
+ * Lucide icon lookup.
+ * Server/tests resolve any installed icon from node_modules. The browser only
+ * has the small core map below; insert_icon stores geometry on the node so
+ * arbitrary icons still paint without bundling the catalog.
  */
 
 const iconPathCache = new Map<string, string>();
@@ -9,10 +11,15 @@ let cachedIconNames: string[] | null = null;
 function elementToPath(tag: string, attrs: Record<string, any>): string {
   if (tag === "path") return attrs.d || "";
   if (tag === "circle") {
+    const r = Number(attrs.r || 0);
+    return elementToPath("ellipse", { ...attrs, rx: r, ry: r });
+  }
+  if (tag === "ellipse") {
     const cx = Number(attrs.cx || 0);
     const cy = Number(attrs.cy || 0);
-    const r = Number(attrs.r || 0);
-    return `M ${cx - r},${cy} a ${r},${r} 0 1,0 ${r * 2},0 a ${r},${r} 0 1,0 -${r * 2},0`;
+    const rx = Number(attrs.rx || 0);
+    const ry = Number(attrs.ry || 0);
+    return `M ${cx - rx},${cy} a ${rx},${ry} 0 1,0 ${rx * 2},0 a ${rx},${ry} 0 1,0 ${-rx * 2},0`;
   }
   if (tag === "line") {
     return `M ${attrs.x1},${attrs.y1} L ${attrs.x2},${attrs.y2}`;
@@ -66,13 +73,16 @@ const CORE_ICONS: Record<string, string> = {
   "chevron-right": "m9 18 6-6-6-6",
   "arrow-right": "M5 12h14 M12 5l7 7-7 7",
   plus: "M5 12h14 M12 5v14",
-  minus: "M5 12h14"
+  minus: "M5 12h14",
+  signal: "M2 20h.01 M7 20v-4 M12 20v-8 M17 20V8 M22 4v16",
+  wifi: "M12 20h.01 M2 8.82a15 15 0 0 1 20 0 M5 12.859a10 10 0 0 1 14 0 M8.5 16.429a5 5 0 0 1 7 0",
+  "battery-full": "M10 10v4 M14 10v4 M22 14v-4 M6 10v4 M 4,6 h 12 a 2,2 0 0 1 2,2 v 8 a 2,2 0 0 1 -2,2 h -12 a 2,2 0 0 1 -2,2 v -8 a 2,2 0 0 1 2,2 z"
 };
 
 /**
  * On-demand Lucide icon retriever.
  * In Bun / Node (agent server, tests): pulls directly from installed lucide-solid node_modules.
- * In Browser (Vite): uses fast core dictionary + dynamic cache.
+ * In the browser: the core map only. Nodes should already carry geometry from insert_icon.
  */
 export function getLucideIconPath(name: string): string | undefined {
   if (!name) return undefined;
@@ -90,7 +100,6 @@ export function getLucideIconPath(name: string): string | undefined {
   // If in Node/Bun environment, load on-demand from node_modules dynamically
   if (typeof process !== "undefined" && typeof (process as any).cwd === "function") {
     try {
-      // Dynamic require / fs without breaking Vite browser bundling
       const fs = typeof require !== "undefined" ? require("fs") : null;
       const path = typeof require !== "undefined" ? require("path") : null;
       if (fs && path) {

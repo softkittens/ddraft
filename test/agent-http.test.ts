@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { handleAgentRequest } from "../src/agent/http";
+import { EventEmitter } from "events";
+import { handleAgentRequest, abortSignalFromNode } from "../src/agent/http";
 import type { FetchFn } from "../src/agent/provider";
 import { makeDoc, frame, rect } from "./harness";
 import type { Message } from "../src/agent/provider";
@@ -160,7 +161,173 @@ describe("H5 agent HTTP", () => {
     ac.abort();
     const res = await pending;
     const events = await readSseEvents(res);
-    const done = events.find((e) => (e as { type: string }).type === "done") as { doc: { children: { gap?: number }[] } };
-    expect(done.doc.children[0].gap).toBe(24);
+    const tool = events.find((e) => (e as { type: string }).type === "tool") as {
+      doc?: { children: { gap?: number }[] };
+    };
+    const terminal = events.find((e) => (e as { type: string }).type === "error") as { code?: string };
+    expect(tool.doc?.children[0].gap).toBe(24);
+    expect(terminal.code).toBe("aborted");
+    expect(events.some((e) => (e as { type: string }).type === "done")).toBe(false);
+  });
+
+  it("aborts the Fetch signal when the client disconnects", () => {
+    const req = new EventEmitter();
+    const res = Object.assign(new EventEmitter(), { writableEnded: false });
+    const signal = abortSignalFromNode(req, res);
+    expect(signal.aborted).toBe(false);
+    req.emit("aborted");
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("does not abort when a completed request emits close", () => {
+    const req = new EventEmitter();
+    const res = Object.assign(new EventEmitter(), { writableEnded: true });
+    const signal = abortSignalFromNode(req, res);
+    req.emit("close");
+    res.emit("close");
+    expect(signal.aborted).toBe(false);
+  });
+
+  it("aborts on response close only while the response is still open", () => {
+    const req = new EventEmitter();
+    const res = Object.assign(new EventEmitter(), { writableEnded: false });
+    const signal = abortSignalFromNode(req, res);
+    res.emit("close");
+    expect(signal.aborted).toBe(true);
+  });
+});
+
+const PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+const validReview = {
+  verdict: "refine",
+  scores: { specificity: 3, hierarchy: 3, usability: 3, craft: 3 },
+  strengths: ["Clear title"],
+  issues: [{
+    title: "Raise the heading",
+    reason: "Title and body are the same size.",
+    instruction: "Set the heading to 28px.",
+    nodeIds: ["title"]
+  }]
+};
+
+describe("agent review HTTP", () => {
+  it("calls the critic with a fresh conversation and no tools", async () => {
+    let posted: { tools?: unknown; messages: Message[] } | undefined;
+    const fakeFetch: FetchFn = async (_input, init) => {
+      posted = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        choices: [{ message: { role: "assistant", content: JSON.stringify(validReview) } }]
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+
+    const res = await handleAgentRequest(
+      new Request("http://pen.test/agent/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brief: "A reading site",
+          screenshot: PNG,
+          digest: "title Cover"
+        })
+      }),
+      { env: { OPENAI_API_KEY: "sk-test" }, fetch: fakeFetch }
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.verdict).toBe("refine");
+    expect(posted?.tools).toBeUndefined();
+    expect(posted?.messages).toHaveLength(2);
+    expect(posted?.messages[0].role).toBe("system");
+    expect(String(posted?.messages[0].content)).toContain("cannot edit");
+  });
+
+  it("keeps the screenshot for a non-OpenAI model", async () => {
+    let posted: { messages: Message[] } | undefined;
+    const fakeFetch: FetchFn = async (_input, init) => {
+      posted = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        choices: [{ message: { role: "assistant", content: JSON.stringify(validReview) } }]
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+
+    const res = await handleAgentRequest(
+      new Request("http://pen.test/agent/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brief: "A reading site",
+          screenshot: PNG,
+          digest: "title Cover",
+          providerId: "opencode-go",
+          model: "glm-5.2"
+        })
+      }),
+      { env: { OPENCODE_API_KEY: "sk-go" }, fetch: fakeFetch }
+    );
+
+    expect(res.status).toBe(200);
+    const user = posted?.messages[1];
+    expect(Array.isArray(user?.content)).toBe(true);
+    expect((user?.content as { type: string }[]).some((p) => p.type === "image_url")).toBe(true);
+  });
+
+  it("rejects a non-image screenshot URL", async () => {
+    const res = await handleAgentRequest(
+      new Request("http://pen.test/agent/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brief: "x",
+          digest: "y",
+          screenshot: "https://example.com/shot.png"
+        })
+      }),
+      { env: { OPENAI_API_KEY: "sk-test" } }
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an oversized body", async () => {
+    const res = await handleAgentRequest(
+      new Request("http://pen.test/agent/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Content-Length": String(9 * 1024 * 1024) },
+        body: "{}"
+      }),
+      { env: { OPENAI_API_KEY: "sk-test" } }
+    );
+    expect(res.status).toBe(413);
+  });
+
+  it("rejects a disallowed origin", async () => {
+    const res = await handleAgentRequest(
+      new Request("http://pen.test/agent/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "http://evil.example" },
+        body: JSON.stringify({ brief: "x", digest: "y", screenshot: PNG })
+      }),
+      { env: { OPENAI_API_KEY: "sk-test" } }
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("returns invalid_response when the critic payload is not review JSON", async () => {
+    const fakeFetch: FetchFn = async () =>
+      new Response(JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "not json at all" } }]
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+
+    const res = await handleAgentRequest(
+      new Request("http://pen.test/agent/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief: "x", digest: "title Cover", screenshot: PNG })
+      }),
+      { env: { OPENAI_API_KEY: "sk-test" }, fetch: fakeFetch }
+    );
+    expect(res.status).toBe(422);
   });
 });

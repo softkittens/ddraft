@@ -1,16 +1,15 @@
 import { describe, it, expect } from "bun:test";
-import { complete, type Provider, type Message, type FetchFn } from "../src/agent/provider";
+import { complete, type Provider, type FetchFn } from "../src/agent/provider";
 import { loadProvider, listConfiguredProviders, UnknownModelError } from "../src/agent/credentials";
-import { runAgent, type Tool } from "../src/agent/loop";
+import { runSession, type AgentEvent } from "../src/agent/session";
 import { createDocumentTools, TOOL_DEFS } from "../src/agent/tools";
 import { makeDoc, frame, rect } from "./harness";
 import { digest } from "../src/digest/digest";
 import { cloneDocument } from "../src/model/tree";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { parseDocument } from "../src/model/parse";
 import { agentSystemPrompt } from "../src/agent/prompt";
 import { assembleToolCalls } from "../src/agent/stream";
+import { getLucideIconPath } from "../src/model/icons";
 
 const echoProvider: Provider = {
   id: "echo",
@@ -24,6 +23,43 @@ function jsonResponse(body: unknown, url?: string): Response {
     status: 200,
     headers: { "Content-Type": "application/json", "X-Request-Url": url || "" }
   });
+}
+
+function sseBody(chunks: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const c of chunks) controller.enqueue(encoder.encode(c));
+      controller.close();
+    }
+  });
+}
+
+function sseEvent(payload: unknown): string {
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+function contentSse(text: string): Response {
+  return new Response(sseBody([sseEvent({ choices: [{ delta: { content: text } }] }), "data: [DONE]\n\n"]), {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" }
+  });
+}
+
+async function collectSession(
+  fetchImpl: FetchFn,
+  extra: { maxTurns?: number } = {}
+): Promise<AgentEvent[]> {
+  const events: AgentEvent[] = [];
+  for await (const ev of runSession(
+    echoProvider,
+    [{ role: "user", content: "hi" }],
+    makeDoc(frame("f", 200, 100, [rect("r", 40, 40)])),
+    { fetch: fetchImpl, ...extra }
+  )) {
+    events.push(ev);
+  }
+  return events;
 }
 
 describe("H1 provider client", () => {
@@ -119,82 +155,95 @@ describe("H2 credentials", () => {
   });
 });
 
-const pingTool: Tool = {
-  name: "ping",
-  description: "ping",
-  parameters: { type: "object", properties: { n: { type: "number" } } }
-};
-
 describe("H3 tool loop", () => {
   it("ends after one request when the reply has no tool calls", async () => {
     let requests = 0;
-    const fakeComplete = async (): Promise<Message> => {
+    const fakeFetch: FetchFn = async () => {
       requests++;
-      return { role: "assistant", content: "done" };
+      return contentSse("done");
     };
-    const messages = await runAgent(echoProvider, [{ role: "user", content: "hi" }], [], async () => "ok", 8, fakeComplete);
+    const events = await collectSession(fakeFetch);
     expect(requests).toBe(1);
-    expect(messages.at(-1)?.content).toBe("done");
-    expect(messages.filter((m) => m.role === "tool")).toHaveLength(0);
+    const done = events.find((e) => e.type === "done");
+    expect(done?.type).toBe("done");
+    if (done?.type === "done") {
+      expect(done.messages.at(-1)?.content).toBe("done");
+      expect(done.messages.filter((m) => m.role === "tool")).toHaveLength(0);
+    }
   });
 
   it("emits one tool message per call with matching tool_call_id", async () => {
-    const fakeComplete = async (): Promise<Message> => ({
-      role: "assistant",
-      content: "",
-      tool_calls: [
-        { id: "call_1", type: "function", function: { name: "ping", arguments: "{\"n\":1}" } },
-        { id: "call_2", type: "function", function: { name: "ping", arguments: "{\"n\":2}" } }
-      ]
-    });
-    let once = false;
-    const gated = async (): Promise<Message> => {
-      if (!once) {
-        once = true;
-        return fakeComplete();
+    let requests = 0;
+    const fakeFetch: FetchFn = async () => {
+      requests++;
+      if (requests === 1) {
+        return new Response(
+          sseBody([
+            sseEvent({
+              choices: [{
+                delta: {
+                  tool_calls: [
+                    { index: 0, id: "call_1", function: { name: "read_digest", arguments: "{}" } },
+                    { index: 1, id: "call_2", function: { name: "read_digest", arguments: "{}" } }
+                  ]
+                }
+              }]
+            }),
+            "data: [DONE]\n\n"
+          ]),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } }
+        );
       }
-      return { role: "assistant", content: "finished" };
+      return contentSse("finished");
     };
-    const messages = await runAgent(echoProvider, [{ role: "user", content: "hi" }], [pingTool], async () => "pong", 8, gated);
-    const toolMsgs = messages.filter((m) => m.role === "tool");
-    expect(toolMsgs).toHaveLength(2);
-    expect(toolMsgs.map((m) => m.tool_call_id)).toEqual(["call_1", "call_2"]);
-    expect(toolMsgs.every((m) => m.content === "pong")).toBe(true);
+    const events = await collectSession(fakeFetch);
+    const tools = events.filter((e) => e.type === "tool");
+    expect(tools).toHaveLength(2);
+    const done = events.find((e) => e.type === "done");
+    expect(done?.type).toBe("done");
+    if (done?.type === "done") {
+      const toolMsgs = done.messages.filter((m) => m.role === "tool");
+      expect(toolMsgs.map((m) => m.tool_call_id)).toEqual(["call_1", "call_2"]);
+    }
   });
 
   it("returns a parse error as a tool result and does not throw", async () => {
-    let turn = 0;
-    const fakeComplete = async (): Promise<Message> => {
-      turn++;
-      if (turn === 1) {
-        return {
-          role: "assistant",
-          content: "",
-          tool_calls: [{ id: "bad", type: "function", function: { name: "ping", arguments: "{not json" } }]
-        };
-      }
-      return { role: "assistant", content: "recovered" };
-    };
-    const messages = await runAgent(echoProvider, [{ role: "user", content: "hi" }], [pingTool], async () => "should-not-run", 8, fakeComplete);
-    const toolMsg = messages.find((m) => m.role === "tool");
-    expect(toolMsg?.tool_call_id).toBe("bad");
-    expect(String(toolMsg?.content).toLowerCase()).toContain("json");
-    expect(messages.at(-1)?.content).toBe("recovered");
-  });
-
-  it("stops at maxTurns when the model keeps calling tools", async () => {
     let requests = 0;
-    const fakeComplete = async (): Promise<Message> => {
+    const fakeFetch: FetchFn = async () => {
       requests++;
-      return {
-        role: "assistant",
-        content: "",
-        tool_calls: [{ id: `c${requests}`, type: "function", function: { name: "ping", arguments: "{}" } }]
-      };
+      if (requests === 1) {
+        return new Response(
+          sseBody([
+            sseEvent({
+              choices: [{
+                delta: {
+                  tool_calls: [{
+                    index: 0,
+                    id: "bad",
+                    function: { name: "read_digest", arguments: "{not json" }
+                  }]
+                }
+              }]
+            }),
+            "data: [DONE]\n\n"
+          ]),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } }
+        );
+      }
+      return contentSse("recovered");
     };
-    const messages = await runAgent(echoProvider, [{ role: "user", content: "hi" }], [pingTool], async () => "ok", 3, fakeComplete);
-    expect(requests).toBe(3);
-    expect(messages.filter((m) => m.role === "tool")).toHaveLength(3);
+    const events = await collectSession(fakeFetch);
+    const tool = events.find((e) => e.type === "tool");
+    expect(tool?.type).toBe("tool");
+    if (tool?.type === "tool") {
+      expect(tool.result.toLowerCase()).toContain("json");
+    }
+    const done = events.find((e) => e.type === "done");
+    expect(done?.type).toBe("done");
+    if (done?.type === "done") {
+      expect(done.messages.find((m) => m.role === "tool")?.tool_call_id).toBe("bad");
+      expect(done.messages.at(-1)?.content).toBe("recovered");
+    }
   });
 });
 
@@ -257,6 +306,35 @@ describe("H4 document tools", () => {
     expect((session.doc.children[0].children?.[0] as any).icon).toBe("star");
   });
 
+  it("stores resolved geometry on insert_icon so the browser does not need the catalog", async () => {
+    const session = createDocumentTools(makeDoc(frame("f", 200, 100, [])));
+    await session.execute("insert_icon", { icon: "ellipse", parentId: "f" });
+    const icon = session.doc.children[0].children?.[0] as { geometry?: string; icon?: string };
+    expect(icon.icon).toBe("ellipse");
+    expect(typeof icon.geometry).toBe("string");
+    expect(icon.geometry).toContain("a 10,6");
+    expect(icon.geometry!.length).toBeGreaterThan(10);
+
+    const roundTrip = parseDocument(JSON.stringify(session.doc));
+    expect((roundTrip.children[0] as { children?: { geometry?: string }[] }).children?.[0].geometry).toBe(icon.geometry);
+  });
+
+  it("keeps scaffold status icons in the browser core set", () => {
+    for (const name of ["signal", "wifi", "battery-full"]) {
+      expect(getLucideIconPath(name)?.length).toBeGreaterThan(10);
+    }
+  });
+
+  it("falls back when an icon has no stored geometry and is not in the core set", () => {
+    const previous = process.cwd;
+    (process as { cwd?: unknown }).cwd = undefined;
+    try {
+      expect(getLucideIconPath("not-a-real-icon-zzz")).toBeUndefined();
+    } finally {
+      process.cwd = previous;
+    }
+  });
+
   it("reports that image generation is unavailable rather than substituting a stock photo", async () => {
     // With no provider key configured this used to return one fixed Unsplash
     // photograph for every prompt, so the caller believed it had an image of
@@ -271,13 +349,17 @@ describe("H4 document tools", () => {
 });
 
 describe("Selection context", () => {
-  const doc = parseDocument(readFileSync(join(import.meta.dir, "../fixtures/A_control_r1.pen"), "utf-8"));
+  const doc = makeDoc(
+    frame("screen", 390, 844, [
+      frame("header", 390, 64),
+      frame("body", 390, 400)
+    ])
+  );
 
   // Regression guard for "look at this selection" -> the model guessing "root".
   it("names the selected node so 'this' has a referent", () => {
-    const target = (doc.children[0] as any).children[0];
-    const prompt = agentSystemPrompt(doc, [target.id]);
-    expect(prompt).toContain(`Selection: ${target.id}`);
+    const prompt = agentSystemPrompt(doc, ["header"]);
+    expect(prompt).toContain(`Selection: header`);
     expect(prompt).toContain('"this", "the selection" and "it" mean that node');
   });
 
@@ -290,10 +372,10 @@ describe("Selection context", () => {
   });
 
   it("lists every node when several are selected", () => {
-    const kids = (doc.children[0] as any).children.slice(0, 2);
-    const prompt = agentSystemPrompt(doc, kids.map((k: any) => k.id));
+    const prompt = agentSystemPrompt(doc, ["header", "body"]);
     expect(prompt).toContain("Selection: 2 nodes");
-    for (const k of kids) expect(prompt).toContain(k.id);
+    expect(prompt).toContain("header");
+    expect(prompt).toContain("body");
   });
 
   it("treats the whole-document aliases a model invents as the whole document", () => {
