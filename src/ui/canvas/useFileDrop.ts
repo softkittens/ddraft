@@ -2,8 +2,7 @@ import { createSignal } from "solid-js";
 import { screenToWorld, type Point } from "../../interaction/camera";
 import { getNextNodeId } from "../../model/edit";
 import type { PenNode } from "../../model/types";
-import { parseDocument } from "../../model/parse";
-import { importPenZip } from "../../model/importZip";
+import { openDesignFile } from "../../model/importZip";
 import { camera, doc, updateDoc, setSelectedIds, resetZoom100 } from "../store";
 import { insertNodeAtWorld } from "./types";
 
@@ -37,27 +36,14 @@ export function useFileDrop(getCanvas: () => HTMLCanvasElement | undefined) {
     );
 
     if (docFile) {
-      if (docFile.name.toLowerCase().endsWith(".zip")) {
-        docFile.arrayBuffer().then((ab) => {
-          try {
-            const parsed = importPenZip(new Uint8Array(ab));
-            updateDoc(parsed);
-            resetZoom100();
-          } catch (err: any) {
-            alert("Error parsing zip: " + (err?.message || err));
-          }
+      openDesignFile(docFile)
+        .then((parsed) => {
+          updateDoc(parsed);
+          resetZoom100();
+        })
+        .catch((err) => {
+          alert("Error parsing file: " + (err?.message || err));
         });
-      } else {
-        docFile.text().then((text) => {
-          try {
-            const parsed = parseDocument(text);
-            updateDoc(parsed);
-            resetZoom100();
-          } catch (err: any) {
-            alert("Error parsing file: " + (err?.message || err));
-          }
-        });
-      }
       return;
     }
 

@@ -131,32 +131,31 @@ export function getDynamicLineHeightRatio(fontFamily: string): number {
   return DEFAULT_LINE_HEIGHT_RATIO;
 }
 
+function resolveExplicitLineHeight(val: number | string, fontSize: number): number | undefined {
+  if (typeof val === "number") {
+    if (val > 0 && val <= 3.5) return Math.round(fontSize * val);
+    return Math.max(1, Math.round(val));
+  }
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (trimmed.endsWith("%")) {
+      const pct = parseFloat(trimmed) / 100;
+      if (!isNaN(pct)) return Math.round(fontSize * pct);
+    }
+    const num = parseFloat(trimmed);
+    if (!isNaN(num)) {
+      if (num > 0 && num <= 3.5 && !trimmed.endsWith("px")) return Math.round(fontSize * num);
+      return Math.max(1, Math.round(num));
+    }
+  }
+  return undefined;
+}
+
 export function getLineHeight(node: TextNode, variables?: Record<string, any>): number {
   const size = node.fontSize || 16;
   if (node.lineHeight !== undefined && node.lineHeight !== null) {
-    if (typeof node.lineHeight === "number") {
-      // Unitless multiplier (e.g. 1.2, 1.4, 1.5, 2.0 in Figma/pen.dev) vs absolute pixels
-      if (node.lineHeight > 0 && node.lineHeight <= 3.5) {
-        return Math.round(size * node.lineHeight);
-      }
-      return Math.max(1, Math.round(node.lineHeight));
-    }
-    if (typeof node.lineHeight === "string") {
-      const str = (node.lineHeight as string).trim();
-      if (str.endsWith("%")) {
-        const pct = parseFloat(str) / 100;
-        if (!isNaN(pct)) return Math.round(size * pct);
-      } else if (str.endsWith("px")) {
-        const px = parseFloat(str);
-        if (!isNaN(px)) return Math.round(px);
-      } else {
-        const num = parseFloat(str);
-        if (!isNaN(num)) {
-          if (num > 0 && num <= 3.5) return Math.round(size * num);
-          return Math.max(1, Math.round(num));
-        }
-      }
-    }
+    const explicit = resolveExplicitLineHeight(node.lineHeight, size);
+    if (explicit !== undefined) return explicit;
   }
   const resolved = resolveVariable(node.fontFamily || "Inter", variables);
   const ratio = getDynamicLineHeightRatio(resolved);

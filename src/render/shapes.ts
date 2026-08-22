@@ -1,4 +1,4 @@
-import type { LayoutNode } from "../layout/types";
+import type { LayoutNode, Box } from "../layout/types";
 import type {
   PenNode,
   PathNode,
@@ -57,6 +57,36 @@ export function setupCanvas(
   const ctx = canvas.getContext("2d");
   if (ctx) ctx.scale(dpr, dpr);
   return ctx;
+}
+
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  box: Box,
+  radius?: number | [number, number, number, number] | number[]
+): void {
+  ctx.save();
+  if (radius && typeof ctx.roundRect === "function") {
+    ctx.beginPath();
+    ctx.roundRect(0, 0, box.width, box.height, radius as any);
+    ctx.clip();
+  }
+  const imageRatio = img.naturalWidth / img.naturalHeight;
+  const boxRatio = box.width / box.height;
+  const sourceWidth = imageRatio > boxRatio ? img.naturalHeight * boxRatio : img.naturalWidth;
+  const sourceHeight = imageRatio > boxRatio ? img.naturalHeight : img.naturalWidth / boxRatio;
+  ctx.drawImage(
+    img,
+    (img.naturalWidth - sourceWidth) / 2,
+    (img.naturalHeight - sourceHeight) / 2,
+    sourceWidth,
+    sourceHeight,
+    0,
+    0,
+    box.width,
+    box.height
+  );
+  ctx.restore();
 }
 
 export function drawShape(
@@ -228,34 +258,7 @@ export function drawShape(
 
       if (imgFill && (imgFill.url || imgFill.data)) {
         const img = getCachedImage(imgFill.url || imgFill.data!);
-        if (img) {
-          ctx.save();
-          if (radius && typeof ctx.roundRect === "function") {
-            ctx.beginPath();
-            ctx.roundRect(0, 0, box.width, box.height, radius);
-            ctx.clip();
-          }
-          const imageRatio = img.naturalWidth / img.naturalHeight;
-          const boxRatio = box.width / box.height;
-          const sourceWidth = imageRatio > boxRatio
-            ? img.naturalHeight * boxRatio
-            : img.naturalWidth;
-          const sourceHeight = imageRatio > boxRatio
-            ? img.naturalHeight
-            : img.naturalWidth / boxRatio;
-          ctx.drawImage(
-            img,
-            (img.naturalWidth - sourceWidth) / 2,
-            (img.naturalHeight - sourceHeight) / 2,
-            sourceWidth,
-            sourceHeight,
-            0,
-            0,
-            box.width,
-            box.height
-          );
-          ctx.restore();
-        }
+        if (img) drawImageCover(ctx, img, box, radius);
       }
 
       if (data?.stroke && data?.strokeWidth) {

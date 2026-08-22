@@ -31,8 +31,7 @@ import {
   updateDoc
 } from "./store";
 
-import { parseDocument } from "../model/parse";
-import { importPenZip } from "../model/importZip";
+import { openDesignFile } from "../model/importZip";
 
 export const Toolbar: Component = () => {
   let fileInputRef: HTMLInputElement | undefined;
@@ -41,17 +40,9 @@ export const Toolbar: Component = () => {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
     try {
-      if (file.name.toLowerCase().endsWith(".zip")) {
-        const buffer = new Uint8Array(await file.arrayBuffer());
-        const parsed = importPenZip(buffer);
-        updateDoc(parsed);
-        resetZoom100();
-      } else {
-        const text = await file.text();
-        const parsed = parseDocument(text);
-        updateDoc(parsed);
-        resetZoom100();
-      }
+      const parsed = await openDesignFile(file);
+      updateDoc(parsed);
+      resetZoom100();
     } catch (err: any) {
       alert("Error parsing file: " + (err?.message || err));
     } finally {

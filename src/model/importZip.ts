@@ -109,3 +109,16 @@ export function importPenZip(buffer: Uint8Array): Document {
 
   return resolveImageUrls(doc, imageMap);
 }
+
+/**
+ * Universal design file loader.
+ * Handles .zip packages (extracting documents and images), as well as standalone .pen and .json files.
+ */
+export async function openDesignFile(file: File): Promise<Document> {
+  if (file.name.toLowerCase().endsWith(".zip")) {
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    return importPenZip(buffer);
+  }
+  const text = await file.text();
+  return parseDocument(text);
+}

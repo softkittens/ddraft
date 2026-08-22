@@ -12,6 +12,37 @@ export function createSelectionState(): SelectionState {
   };
 }
 
+function paintSizePill(ctx: CanvasRenderingContext2D, w: number, h: number, zoom: number): void {
+  const labelText = `${Math.round(w)} × ${Math.round(h)}`;
+  const fontSize = 11 / zoom;
+  ctx.save();
+  ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  const measured = typeof ctx.measureText === "function" ? ctx.measureText(labelText) : null;
+  const textWidth = measured && typeof measured.width === "number" ? measured.width : (labelText.length * 6) / zoom;
+  const padX = 6 / zoom;
+  const padY = 3 / zoom;
+  const pillWidth = textWidth + padX * 2;
+  const pillHeight = fontSize + padY * 2;
+  const pillX = w / 2 - pillWidth / 2;
+  const pillY = h + 6 / zoom;
+  const pillRadius = 3 / zoom;
+
+  ctx.fillStyle = "#0d99ff";
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(pillX, pillY, pillWidth, pillHeight, pillRadius);
+  } else {
+    ctx.rect(pillX, pillY, pillWidth, pillHeight);
+  }
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(labelText, w / 2, pillY + pillHeight / 2);
+  ctx.restore();
+}
+
 /**
  * Renders selection outlines and corner handles around selected nodes.
  *
@@ -35,8 +66,6 @@ export function paintSelectionOverlay(
     ctx.rotate((layoutNode.rotation * Math.PI) / 180);
   }
 
-
-
   if (isSelected || isHovered) {
     const { width: w, height: h } = layoutNode.box;
     ctx.strokeStyle = isSelected ? "#0d99ff" : "rgba(13, 153, 255, 0.4)";
@@ -56,37 +85,8 @@ export function paintSelectionOverlay(
         ctx.strokeRect(cx - half, cy - half, handleSize, handleSize);
       }
 
-      // Size badge pill below selection box (e.g. "420 × 52")
-      const labelText = `${Math.round(w)} × ${Math.round(h)}`;
-      const fontSize = 11 / zoom;
-      ctx.save();
-      ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-      const measured = typeof ctx.measureText === "function" ? ctx.measureText(labelText) : null;
-      const textWidth = measured && typeof measured.width === "number" ? measured.width : labelText.length * 6 / zoom;
-      const padX = 6 / zoom;
-      const padY = 3 / zoom;
-      const pillWidth = textWidth + padX * 2;
-      const pillHeight = fontSize + padY * 2;
-      const pillX = w / 2 - pillWidth / 2;
-      const pillY = h + 6 / zoom;
-      const pillRadius = 3 / zoom;
-
-      ctx.fillStyle = "#0d99ff";
-      ctx.beginPath();
-      if (typeof ctx.roundRect === "function") {
-        ctx.roundRect(pillX, pillY, pillWidth, pillHeight, pillRadius);
-      } else {
-        ctx.rect(pillX, pillY, pillWidth, pillHeight);
-      }
-      ctx.fill();
-
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(labelText, w / 2, pillY + pillHeight / 2);
-      ctx.restore();
+      paintSizePill(ctx, w, h, zoom);
     }
-
   }
 
   for (const child of layoutNode.children) {
