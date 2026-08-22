@@ -27,13 +27,16 @@ export function checkContrast(ctx: AuditContext): AuditFinding[] {
     if (data?.enabled === false) return;
     const ownFill = solidFillOf(data);
     const bg = ownFill ?? inheritedBg;
-    const nowUnmeasurable = unmeasurable || overUnmeasurableBackground(data);
+    // If this node has its own solid fill, reset unmeasurable so text on solid cards is evaluated
+    const nowUnmeasurable = ownFill ? false : (unmeasurable || overUnmeasurableBackground(data));
 
     if (data?.type === "text" && !nowUnmeasurable) {
       const text = data as TextNode;
+      const textFill = (typeof text.fill === "string" ? text.fill : undefined) ?? "$foreground-primary";
+      const effectiveBg = bg ?? "$surface-primary";
       const ratio = contrastRatio(
-        typeof text.fill === "string" ? text.fill : undefined,
-        bg,
+        textFill,
+        effectiveBg,
         ctx.doc.variables
       );
       if (ratio !== null) {
@@ -46,7 +49,7 @@ export function checkContrast(ctx: AuditContext): AuditFinding[] {
             blocker(
               "low_contrast",
               node.id,
-              `Text "${(text.content ?? "").slice(0, 32)}" at ${size}px measures ${ratio.toFixed(2)}:1 against its background (${resolveVariable(text.fill as string, ctx.doc.variables)} on ${resolveVariable(bg, ctx.doc.variables)}). ${required}:1 is required.`,
+              `Text "${(text.content ?? "").slice(0, 32)}" at ${size}px measures ${ratio.toFixed(2)}:1 against its background (${resolveVariable(textFill, ctx.doc.variables)} on ${resolveVariable(effectiveBg, ctx.doc.variables)}). ${required}:1 is required.`,
               "Use $foreground-primary or $foreground-secondary on $surface-primary / $surface-secondary. $foreground-muted is only for text at 11-12px that is genuinely tertiary."
             )
           );
@@ -57,7 +60,11 @@ export function checkContrast(ctx: AuditContext): AuditFinding[] {
     for (const child of node.children) walk(child, bg, nowUnmeasurable);
   }
 
-  for (const root of ctx.tree) walk(root, solidFillOf(ctx.nodes.get(root.id)), false);
+  for (const root of ctx.tree) {
+    const rootData = ctx.nodes.get(root.id);
+    const rootFill = solidFillOf(rootData);
+    walk(root, rootFill, overUnmeasurableBackground(rootData));
+  }
   return findings;
 }
 

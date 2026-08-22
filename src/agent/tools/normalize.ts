@@ -54,10 +54,37 @@ function holdsProse(node: any): boolean {
   );
 }
 
+function isIconButtonOrBadge(node: any): boolean {
+  if (node.type !== "frame" || !Array.isArray(node.children) || node.children.length !== 1) return false;
+  const child = node.children[0];
+  if (!child || (child.type !== "icon" && child.type !== "text")) return false;
+  const w = typeof node.width === "number" ? node.width : 0;
+  const h = typeof node.height === "number" ? node.height : 0;
+  const radius = node.cornerRadius;
+  const isPillOrCircle =
+    (typeof radius === "number" && radius >= 12) ||
+    (Array.isArray(radius) && radius.some((r: any) => typeof r === "number" && r >= 12));
+  const isSquare = w > 0 && h > 0 && Math.abs(w - h) <= 8 && w <= 80;
+  return isSquare || isPillOrCircle;
+}
+
 function applyDefaults(node: any, report: NormalizeReport): void {
-  if (node.type === "frame" && typeof node.height === "number" && holdsProse(node)) {
-    delete node.height;
-    report.defaulted.push("height: fit_content on a frame holding prose");
+  if (node.type === "frame") {
+    if (typeof node.height === "number" && holdsProse(node)) {
+      delete node.height;
+      report.defaulted.push("height: fit_content on a frame holding prose");
+    }
+    if (isIconButtonOrBadge(node)) {
+      if (node.justifyContent === undefined) {
+        node.justifyContent = "center";
+        report.defaulted.push("justifyContent: 'center' on icon/badge container");
+      }
+      if (node.alignItems === undefined) {
+        node.alignItems = "center";
+        report.defaulted.push("alignItems: 'center' on icon/badge container");
+      }
+    }
+    return;
   }
 
   if (node.type !== "text") return;

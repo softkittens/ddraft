@@ -35,7 +35,9 @@ export type AuditRule =
   | "cloned_content"
   | "icon_unresolved"
   | "single_elevation"
-  | "scaffold_only";
+  | "scaffold_only"
+  | "icon_alignment"
+  | "eyebrow_kicker";
 
 export type AuditSeverity = "blocker" | "warning" | "info";
 
@@ -52,6 +54,23 @@ export interface AuditContext {
   tree: LayoutNode[];
   nodes: Map<string, PenNode>;
   boxes: Map<string, LayoutNode>;
+  absBoxes: Map<string, Box>;
+}
+
+export function computeAbsoluteBoxes(tree: LayoutNode[]): Map<string, Box> {
+  const map = new Map<string, Box>();
+  function walk(node: LayoutNode, parentX: number, parentY: number) {
+    const absX = parentX + node.box.x;
+    const absY = parentY + node.box.y;
+    map.set(node.id, { x: absX, y: absY, width: node.box.width, height: node.box.height });
+    for (const child of node.children) {
+      walk(child, absX, absY);
+    }
+  }
+  for (const root of tree) {
+    walk(root, 0, 0);
+  }
+  return map;
 }
 
 export function createAuditContext(tree: LayoutNode[], doc: Document): AuditContext {
@@ -59,7 +78,8 @@ export function createAuditContext(tree: LayoutNode[], doc: Document): AuditCont
     doc,
     tree,
     nodes: indexDocument(doc),
-    boxes: flattenLayoutTree(tree)
+    boxes: flattenLayoutTree(tree),
+    absBoxes: computeAbsoluteBoxes(tree)
   };
 }
 
@@ -115,12 +135,12 @@ export function boxContains(outer: Box, inner: Box): boolean {
 export const BACKGROUND_TYPES = new Set(["frame", "group", "rectangle", "ellipse", "polygon"]);
 export const LITERAL_COLOR = /^#[0-9a-fA-F]{3,8}$/;
 export const UNIVERSAL_LITERALS = /^#(fff(f{0,5})?|ffffff[0-9a-f]{2}|000(0{0,5})?|000000[0-9a-f]{2})$/i;
-export const SCREEN_CHROME_NAME = /(status|top) ?bar/i;
+export const SCREEN_CHROME_NAME = /(status|top|tab|bottom|nav) ?bar|navigation/i;
 export const INTERACTIVE_NAME = /(button|btn|tab|action|toggle|fab|chip|control|cta)/i;
 export const ACCENT_TOKEN = /\$accent-(primary|secondary)\b/;
 export const REGION_ROLES: { role: string; pattern: RegExp }[] = [
   { role: "status bar", pattern: /status ?bar/i },
-  { role: "tab bar", pattern: /tab ?bar|bottom ?nav/i }
+  { role: "tab bar", pattern: /tab ?bar|bottom ?nav|navigation/i }
 ];
 
 export function parseHexColor(colorStr: string | undefined): { r: number; g: number; b: number } | null {

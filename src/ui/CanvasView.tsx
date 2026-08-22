@@ -16,6 +16,7 @@ import { useKeyboardControls } from "./canvas/useKeyboardControls";
 import { useCanvasPointer } from "./canvas/useCanvasPointer";
 import { useFileDrop } from "./canvas/useFileDrop";
 import { InlineTextEditor } from "./canvas/InlineTextEditor";
+import { AgentPens } from "./canvas/AgentPens";
 
 export const CanvasView: Component = () => {
   let containerRef: HTMLDivElement | undefined;
@@ -144,6 +145,7 @@ export const CanvasView: Component = () => {
         </div>
       </Show>
       <InlineTextEditor />
+      <AgentPens />
     </div>
   );
 };

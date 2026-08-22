@@ -1,5 +1,5 @@
 import { setProperty } from "../../model/edit";
-import { findNode } from "../../model/tree";
+import { findNode, findParent } from "../../model/tree";
 import { digestSubtree } from "../../digest/digest";
 import { layoutResolvedDocument, flattenLayoutTree } from "../../layout/layout";
 import { resolveInstances } from "../../model/instance";
@@ -85,13 +85,21 @@ export const setPropertyTool: DocumentToolDefinition = {
     doc = setProperty(doc, a.id, a.property, a.value);
     doc = applyIconRename(doc, a.id, a.property, a.value);
 
+    const parent = findParent(doc.children, a.id);
+    const parentLayout = parent && parent.type === "frame" ? (parent as any).layout : undefined;
+    const isAutoLayout = parentLayout === "horizontal" || parentLayout === "vertical";
+    const layoutTip =
+      (a.property === "x" || a.property === "y") && isAutoLayout
+        ? `\nnote: "${a.id}" is inside auto-layout parent "${parent!.name ?? parent!.id}" (layout: "${parentLayout}"). Position coordinates (x, y) are ignored by auto-layout. To center or align this child, set justifyContent: "center" and alignItems: "center" on parent "${parent!.id}".`
+        : "";
+
     if (doc === beforeWrite) {
-      return `no change: ${a.id}.${a.property} is already ${JSON.stringify(a.value)}. Something else is deciding this box — measure it, or change the parent instead.`;
+      return `no change: ${a.id}.${a.property} is already ${JSON.stringify(a.value)}. Something else is deciding this box — measure it, or change the parent instead.${layoutTip}`;
     }
     ctx.setDoc(doc);
     const note = GEOMETRY_PROPERTIES.has(a.property) ? measuredNote(doc, a.id) : "";
     const loop = ctx.recordWrite(a.id, a.property, a.value);
-    return [digestSubtree(doc, a.id), note, loop].filter(Boolean).join("\n");
+    return [digestSubtree(doc, a.id), note, loop, layoutTip].filter(Boolean).join("\n");
   }
 };
 

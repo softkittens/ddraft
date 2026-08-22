@@ -185,7 +185,8 @@ export function drawShape(
         const fam = resolveFontFamily(textNode.fontFamily, variables);
         const weight = textNode.fontWeight || "normal";
         ctx.font = `${weight} ${size}px ${fam}`;
-        ctx.fillStyle = resolveVariable(textNode.fill, variables) || "#1e293b";
+        const defaultTextFill = resolveVariable("$foreground-primary", variables) || "#1e293b";
+        ctx.fillStyle = resolveVariable(textNode.fill, variables) || defaultTextFill;
         ctx.textBaseline = "middle";
 
         const align = textNode.textAlign || "left";

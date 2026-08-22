@@ -66,6 +66,25 @@ describe("insert_node normalizes what the model wrote", () => {
     expect(result).not.toContain("dropped");
   });
 
+  it("defaults centering on icon buttons and action frames", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: {
+        type: "frame",
+        id: "btn",
+        name: "Action Button",
+        width: 48,
+        height: 48,
+        cornerRadius: 24,
+        children: [{ type: "icon", id: "ico", icon: "heart", width: 24, height: 24 }]
+      }
+    });
+    expect(result).toContain("filled in 2 values");
+    const frameNode = session.doc.children[0] as any;
+    expect(frameNode.justifyContent).toBe("center");
+    expect(frameNode.alignItems).toBe("center");
+  });
+
   it("parses pen.dev files with forward-compatible shadowType and offset effect properties", () => {
     const raw = JSON.stringify({
       version: "2.17",

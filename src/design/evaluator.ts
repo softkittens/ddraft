@@ -47,7 +47,11 @@ import {
   checkClonedContent,
   checkIconGeometry,
   checkStatTileRow,
-  checkScaffoldOnlyScreens
+  checkScaffoldOnlyScreens,
+  checkUncenteredIconButtons,
+  checkEyebrowKicker,
+  checkTextBoundaryCollisions,
+  checkChromeCollisions
 } from "./rules/composition";
 
 /* ------------------------------------------------------------------ *
@@ -93,7 +97,11 @@ const AUDIT_RULES: AuditRuleRunner[] = [
   checkClonedContent,
   checkIconGeometry,
   checkScaleDiscipline,
-  checkScaffoldOnlyScreens
+  checkScaffoldOnlyScreens,
+  checkUncenteredIconButtons,
+  checkEyebrowKicker,
+  checkTextBoundaryCollisions,
+  checkChromeCollisions
 ];
 
 /* ------------------------------------------------------------------ *

@@ -49,11 +49,7 @@ export function iconCatalogAvailable(): boolean {
 
 export function elementToPath(tag: string, attrs: Record<string, any>): string {
   if (tag === "path") {
-    let d = (attrs.d || "").trim();
-    if (d.startsWith("m")) {
-      d = "M" + d.slice(1);
-    }
-    return d;
+    return (attrs.d || "").trim();
   }
   if (tag === "circle") {
     const r = Number(attrs.r || 0);
@@ -141,7 +137,14 @@ const ALIASES: Record<string, string> = {
   profile: "user",
   person: "user",
   photo: "image",
-  picture: "image"
+  picture: "image",
+  verified: "badge-check",
+  "check-badge": "badge-check",
+  checkmark: "check",
+  tick: "check",
+  sliders: "sliders-horizontal",
+  filter: "sliders-horizontal",
+  filters: "sliders-horizontal"
 };
 
 /** Geometry for one icon name, from the core map or the registered catalog. */

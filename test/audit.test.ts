@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { makeDoc, frame, txt, rect } from "./harness";
+import { makeDoc, frame, screen, txt, rect } from "./harness";
 import { layoutDocument } from "../src/layout/layout";
 import {
   auditDesign,
@@ -219,6 +219,14 @@ describe("Styling, Colors & Effects", () => {
 
     const onPhoto = makeDoc(frame("s", 300, 200, [txt("t", "Photo", 14, { fill: "#FFF" })], { fill: { type: "image", url: "p.jpg" } }));
     expect(rules(onPhoto)).not.toContain("low_contrast");
+
+    // Solid card over photo is evaluated for contrast
+    const cardOverPhoto = makeDoc(
+      frame("s", 300, 400, [
+        frame("card", 200, 100, [txt("t", "Dark on Dark", 14, { fill: "#1e293b" })], { fill: "#0f172a" })
+      ], { fill: { type: "image", url: "p.jpg" } })
+    );
+    expectFinding(cardOverPhoto, "low_contrast", { severity: "blocker" });
   });
 
   it("evaluates token bypass across literals, multi-fills and gradient stops", () => {
@@ -426,5 +434,74 @@ describe("Scoping, Triage & Tool Integration", () => {
     const partialScreen = makeDoc(frame("screen", 390, "fit_content", [frame("sb", "fill_container", 62, [], { name: "Status Bar" }), txt("t", "Arrivals", 20, {})], { layout: "vertical" }));
     expect(auditDocument(partialScreen).map((f) => f.rule)).toContain("missing_display");
     expect(auditInsertion(partialScreen, "screen").map((f) => f.rule)).not.toContain("missing_display");
+  });
+
+  it("flags uncentered icon buttons as icon_alignment warning", () => {
+    const uncenteredButton = makeDoc(
+      frame("screen", 390, 844, [
+        frame("btn", 48, 48, [
+          { type: "icon", id: "ico", name: "Heart", icon: "heart", width: 24, height: 24 } as any
+        ], {
+          name: "Action Button",
+          cornerRadius: 24,
+          layout: "horizontal",
+          justifyContent: "start",
+          alignItems: "start"
+        })
+      ])
+    );
+    expectFinding(uncenteredButton, "icon_alignment", {
+      severity: "warning",
+      message: "pinned to its top-left corner"
+    });
+  });
+
+  it("flags eyebrow kickers above headings", () => {
+    const kickerDoc = makeDoc(
+      frame("screen", 390, 844, [
+        frame("header", 300, 100, [
+          txt("eyebrow", "NEAR YOU", 10),
+          txt("title", "Brooklyn, NY", 28)
+        ], { layout: "vertical" })
+      ])
+    );
+    expectFinding(kickerDoc, "eyebrow_kicker", {
+      severity: "warning",
+      message: "is an eyebrow/kicker placed above heading"
+    });
+  });
+
+  it("flags text colliding across image boundaries", () => {
+    const collisionDoc = makeDoc(
+      frame("screen", 390, 844, [
+        frame("card", 320, 400, [
+          frame("hero", 320, 200, [
+            frame("img", 320, 200, [], { fill: { type: "image", url: "cat.png" } })
+          ]),
+          frame("details", 320, 200, [
+            txt("mochi", "Mochi", 44, { layoutPosition: "absolute", x: 20, y: -20 } as any)
+          ], { layout: "none" })
+        ], { layout: "vertical" })
+      ])
+    );
+    expectFinding(collisionDoc, "collision", {
+      severity: "blocker",
+      message: "partially overlaps and cuts across the boundary"
+    });
+  });
+
+  it("flags content overlapping bottom navigation chrome", () => {
+    const chromeDoc = makeDoc(
+      screen("screen", [
+        frame("content", 390, 750, [
+          txt("footer", "Available for meet-and-greet · Northside Shelter", 14, { layoutPosition: "absolute", x: 20, y: 790 } as any)
+        ], { layout: "none" }),
+        frame("tab_bar", 390, 64, [], { name: "Tab Bar", layoutPosition: "absolute", x: 0, y: 780 } as any)
+      ], { layout: "none" })
+    );
+    const findings = audit(chromeDoc);
+    const chromeFinding = findings.find((f) => f.nodeId === "footer" && f.rule === "collision");
+    expect(chromeFinding).toBeDefined();
+    expect(chromeFinding!.message).toContain("overlaps the bottom navigation bar");
   });
 });

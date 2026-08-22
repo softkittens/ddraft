@@ -44,6 +44,16 @@ export function findNode(nodes: PenNode[], id: string): PenNode | null {
   return null;
 }
 
+export function findParent(nodes: PenNode[], targetId: string): PenNode | null {
+  for (const node of nodes) {
+    const kids = childrenOf(node);
+    if (kids.some((k) => k.id === targetId)) return node;
+    const found = findParent(kids, targetId);
+    if (found) return found;
+  }
+  return null;
+}
+
 export function cloneDocument(doc: Document): Document {
   return structuredClone(doc);
 }

@@ -12,6 +12,7 @@ import {
   isDescendant,
   hasImageFill,
   solidFillOf,
+  boxesOverlap,
   INTERACTIVE_NAME,
   REGION_ROLES,
   SCREEN_CHROME_NAME
@@ -474,6 +475,176 @@ export function checkStatTileRow(ctx: AuditContext): AuditFinding[] {
         )
       );
       break;
+    }
+  }
+
+  return findings;
+}
+
+export function checkUncenteredIconButtons(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "frame") return;
+    const kids = childrenOf(node).filter((c) => c.enabled !== false);
+    if (kids.length !== 1) return;
+    const child = kids[0];
+    if (child.type !== "icon") return;
+
+    const frameBox = ctx.boxes.get(node.id)?.box;
+    const childBox = ctx.boxes.get(child.id)?.box;
+    if (!frameBox || !childBox || frameBox.width <= 0 || frameBox.height <= 0) return;
+
+    const excessW = frameBox.width - childBox.width;
+    const excessH = frameBox.height - childBox.height;
+    if (excessW < 6 && excessH < 6) return;
+
+    const relX = childBox.x;
+    const relY = childBox.y;
+
+    const isTopLeftPinned = (relX <= 2 || relY <= 2) && (excessW >= 6 || excessH >= 6);
+    const radius = node.cornerRadius;
+    const isPillOrCircle =
+      (typeof radius === "number" && radius >= 8) ||
+      (Array.isArray(radius) && radius.some((r) => typeof r === "number" && r >= 8));
+    const isSquareOrCircular = Math.abs(frameBox.width - frameBox.height) <= 12 || isPillOrCircle || INTERACTIVE_NAME.test(node.name ?? "");
+
+    if (isTopLeftPinned && isSquareOrCircular) {
+      findings.push(
+        warning(
+          "icon_alignment",
+          node.id,
+          `Icon button "${node.name ?? node.id}" (${Math.round(frameBox.width)}x${Math.round(frameBox.height)}px) holds an icon pinned to its top-left corner instead of centered.`,
+          "Set justifyContent: 'center', alignItems: 'center' on the button frame to center the icon."
+        )
+      );
+    }
+  });
+
+  return findings;
+}
+
+export function checkEyebrowKicker(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "frame") return;
+    const kids = childrenOf(node).filter((c) => c.enabled !== false);
+    for (let i = 0; i < kids.length - 1; i++) {
+      const a = kids[i];
+      const b = kids[i + 1];
+      if (a.type === "text" && b.type === "text") {
+        const aText = a as TextNode;
+        const bText = b as TextNode;
+        const aSize = aText.fontSize ?? 14;
+        const bSize = bText.fontSize ?? 14;
+        if (aSize <= 12 && bSize >= 20) {
+          findings.push(
+            warning(
+              "eyebrow_kicker",
+              a.id,
+              `"${(aText.content ?? a.id).slice(0, 24)}" (${aSize}px) is an eyebrow/kicker placed above heading "${(bText.content ?? b.id).slice(0, 24)}" (${bSize}px).`,
+              "Drop the eyebrow kicker (Rule 11). Lead directly with the strong heading, and put contextual details below the heading if needed."
+            )
+          );
+        }
+      }
+    }
+  });
+  return findings;
+}
+
+export function checkTextBoundaryCollisions(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  const textNodes: PenNode[] = [];
+  const imageNodes: PenNode[] = [];
+
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type === "text") textNodes.push(node);
+    if (hasImageFill(node) || (node as any).type === "image") imageNodes.push(node);
+  });
+
+  for (const text of textNodes) {
+    const textBox = ctx.absBoxes.get(text.id);
+    if (!textBox || textBox.width <= 0 || textBox.height <= 0) continue;
+
+    for (const img of imageNodes) {
+      if (text.id === img.id) continue;
+      if (isDescendant(text, img)) continue;
+
+      const imgBox = ctx.absBoxes.get(img.id);
+      if (!imgBox || imgBox.width <= 0 || imgBox.height <= 0) continue;
+
+      if (boxesOverlap(textBox, imgBox)) {
+        const textContent = (text as TextNode).content ?? text.id;
+        findings.push(
+          blocker(
+            "collision",
+            text.id,
+            `Text "${textContent.slice(0, 32)}" partially overlaps and cuts across the boundary of image "${img.name ?? img.id}".`,
+            "Place the text entirely inside the image with an overlay, or position it fully outside the image with clear padding."
+          )
+        );
+      } else if (
+        textBox.y >= imgBox.y + imgBox.height &&
+        textBox.y <= imgBox.y + imgBox.height + 4 &&
+        textBox.x < imgBox.x + imgBox.width &&
+        textBox.x + textBox.width > imgBox.x
+      ) {
+        const textContent = (text as TextNode).content ?? text.id;
+        findings.push(
+          warning(
+            "spacing_scale",
+            text.id,
+            `Text "${textContent.slice(0, 32)}" is glued directly to the bottom edge of image "${img.name ?? img.id}" with ${Math.round(textBox.y - (imgBox.y + imgBox.height))}px gap.`,
+            "Add at least 12px padding or gap between the image and subsequent text."
+          )
+        );
+      }
+    }
+  }
+
+  return findings;
+}
+
+export function checkChromeCollisions(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  const BOTTOM_NAV_NAME = /(tab|bottom|nav) ?bar|navigation/i;
+
+  for (const screen of ctx.doc.children) {
+    if (!isScreen(screen)) continue;
+
+    const chromeFrames: PenNode[] = [];
+    walkEnabled(childrenOf(screen), (n) => {
+      if (n.type === "frame") {
+        const isChrome = (n as any).metadata?.scaffold === "chrome" || BOTTOM_NAV_NAME.test(n.name ?? "");
+        if (isChrome) chromeFrames.push(n);
+      }
+    });
+
+    for (const chrome of chromeFrames) {
+      const chromeBox = ctx.absBoxes.get(chrome.id);
+      if (!chromeBox || chromeBox.width <= 0 || chromeBox.height <= 0) continue;
+
+      walkEnabled(childrenOf(screen), (contentNode) => {
+        if (contentNode.id === chrome.id || isDescendant(contentNode, chrome)) return;
+        if (contentNode.type !== "text" && contentNode.type !== "icon" && !hasImageFill(contentNode) && (contentNode as any).type !== "image") return;
+
+        const contentBox = ctx.absBoxes.get(contentNode.id);
+        if (!contentBox || contentBox.width <= 0 || contentBox.height <= 0) return;
+
+        if (boxesOverlap(contentBox, chromeBox)) {
+          const overlapY = Math.round(contentBox.y + contentBox.height - chromeBox.y);
+          const name = contentNode.type === "text" ? `"${(contentNode as TextNode).content?.slice(0, 24)}"` : `"${contentNode.name ?? contentNode.id}"`;
+          findings.push(
+            blocker(
+              "collision",
+              contentNode.id,
+              `Content node ${name} overlaps the bottom navigation bar by ${overlapY}px.`,
+              "Shorten content, reduce card heights or spacing, or set layout container height so content fits cleanly above the navigation bar."
+            )
+          );
+        }
+      });
     }
   }
 

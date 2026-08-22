@@ -265,6 +265,15 @@ export class SessionWatchdog {
         message: `Agent stopped after ${this.stalledTurns} tool rounds made no canvas progress. Partial design was kept.`
       };
     }
+    if (this.stalledTurns >= 2) {
+      return {
+        action: "nudge",
+        text:
+          "Your last tool calls made no canvas changes (the values were already set or the nodes were unaffected). " +
+          "If an element is misaligned (e.g. an icon button not centered), set justifyContent: 'center', alignItems: 'center' on its parent frame, " +
+          "or proceed with building the remaining sections."
+      };
+    }
     return { action: "progress" };
   }
 

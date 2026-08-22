@@ -12,6 +12,7 @@ import {
   persistChat
 } from "../store";
 import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
+import { noteAgentEdits, clearAgentEditTargets, diffChangedNodeIds } from "../canvas/agentEditTargets";
 import type { Message } from "../../agent/provider";
 import type { PublicProvider } from "../../agent/credentials";
 import type { Document } from "../../model/types";
@@ -48,9 +49,11 @@ function toEntries(messages: Message[]): Entry[] {
 }
 
 function applyCanvasUpdate(nextDoc: Document) {
+  const oldMap = nodeMap();
   const oldPositions = snapshotPositions(layoutTree());
   updateDoc(nextDoc);
   trackLayoutTransitionsFromSnapshot(oldPositions, layoutTree(), 320);
+  noteAgentEdits(diffChangedNodeIds(oldMap, nodeMap()), layoutTree());
 }
 
 function rememberStyle(doc: Document, brief: string) {
@@ -106,6 +109,7 @@ export function useChatSession() {
       setStreamReasoning("");
       setPending(null);
       setRunning(false);
+      clearAgentEditTargets();
     }, { defer: true })
   );
 
@@ -331,7 +335,7 @@ export function useChatSession() {
         setAgentMessages(context);
 
         if (result.failure) break;
-        if (!result.finished || !result.edited || pass === AUTO_REVIEW_REVISIONS) break;
+        if (!result.finished || !result.edited) break;
 
         const reviewed = await runReview(sessionId);
         if (reviewed.error) {
@@ -358,13 +362,14 @@ export function useChatSession() {
           }
         ]);
 
-        if (review.verdict !== "refine" || review.issues.length === 0) break;
+        if (review.verdict !== "refine" || pass === AUTO_REVIEW_REVISIONS) break;
         instruction = applyReviewMessage(lastBrief(), review, doc());
       }
     } finally {
       abort = null;
       setPending(null);
       setRunning(false);
+      clearAgentEditTargets();
       rememberStyle(doc(), text);
       void flushSession();
     }
@@ -380,6 +385,7 @@ export function useChatSession() {
     setStreamReasoning("");
     setPending(null);
     setRunning(false);
+    clearAgentEditTargets();
     persistChat({ entries: [], agentMessages: [], lastBrief: "" });
     void flushSession();
   };

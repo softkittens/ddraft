@@ -182,9 +182,14 @@ export function applyReviewMessage(
     "When you finish, say in one sentence what you changed. What the product is",
     "has already been said."
   ];
-  for (const issue of review.issues) {
-    const where = issue.nodeIds && issue.nodeIds.length > 0 ? ` (${issue.nodeIds.join(", ")})` : "";
-    lines.push(`- ${issue.title}${where}: ${issue.instruction}`);
+
+  if (review.issues.length === 0) {
+    lines.push("- Address layout alignment, button centering, media breathing room, and visual hierarchy to bring the design to production polish.");
+  } else {
+    for (const issue of review.issues) {
+      const where = issue.nodeIds && issue.nodeIds.length > 0 ? ` (${issue.nodeIds.join(", ")})` : "";
+      lines.push(`- ${issue.title}${where}: ${issue.instruction}`);
+    }
   }
 
   const cited = [...new Set(review.issues.flatMap((issue) => issue.nodeIds ?? []))];
