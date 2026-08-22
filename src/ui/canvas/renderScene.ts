@@ -86,11 +86,25 @@ export function renderScene(
     }
   }
 
-  // Paint scene nodes (frustum-culled at the root level)
+  // Paint scene nodes (frustum-culled at the root level and child level)
   const skipId = dragSession && !isAltHeld ? dragSession.nodeId : undefined;
+  const viewBounds = {
+    left: viewLeft - cullingMargin,
+    top: viewTop - cullingMargin,
+    right: viewRight + cullingMargin,
+    bottom: viewBottom + cullingMargin
+  };
+
   for (const root of tree) {
     if (isVisible(root.box) || (skipId && root.id === skipId)) {
-      paintNode(ctx, root, map, variables, { skipNodeId: skipId, animatedPositions: animPositions });
+      paintNode(ctx, root, map, variables, {
+        skipNodeId: skipId,
+        animatedPositions: animPositions,
+        zoom: camera.zoom,
+        worldX: 0,
+        worldY: 0,
+        viewBounds
+      });
     }
   }
 

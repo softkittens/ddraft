@@ -22,6 +22,18 @@ import {
 
 const DEFAULT_ICON_PATH = "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5";
 
+const path2dCache = new Map<string, Path2D>();
+
+function getOrCreatePath2D(geom: string): Path2D | null {
+  if (typeof Path2D === "undefined" || !geom) return null;
+  let p = path2dCache.get(geom);
+  if (!p) {
+    p = new Path2D(geom);
+    path2dCache.set(geom, p);
+  }
+  return p;
+}
+
 export function setupCanvas(
   canvas: HTMLCanvasElement,
   width: number,
@@ -51,31 +63,34 @@ export function drawShape(
   ctx: CanvasRenderingContext2D,
   layoutNode: LayoutNode,
   data?: PenNode,
-  variables?: Record<string, any>
+  variables?: Record<string, any>,
+  zoom = 1
 ): void {
   const { box } = layoutNode;
   const fillStyle = resolveFill(ctx, data?.fill, box, variables);
-  if (data?.effect) applyEffects(ctx, data.effect, variables);
+  if (data?.effect) applyEffects(ctx, data.effect, variables, zoom);
 
   ctx.beginPath();
   switch (layoutNode.type) {
     case "path": {
       const pathNode = data as PathNode;
-      if (pathNode?.geometry && typeof Path2D !== "undefined") {
-        const path2d = new Path2D(pathNode.geometry);
-        ctx.save();
-        if (pathNode.viewBox) {
-          const parts = pathNode.viewBox.split(" ").map(Number);
-          const vbW = parts[2] || box.width;
-          const vbH = parts[3] || box.height;
-          ctx.scale(box.width / vbW, box.height / vbH);
+      if (pathNode?.geometry) {
+        const path2d = getOrCreatePath2D(pathNode.geometry);
+        if (path2d) {
+          ctx.save();
+          if (pathNode.viewBox) {
+            const parts = pathNode.viewBox.split(" ").map(Number);
+            const vbW = parts[2] || box.width;
+            const vbH = parts[3] || box.height;
+            ctx.scale(box.width / vbW, box.height / vbH);
+          }
+          if (fillStyle) {
+            ctx.fillStyle = fillStyle;
+            ctx.fill(path2d);
+          }
+          strokeCurrentPath(ctx, data, variables, path2d);
+          ctx.restore();
         }
-        if (fillStyle) {
-          ctx.fillStyle = fillStyle;
-          ctx.fill(path2d);
-        }
-        strokeCurrentPath(ctx, data, variables, path2d);
-        ctx.restore();
       }
       break;
     }
@@ -131,12 +146,17 @@ export function drawShape(
     case "text": {
       const textNode = data as TextNode;
       if (textNode?.content) {
+        const size = textNode.fontSize || 14;
+        // Text LOD: skip glyph rasterization when text footprint is subpixel (< 2.5 screen pixels)
+        if (zoom && size * zoom < 2.5) {
+          break;
+        }
+
         const fam = resolveFontFamily(textNode.fontFamily, variables);
         const weight = textNode.fontWeight || "normal";
-        const size = textNode.fontSize || 14;
         ctx.font = `${weight} ${size}px ${fam}`;
         ctx.fillStyle = resolveVariable(textNode.fill, variables) || "#1e293b";
-        ctx.textBaseline = "top";
+        ctx.textBaseline = "middle";
 
         const align = textNode.textAlign || "left";
         let startX = 0;
@@ -152,7 +172,7 @@ export function drawShape(
         }
 
         const metrics = measureTextNode(textNode, box.width, variables);
-        let curY = 0;
+        let curY = metrics.lineHeight / 2;
         for (const line of metrics.lines) {
           ctx.fillText(line, startX, curY);
           curY += metrics.lineHeight;
@@ -164,8 +184,8 @@ export function drawShape(
       const iconNode = data as IconNode;
       const iconName = iconNode?.icon || iconNode?.name || "sparkles";
       const geom = iconNode?.geometry || getLucideIconPath(iconName) || DEFAULT_ICON_PATH;
-      if (typeof Path2D !== "undefined") {
-        const path2d = new Path2D(geom);
+      const path2d = getOrCreatePath2D(geom);
+      if (path2d) {
         ctx.save();
         ctx.scale(box.width / 24, box.height / 24);
         if (data?.fill) {

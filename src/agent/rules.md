@@ -8,43 +8,43 @@
 
 MOBILE SCREEN COMPOSITION (390pt wide)
 
-create_screen builds chrome and returns the id of each slot. Put aligned
-text and controls in content; put edge-to-edge imagery or colour in bleed. You
-may place bleed children before or after content to make the composition photo-led.
-Restyle the returned tabBar when the visual direction calls for custom navigation.
+create_screen builds chrome and returns slot ids. Put aligned text/controls in
+content; edge-to-edge imagery or colour in bleed. You may place bleed children
+before or after content for photo-led layouts. Restyle tabBar for custom navigation.
 
-  1. Choose a composition that belongs to this product. Do not default to a generic app shell.
-  2. Sections in the content slot are separated by its gap. Related items inside a section sit in their own frame with a smaller gap. Never insert an empty frame as a spacer.
-  3. Every mobile root is a fixed device frame. Keep its visible content inside that viewport; scrolling is product behaviour, not a taller mockup.
+  1. Choose a distinct composition; avoid generic app shells.
+  2. Gestalt rhythm: 6–12px gap within a group, 24–36px between sections. Never insert empty frames as spacers.
+  3. Every mobile root is a fixed device frame. Keep visible content inside the viewport.
 
 ## desktop-composition
 
 DESKTOP COMPOSITION
 
-create_screen with kind: 'desktop' returns topBar, rail, main and aside.
+create_screen with kind: 'desktop' returns topBar, rail, main, aside.
 
-  1. main is the reason the screen exists. Give it the substance; the rails hold navigation, filters, and queues.
-  2. Density is allowed here. Small text is not — the 11px floor still holds.
-  3. Drop the aside by leaving it empty if the product has no second stream.
+  1. main holds core substance; rails hold navigation, filters, queues.
+  2. Density is allowed; 11px text floor still holds.
+  3. Drop aside by leaving it empty if not needed.
 
 ## craft-rules
 
 RULES
 
-  1. One primary intent per screen. Everything else is subordinate to it.
-  2. The first two elements answer "where am I" and "what can I do here".
-  3. Exactly one element per screen carries a solid '$accent-primary' fill. That element is the primary action.
-  4. Put the key action in the lower half. A thumb reaches there. In forms and preference views, primary submit/save action buttons must sit at the bottom of the section or in a dedicated bottom action bar, never in the middle of list rows.
-  5. Show concrete entities, not placeholders. A row is a named thing with a state, a value, and a time.
-  6. Content comes from the brief. Invent the names, numbers and copy a real instance of this product would hold, and never carry content over from another design. Never invent a claim: "10x faster", "99.9% uptime" and a rating with no source are marketing, not content.
-  7. Repeated structure becomes a component. Build it once with reusable: true, then place instances with { type: 'ref', ref: '<componentId>' }.
-  8. Every text node sets fontFamily to '$font-heading', '$font-body' or '$font-caption', and every colour is a token ($surface-primary, $surface-secondary, $accent-primary, $border-subtle, $foreground-primary, $foreground-secondary). Badges, chips, and pill containers must use $surface-secondary or $surface-primary with $border-subtle or subtle opacity, never un-tokenized raw hex fills like #FFF3BF or #FDE68A. A literal hex is only allowed for text and icons that sit on a photograph.
-  9. Size with layout, not arithmetic: width: 'fill_container' to span a parent, height: 'fit_content' to grow with content. A fixed height on a frame that holds text clips it, and any text meant to wrap needs 'fill_container' — with no width to wrap into, it is measured as one long line and clipped. Rely on declarative auto-layout ('fill_container', 'fit_content', gap, padding) rather than spending model rounds querying node dimensions with measure.
-  10. Icons are Lucide names on { type: 'icon', icon: '<name>', width, height, stroke }. Write the name straight onto the node — geometry resolves for any Lucide name, so search_icons is only for a name you doubt exists. Never use an emoji or a text glyph as an icon.
-  11. When the product depends on photography or illustration, call generate_image after creating its destination node. Never substitute a gradient, icon, or empty frame for the subject image.
-  12. Do not put an eyebrow or kicker above a heading. The heading carries its own weight.
-  13. Do not use same-size icon + heading + text cards as the page structure, nest cards inside cards, use gradient text, add decorative blobs, or use blur as decoration.
-  14. Accent may appear in at most two visible roles per screen. Do not number a section unless the sequence itself carries information.
+  1. One primary intent per screen. Everything else is subordinate.
+  2. First two elements answer "where am I" and "what can I do here".
+  3. Exactly one element per screen carries solid '$accent-primary' as primary action.
+  4. Key action in lower half for thumb reach. In forms, place primary action at bottom of section, not between list rows.
+  5. Show concrete entities, not placeholders. Invent the names, numbers and copy a real instance holds. Never invent a claim: "10x faster", "99.9% uptime" and a rating with no source are marketing, not content.
+  6. Repeated structure becomes a component: build with reusable: true, place instances with { type: 'ref', ref: '<componentId>' }.
+  7. Every text node sets fontFamily to '$font-heading', '$font-body' or '$font-caption', and every colour is a token ($surface-primary, $surface-secondary, $accent-primary, $border-subtle, $foreground-primary, $foreground-secondary). Badges, chips, and pill containers must use $surface-secondary or $surface-primary with $border-subtle, never raw hex fills. Literal hex only on photographs.
+  8. Size with layout, not arithmetic: width: 'fill_container' to span, height: 'fit_content' to grow. Text that wraps needs 'fill_container'. Rely on auto-layout ('fill_container', 'fit_content', gap, padding) rather than spending model rounds measuring node heights.
+  9. Icons: Lucide names on { type: 'icon', icon: '<name>', width, height, stroke }. Write the name straight onto the node — search_icons is only for a name you doubt exists. Never use an emoji or text glyph as an icon.
+  10. When the product depends on photography or illustration, call generate_image after creating destination node. Never substitute a gradient, icon, or empty frame for the subject image.
+  11. Do not put an eyebrow or kicker above a heading.
+  12. Do not use same-size icon + heading + text cards as the page structure, nest cards inside cards, use gradient text, add decorative blobs, or use blur as decoration.
+  13. Accent in at most two visible roles per screen. Do not number sections unless sequence carries information.
+  14. Declare elevation once per container: either a stroke ($border-subtle) or a shadow effect, never both on the same card.
+  15. Vary controls in forms and settings: use segmented pills, toggle switches, or badge chips for choices rather than repetitive text rows with identical slider icons.
 
 ## canvas-api
 
@@ -57,9 +57,9 @@ CANVAS API
   ref    ref, descendants
   Properties on all nodes: id, name, x, y, width, height, fill, stroke, strokeWidth, cornerRadius, rotation, opacity, clip, reusable, effect.
 
-  width/height take a number, 'fill_container', or 'fit_content'.
-  fill takes a token ('$surface-primary'), hex string, gradient object, or { type: 'image', url: '...' }.
-  insert_node builds an entire subtree in one call. Build a screen in a few large calls, not one call per node.
+  width/height: number, 'fill_container', 'fit_content'.
+  fill: token ('$surface-primary'), hex string, gradient object, or { type: 'image', url: '...' }.
+  insert_node: builds a whole subtree in one call. Build a screen in a few large calls, not one call per node.
 
 ## critic
 

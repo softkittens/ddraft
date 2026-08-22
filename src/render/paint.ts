@@ -47,6 +47,10 @@ export interface PaintNodeOptions {
   skipNodeId?: string;
   animatedPositions?: Map<string, { x: number; y: number }>;
   animate?: boolean;
+  zoom?: number;
+  worldX?: number;
+  worldY?: number;
+  viewBounds?: { left: number; top: number; right: number; bottom: number };
 }
 
 export function paintNode(
@@ -56,7 +60,7 @@ export function paintNode(
   variables?: Record<string, any>,
   options: PaintNodeOptions = {}
 ): void {
-  const { skipNodeId, animatedPositions, animate = true } = options;
+  const { skipNodeId, animatedPositions, animate = true, zoom = 1, worldX = 0, worldY = 0, viewBounds } = options;
   const data = nodeMap.get(layoutNode.id);
   if (data?.enabled === false) return;
   if (layoutNode.id === skipNodeId) return;
@@ -64,6 +68,26 @@ export function paintNode(
   const animPos = animatedPositions?.get(layoutNode.id);
   const posX = animPos ? animPos.x : layoutNode.box.x;
   const posY = animPos ? animPos.y : layoutNode.box.y;
+  const curWorldX = worldX + posX;
+  const curWorldY = worldY + posY;
+
+  // Frustum culling: skip children entirely outside the viewport
+  if (viewBounds) {
+    if (
+      curWorldX + layoutNode.box.width < viewBounds.left ||
+      curWorldX > viewBounds.right ||
+      curWorldY + layoutNode.box.height < viewBounds.top ||
+      curWorldY > viewBounds.bottom
+    ) {
+      return;
+    }
+  }
+
+  // Sub-pixel culling: skip rendering shapes smaller than 0.35 screen pixels
+  if (zoom && layoutNode.box.width * zoom < 0.35 && layoutNode.box.height * zoom < 0.35) {
+    return;
+  }
+
   const { rotation } = layoutNode;
 
   ctx.save();
@@ -104,7 +128,7 @@ export function paintNode(
     ctx.clip();
   }
 
-  drawShape(ctx, layoutNode, data, variables);
+  drawShape(ctx, layoutNode, data, variables, zoom);
 
   if (spawn && spawn.glow > 0.05 && layoutNode.type === "frame") {
     ctx.save();
@@ -122,8 +146,15 @@ export function paintNode(
   }
 
   if (layoutNode.children && layoutNode.children.length > 0) {
+    const childOpts: PaintNodeOptions = {
+      ...options,
+      worldX: curWorldX,
+      worldY: curWorldY,
+      zoom,
+      viewBounds
+    };
     for (const child of layoutNode.children) {
-      paintNode(ctx, child, nodeMap, variables, options);
+      paintNode(ctx, child, nodeMap, variables, childOpts);
     }
   }
 

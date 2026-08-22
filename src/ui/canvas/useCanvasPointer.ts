@@ -220,10 +220,7 @@ export function useCanvasPointer(opts: {
 
   const handleWheel = (e: WheelEvent) => {
     e.preventDefault();
-    const canvas = opts.getCanvas();
-    if (!canvas) return;
-    const rectBounds = canvas.getBoundingClientRect();
-    const screenPt = { x: e.clientX - rectBounds.left, y: e.clientY - rectBounds.top };
+    const screenPt = { x: e.offsetX, y: e.offsetY };
 
     if (e.ctrlKey || e.metaKey) {
       const delta = Math.max(-100, Math.min(100, e.deltaY));

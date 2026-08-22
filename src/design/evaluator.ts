@@ -35,7 +35,8 @@ import {
   checkTokenBypass,
   checkAccentOveruse,
   checkShadowQuality,
-  checkBorderAccent
+  checkBorderAccent,
+  checkSingleElevation
 } from "./rules/styling";
 import {
   checkTapTargets,
@@ -84,6 +85,7 @@ const AUDIT_RULES: AuditRuleRunner[] = [
   checkTokenBypass,
   checkShadowQuality,
   checkBorderAccent,
+  checkSingleElevation,
   checkTracking,
   checkProseMeasure,
   checkStatTileRow,
@@ -175,7 +177,8 @@ const IMMEDIATE_RULES: ReadonlySet<AuditRule> = new Set<AuditRule>([
   "tracking",
   "prose_measure",
   "border_accent",
-  "shadow_quality"
+  "shadow_quality",
+  "single_elevation"
 ]);
 
 export function auditInsertion(doc: Document, subtreeId: string): AuditFinding[] {

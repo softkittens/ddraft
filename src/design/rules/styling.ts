@@ -128,8 +128,12 @@ function shadowsOf(node: PenNode): { x: number; y: number; blur: number }[] {
   const raw = node.effect;
   const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
   return list
-    .filter((e: any) => e && e.enabled !== false && (e.type === "shadow" || e.type === "inner_shadow"))
-    .map((e: any) => ({ x: e.x ?? 0, y: e.y ?? 0, blur: e.blur ?? 0 }));
+    .filter((e: any) => e && e.enabled !== false && (e.type === "shadow" || e.type === "inner_shadow" || e.shadowType !== undefined || e.offset !== undefined))
+    .map((e: any) => ({
+      x: e.x ?? e.offset?.x ?? 0,
+      y: e.y ?? e.offset?.y ?? 0,
+      blur: e.blur ?? e.radius ?? 0
+    }));
 }
 
 export function checkShadowQuality(ctx: AuditContext): AuditFinding[] {
@@ -201,6 +205,35 @@ export function checkBorderAccent(ctx: AuditContext): AuditFinding[] {
           node.id,
           `"${node.name ?? node.id}" is a rounded surface with a ${edge.width}px accent border on the ${edge.side}. That shape is the stock AI dashboard tile.`,
           "Drop either the radius or the accent border. Carry the state with the value's own weight, a small indicator, or the row's background."
+        )
+      );
+    }
+  });
+
+  return findings;
+}
+
+export function checkSingleElevation(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "frame") return;
+    const hasShadow = shadowsOf(node).length > 0;
+    const hasStroke = Boolean(
+      node.stroke &&
+      (typeof node.strokeWidth === "number"
+        ? node.strokeWidth > 0
+        : typeof node.strokeWidth === "object" &&
+          Object.values(node.strokeWidth).some((w) => typeof w === "number" && w > 0))
+    );
+
+    if (hasShadow && hasStroke) {
+      findings.push(
+        warning(
+          "single_elevation",
+          node.id,
+          `"${node.name ?? node.id}" sets both a stroke border and a shadow effect. That is a ghost card — declare elevation once.`,
+          "Choose either a subtle border (stroke: '$border-subtle') or a soft elevation shadow, not both on the same container."
         )
       );
     }

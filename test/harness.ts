@@ -129,6 +129,12 @@ export function createMockCanvas() {
   const ctx: any = new Proxy(state, {
     get: (target: any, prop: string) => {
       if (prop in target) return target[prop];
+      if (prop === "measureText") {
+        return (text: string) => {
+          calls.push(`measureText:${text}`);
+          return { width: (text || "").length * 6 };
+        };
+      }
       return (...args: any[]) => {
         const argStr = args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(",");
         calls.push(argStr ? `${prop}:${argStr}` : prop);

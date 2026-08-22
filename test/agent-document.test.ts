@@ -3,6 +3,7 @@ import { decideAgentDocument } from "../src/ui/agentDocument";
 import { makeDoc, frame, rect } from "./harness";
 import { setProperty } from "../src/model/edit";
 import { createDocumentTools } from "../src/agent/tools";
+import { parseDocument } from "../src/model/parse";
 
 describe("stale agent snapshots must not overwrite user edits", () => {
   it("accepts the first agent document against the request snapshot", () => {
@@ -63,5 +64,32 @@ describe("insert_node normalizes what the model wrote", () => {
     });
     expect(result).not.toContain("renamed");
     expect(result).not.toContain("dropped");
+  });
+
+  it("parses pen.dev files with forward-compatible shadowType and offset effect properties", () => {
+    const raw = JSON.stringify({
+      version: "2.17",
+      children: [
+        {
+          type: "frame",
+          id: "card",
+          width: 300,
+          height: 200,
+          effect: [
+            {
+              type: "shadow",
+              shadowType: "outer",
+              offset: { x: 0, y: 4 },
+              blur: 12,
+              color: "#00000033",
+              enabled: true
+            }
+          ]
+        }
+      ]
+    });
+    const parsed = parseDocument(raw);
+    expect(parsed.children).toHaveLength(1);
+    expect((parsed.children[0] as any).effect[0].shadowType).toBe("outer");
   });
 });

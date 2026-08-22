@@ -2,7 +2,9 @@ import { createSignal } from "solid-js";
 import { screenToWorld, type Point } from "../../interaction/camera";
 import { getNextNodeId } from "../../model/edit";
 import type { PenNode } from "../../model/types";
-import { camera, doc, updateDoc, setSelectedIds } from "../store";
+import { parseDocument } from "../../model/parse";
+import { importPenZip } from "../../model/importZip";
+import { camera, doc, updateDoc, setSelectedIds, resetZoom100 } from "../store";
 import { insertNodeAtWorld } from "./types";
 
 export function useFileDrop(getCanvas: () => HTMLCanvasElement | undefined) {
@@ -26,6 +28,38 @@ export function useFileDrop(getCanvas: () => HTMLCanvasElement | undefined) {
     setIsDragOverCanvas(false);
     const canvas = getCanvas();
     if (!canvas || !e.dataTransfer?.files?.length) return;
+
+    const docFile = Array.from(e.dataTransfer.files).find(
+      (f) =>
+        f.name.toLowerCase().endsWith(".zip") ||
+        f.name.toLowerCase().endsWith(".pen") ||
+        f.name.toLowerCase().endsWith(".json")
+    );
+
+    if (docFile) {
+      if (docFile.name.toLowerCase().endsWith(".zip")) {
+        docFile.arrayBuffer().then((ab) => {
+          try {
+            const parsed = importPenZip(new Uint8Array(ab));
+            updateDoc(parsed);
+            resetZoom100();
+          } catch (err: any) {
+            alert("Error parsing zip: " + (err?.message || err));
+          }
+        });
+      } else {
+        docFile.text().then((text) => {
+          try {
+            const parsed = parseDocument(text);
+            updateDoc(parsed);
+            resetZoom100();
+          } catch (err: any) {
+            alert("Error parsing file: " + (err?.message || err));
+          }
+        });
+      }
+      return;
+    }
 
     const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
     if (files.length === 0) return;

@@ -40,18 +40,25 @@ export const fillSchema = z.union([
 ]);
 
 export const shadowEffectSchema = z.object({
-  type: z.enum(["shadow", "inner_shadow"]),
+  type: z.enum(["shadow", "inner_shadow"]).or(z.string()),
   color: z.string().optional(),
   x: z.number().optional(),
   y: z.number().optional(),
+  offset: z.object({
+    x: z.number().optional(),
+    y: z.number().optional()
+  }).optional(),
   blur: z.number().optional(),
+  radius: z.number().optional(),
   spread: z.number().optional(),
+  shadowType: z.string().optional(),
   enabled: z.boolean().optional()
 }).strict();
 
 export const blurEffectSchema = z.object({
-  type: z.enum(["blur", "background_blur"]),
+  type: z.enum(["blur", "background_blur"]).or(z.string()),
   radius: z.number().optional(),
+  blur: z.number().optional(),
   enabled: z.boolean().optional()
 }).strict();
 

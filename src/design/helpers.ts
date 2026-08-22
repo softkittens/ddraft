@@ -33,7 +33,8 @@ export type AuditRule =
   | "prose_measure"
   | "stat_tile_row"
   | "cloned_content"
-  | "icon_unresolved";
+  | "icon_unresolved"
+  | "single_elevation";
 
 export type AuditSeverity = "blocker" | "warning" | "info";
 

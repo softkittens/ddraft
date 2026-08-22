@@ -49,15 +49,21 @@ export interface ShadowEffect {
   color?: string;
   x?: number;
   y?: number;
+  offset?: { x?: number; y?: number };
   blur?: number;
+  radius?: number;
   spread?: number;
+  shadowType?: string;
   enabled?: boolean;
+  [key: string]: any;
 }
 
 export interface BlurEffect {
   type: "blur" | "background_blur";
   radius?: number;
+  blur?: number;
   enabled?: boolean;
+  [key: string]: any;
 }
 
 export type Effect = ShadowEffect | BlurEffect;

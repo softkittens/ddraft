@@ -276,6 +276,20 @@ describe("Styling, Colors & Effects", () => {
     expect(rules(hairline)).not.toContain("border_accent");
     expect(rules(square)).not.toContain("border_accent");
   });
+
+  it("evaluates single elevation depth discipline (no ghost cards)", () => {
+    const ghostCard = makeDoc(frame("c", 200, 100, [], {
+      stroke: "$border-subtle",
+      strokeWidth: 1,
+      effect: [{ type: "shadow", x: 0, y: 4, blur: 12, color: "#0000001A", enabled: true }]
+    }));
+    const borderOnly = makeDoc(frame("c", 200, 100, [], { stroke: "$border-subtle", strokeWidth: 1 }));
+    const shadowOnly = makeDoc(frame("c", 200, 100, [], { effect: [{ type: "shadow", x: 0, y: 4, blur: 12, color: "#0000001A", enabled: true }] }));
+
+    expectFinding(ghostCard, "single_elevation", { severity: "warning", message: "ghost card" });
+    expect(rules(borderOnly)).not.toContain("single_elevation");
+    expect(rules(shadowOnly)).not.toContain("single_elevation");
+  });
 });
 
 /* ------------------------------------------------------------------ *

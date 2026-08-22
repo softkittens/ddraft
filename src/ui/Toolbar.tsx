@@ -32,24 +32,31 @@ import {
 } from "./store";
 
 import { parseDocument } from "../model/parse";
+import { importPenZip } from "../model/importZip";
 
 export const Toolbar: Component = () => {
   let fileInputRef: HTMLInputElement | undefined;
 
-  const handleFileChange = (e: Event) => {
+  const handleFileChange = async (e: Event) => {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = parseDocument(reader.result as string);
+    try {
+      if (file.name.toLowerCase().endsWith(".zip")) {
+        const buffer = new Uint8Array(await file.arrayBuffer());
+        const parsed = importPenZip(buffer);
         updateDoc(parsed);
         resetZoom100();
-      } catch (err) {
-        alert("Error parsing file: " + err);
+      } else {
+        const text = await file.text();
+        const parsed = parseDocument(text);
+        updateDoc(parsed);
+        resetZoom100();
       }
-    };
-    reader.readAsText(file);
+    } catch (err: any) {
+      alert("Error parsing file: " + (err?.message || err));
+    } finally {
+      if (fileInputRef) fileInputRef.value = "";
+    }
   };
 
   return (
@@ -59,13 +66,13 @@ export const Toolbar: Component = () => {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pen,.json"
+          accept=".pen,.json,.zip,application/zip,application/x-zip-compressed"
           class="hidden"
           onChange={handleFileChange}
         />
         <button
           onClick={() => fileInputRef?.click()}
-          title="Open Pen file"
+          title="Open Pen (.pen, .json, .zip)"
           class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100 rounded transition"
         >
           <FolderOpen size={14} />

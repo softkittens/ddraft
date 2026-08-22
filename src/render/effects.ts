@@ -163,7 +163,8 @@ export function strokeCurrentPath(
 export function applyEffects(
   ctx: CanvasRenderingContext2D,
   effects: Effect | Effect[],
-  variables?: Record<string, any>
+  variables?: Record<string, any>,
+  zoom = 1
 ): void {
   const list = Array.isArray(effects) ? effects : [effects];
   for (const eff of list) {
@@ -171,15 +172,25 @@ export function applyEffects(
     switch (eff.type) {
       case "shadow":
       case "inner_shadow": {
+        const rawBlur = eff.blur ?? (eff as any).radius ?? 0;
+        if (zoom < 0.2 && rawBlur * zoom < 0.75) {
+          ctx.shadowColor = "transparent";
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+          break;
+        }
         ctx.shadowColor = resolveVariable(eff.color, variables) || "rgba(0,0,0,0.25)";
-        ctx.shadowBlur = eff.blur || 0;
-        ctx.shadowOffsetX = eff.x || 0;
-        ctx.shadowOffsetY = eff.y || 0;
+        ctx.shadowBlur = rawBlur;
+        ctx.shadowOffsetX = eff.x ?? (eff as any).offset?.x ?? 0;
+        ctx.shadowOffsetY = eff.y ?? (eff as any).offset?.y ?? 0;
         break;
       }
       case "blur":
       case "background_blur": {
-        if (eff.radius) ctx.filter = `blur(${eff.radius}px)`;
+        if (eff.radius && (zoom >= 0.2 || eff.radius * zoom >= 1)) {
+          ctx.filter = `blur(${eff.radius}px)`;
+        }
         break;
       }
       default: {

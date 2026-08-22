@@ -132,12 +132,38 @@ export function getDynamicLineHeightRatio(fontFamily: string): number {
 }
 
 export function getLineHeight(node: TextNode, variables?: Record<string, any>): number {
-  if (node.lineHeight) return node.lineHeight;
   const size = node.fontSize || 16;
+  if (node.lineHeight !== undefined && node.lineHeight !== null) {
+    if (typeof node.lineHeight === "number") {
+      // Unitless multiplier (e.g. 1.2, 1.4, 1.5, 2.0 in Figma/pen.dev) vs absolute pixels
+      if (node.lineHeight > 0 && node.lineHeight <= 3.5) {
+        return Math.round(size * node.lineHeight);
+      }
+      return Math.max(1, Math.round(node.lineHeight));
+    }
+    if (typeof node.lineHeight === "string") {
+      const str = (node.lineHeight as string).trim();
+      if (str.endsWith("%")) {
+        const pct = parseFloat(str) / 100;
+        if (!isNaN(pct)) return Math.round(size * pct);
+      } else if (str.endsWith("px")) {
+        const px = parseFloat(str);
+        if (!isNaN(px)) return Math.round(px);
+      } else {
+        const num = parseFloat(str);
+        if (!isNaN(num)) {
+          if (num > 0 && num <= 3.5) return Math.round(size * num);
+          return Math.max(1, Math.round(num));
+        }
+      }
+    }
+  }
   const resolved = resolveVariable(node.fontFamily || "Inter", variables);
   const ratio = getDynamicLineHeightRatio(resolved);
   return Math.round(size * ratio);
 }
+
+const textNodeMetricsCache = new Map<string, TextMetricsResult>();
 
 export function measureTextNode(
   node: TextNode,
@@ -147,16 +173,24 @@ export function measureTextNode(
   const content = node.content || "";
   const fontSize = node.fontSize || 16;
   const fontFamily = node.fontFamily || "Inter";
-  const fontWeight = node.fontWeight;
-  const lineHeight = getLineHeight(node, variables);
+  const fontWeight = node.fontWeight || "normal";
+  const letterSpacing = node.letterSpacing ?? 0;
   const growth = node.textGrowth || "auto";
   const canWrap = containerWidth !== undefined || typeof node.width === "number";
-  if (growth === "auto" || !canWrap) {
-    const width = measureTextWidth(content, fontSize, fontFamily, fontWeight, node.letterSpacing ?? 0, variables);
-    return { width, height: lineHeight, lineHeight, lines: [content] };
-  }
+  const targetWidth = canWrap ? (containerWidth ?? (typeof node.width === "number" ? node.width : 200)) : 0;
 
-  const targetWidth = containerWidth ?? (typeof node.width === "number" ? node.width : 200);
+  const cacheKey = `${content}|${fontSize}|${fontFamily}|${fontWeight}|${letterSpacing}|${growth}|${targetWidth}|${node.lineHeight ?? 0}`;
+  const cached = textNodeMetricsCache.get(cacheKey);
+  if (cached) return cached;
+
+  const lineHeight = getLineHeight(node, variables);
+
+  if (growth === "auto" || !canWrap) {
+    const width = measureTextWidth(content, fontSize, fontFamily, fontWeight, letterSpacing, variables);
+    const result: TextMetricsResult = { width, height: lineHeight, lineHeight, lines: [content] };
+    textNodeMetricsCache.set(cacheKey, result);
+    return result;
+  }
 
   const words = content.split(" ");
   const lines: string[] = [];
@@ -164,7 +198,7 @@ export function measureTextNode(
 
   for (const word of words) {
     const testLine = currentLine ? `${currentLine} ${word}` : word;
-    const testWidth = measureTextWidth(testLine, fontSize, fontFamily, fontWeight, node.letterSpacing ?? 0, variables);
+    const testWidth = measureTextWidth(testLine, fontSize, fontFamily, fontWeight, letterSpacing, variables);
     if (testWidth > targetWidth && currentLine) {
       lines.push(currentLine);
       currentLine = word;
@@ -174,11 +208,13 @@ export function measureTextNode(
   }
   if (currentLine) lines.push(currentLine);
 
-  return {
+  const result: TextMetricsResult = {
     width: targetWidth,
     height: Math.max(1, lines.length) * lineHeight,
     lineHeight,
     lines
   };
+  textNodeMetricsCache.set(cacheKey, result);
+  return result;
 }
 

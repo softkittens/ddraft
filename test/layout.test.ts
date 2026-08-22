@@ -57,6 +57,16 @@ describe("Layout Subsystem (Unit B)", () => {
     const mFixed = measureTextNode(fixedNode, 100);
     expect(mFixed.width).toBe(100);
     expect(mFixed.lines.length).toBeGreaterThan(1);
+
+    // Multiplier line height (e.g. 1.4 from pen.dev / Figma)
+    const multiplierNode = txt("t3", "Two line\nwrapped text", 20, { lineHeight: 1.5 } as any);
+    const mMult = measureTextNode(multiplierNode);
+    expect(mMult.lineHeight).toBe(30); // 20 * 1.5
+
+    // Percentage line height (e.g. "140%")
+    const pctNode = txt("t4", "Pct text", 20, { lineHeight: "140%" } as any);
+    const mPct = measureTextNode(pctNode);
+    expect(mPct.lineHeight).toBe(28); // 20 * 1.4
   });
 
   it("positions absolute children, groups, and rotated nodes", () => {

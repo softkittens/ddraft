@@ -141,6 +141,8 @@ export const generateImageTool: DocumentToolDefinition = {
     }
 
     const target = flattenLayoutTree(layoutResolvedDocument(resolveInstances(doc))).get(targetId);
+    const rawNode = findNode(doc.children, targetId);
+    const nodeName = `${(rawNode as any)?.name ?? ""} ${targetId}`.toLowerCase();
     let aspectRatio: "landscape" | "portrait" | "square" = "landscape";
     let targetSize = "target";
 
@@ -149,13 +151,21 @@ export const generateImageTool: DocumentToolDefinition = {
       aspectRatio = ratio > 1.15 ? "landscape" : ratio < 0.87 ? "portrait" : "square";
       targetSize = `${Math.round(target.box.width)}x${Math.round(target.box.height)}`;
     } else {
-      const rawNode = findNode(doc.children, targetId);
       const w = typeof (rawNode as any)?.width === "number" ? (rawNode as any).width : 0;
       const h = typeof (rawNode as any)?.height === "number" ? (rawNode as any).height : 0;
       if (w > 0 && h > 0) {
         const ratio = w / h;
         aspectRatio = ratio > 1.15 ? "landscape" : ratio < 0.87 ? "portrait" : "square";
         targetSize = `${Math.round(w)}x${Math.round(h)}`;
+      } else if (/avatar|thumbnail|thumb|profile|icon|circle|user/i.test(nodeName)) {
+        aspectRatio = "square";
+        targetSize = "square";
+      } else if (/portrait|story|card|vertical|stand/i.test(nodeName)) {
+        aspectRatio = "portrait";
+        targetSize = "portrait";
+      } else {
+        aspectRatio = "landscape";
+        targetSize = "landscape";
       }
     }
 
