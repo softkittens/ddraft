@@ -124,7 +124,7 @@ describe("System prompt carries rules, not a design", () => {
     const lengths = [...Array(60)].map((_, seed) =>
       agentSystemPrompt({ id: "d", name: "d", children: [] } as any, [], "test-model", seed).length
     );
-    expect(Math.max(...lengths)).toBeLessThan(9500);
+    expect(Math.max(...lengths)).toBeLessThan(12000);
   });
 
   it("states the chrome once in code, not as numbers to remember on every run", () => {

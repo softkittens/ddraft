@@ -20,7 +20,7 @@ export function trace(callback: AgentTrace | undefined, event: Record<string, un
 }
 
 export const MAX_STALLED_TURNS = 4;
-export const WRAP_UP_ROUNDS = 3;
+export const WRAP_UP_ROUNDS = 8;
 export const MAX_RESEARCH_TURNS = 4;
 export const MAX_CORRECTIONS = 3;
 
@@ -72,6 +72,34 @@ export function recordOutcome(
   });
 }
 
+/**
+ * What the finishing audit still objects to: blockers plus the finishing rules.
+ *
+ * The same test the correction pass uses, exported so the end of the run can
+ * ask it too.
+ */
+export function unfinishedFindings(doc: Document) {
+  return auditDocument(doc).filter(
+    (f) => f.severity === "blocker" || FINISHING_RULES.has(f.rule)
+  );
+}
+
+/**
+ * Whether a run that stopped here produced something broken.
+ *
+ * Deliberately blockers only, not the finishing rules the correction pass uses.
+ * Mid-run, a finishing-rule warning is worth another round. At the wall there
+ * are no more rounds, and the only question left is what the user is looking
+ * at: the run behind the "Factory Floor Operations" dashboard ended on a
+ * budget error carrying nothing worse than missing_display — no display-sized
+ * heading on a telemetry screen — while the design itself was finished and
+ * usable. Warnings still reach the user through the audit; they should not
+ * turn a finished canvas into a failure.
+ */
+export function brokenFindings(doc: Document) {
+  return auditDocument(doc).filter((f) => f.severity === "blocker");
+}
+
 export type CompletionEvaluation =
   | { action: "finish" }
   | { action: "retry_empty"; nudge: string }
@@ -86,7 +114,9 @@ export class SessionWatchdog {
   turnsUsed = 0;
   corrections = 0;
   stalledTurns = 0;
+  deletionTurns = 0;
   researchTurns = 0;
+  totalResearchTurns = 0;
   truncations = 0;
   /** Rounds spent asking again for a design the model answered with prose. */
   emptyReplies = 0;
@@ -127,14 +157,32 @@ export class SessionWatchdog {
     };
   }
 
+  /**
+   * The warning that the rounds are running out.
+   *
+   * The first version of this said "land what is on the canvas ... finish the
+   * screen now", and it measurably backfired: across the logged runs, rounds
+   * after this fired carried 2.21 tool calls against 2.79 before it, a 21% drop
+   * in density at the exact moment the run needed to be densest. Telling a
+   * model it is running out of time makes it careful, and careful means small
+   * verifiable steps — one property per round-trip.
+   *
+   * The four runs that hit the wall are the four least dense runs in the corpus
+   * (1.3 to 2.1 calls per round). One of them spent 30 rounds on a 144-node
+   * dashboard; another built 145 nodes in 13 rounds at 6.8 calls per round.
+   * Same output, less than half the budget. So the scarce thing is round trips,
+   * not edits, and the nudge now says that instead of counting down.
+   */
   checkWrapUp(turn: number, maxTurns: number, screenCount: number): string | null {
-    if (!this.wrappingUp && turn >= maxTurns - WRAP_UP_ROUNDS && screenCount > 0) {
+    const wrapThreshold = Math.min(8, Math.max(3, Math.floor(maxTurns * 0.35)));
+    if (!this.wrappingUp && turn >= maxTurns - wrapThreshold && screenCount > 0) {
       this.wrappingUp = true;
       return (
-        `${maxTurns - turn} rounds left. Land what is on the canvas: finish the screen ` +
-        "you are part-way through, then stop. Nothing is discarded when the rounds " +
-        "run out — whatever state a node is in is the state it keeps — so do not " +
-        "start a change you cannot finish in this many replies."
+        `${maxTurns - turn} rounds left, and a round costs the same whether it carries one tool call or twenty. ` +
+        "Put everything that is left into this one reply: insert_node takes a whole subtree in a single call, " +
+        "and batch_set_properties takes every property edit at once. " +
+        "Nothing is discarded when the rounds run out — whatever state a node is in is the state it keeps — so do not " +
+        "delete or start changes you cannot finish in this reply."
       );
     }
     return null;
@@ -181,9 +229,7 @@ export class SessionWatchdog {
       return { action: "finish" };
     }
 
-    const unfinished = auditDocument(doc).filter(
-      (f) => f.severity === "blocker" || FINISHING_RULES.has(f.rule)
-    );
+    const unfinished = unfinishedFindings(doc);
 
     if (unfinished.length > 0 && this.corrections < MAX_CORRECTIONS && turn < maxTurns - 1) {
       this.corrections += 1;
@@ -211,7 +257,24 @@ export class SessionWatchdog {
     revisited: { key: string; values: string[] }[];
   }): TurnEvaluation {
     const { docBefore, docAfter, nodesAtStart, toolCalls, revisited } = options;
-    const built = nodeCount(docAfter) > nodesAtStart;
+    const currentNodes = nodeCount(docAfter);
+    const built = currentNodes > nodesAtStart;
+    const deleted = currentNodes < nodesAtStart;
+
+    if (deleted) {
+      this.deletionTurns += 1;
+      if (this.deletionTurns >= 3) {
+        this.deletionTurns = 0;
+        return {
+          action: "nudge",
+          text:
+            "You have spent multiple rounds deleting individual nodes. Stop dismantling subtrees piece by piece. " +
+            "Insert the complete, finished screen structure directly in one insert_node call and complete the remaining slots."
+        };
+      }
+    } else if (built) {
+      this.deletionTurns = 0;
+    }
 
     if (docAfter !== docBefore && (built || revisited.length === 0)) {
       this.stalledTurns = 0;
@@ -244,14 +307,15 @@ export class SessionWatchdog {
 
     if (toolCalls.every((c) => READ_ONLY_TOOLS.has(c.function.name))) {
       this.researchTurns += 1;
-      if (this.researchTurns >= MAX_RESEARCH_TURNS) {
+      this.totalResearchTurns += 1;
+      if (this.researchTurns >= MAX_RESEARCH_TURNS || this.totalResearchTurns >= 6) {
         this.researchTurns = 0;
         return {
           action: "nudge",
           text:
             "That is enough looking things up and measuring. Build with auto-layout " +
             "(fill_container, fit_content, gap, padding): dimensions resolve automatically, " +
-            "and an unfinished screen is worth more than another inspection."
+            "and an unfinished screen is worth more than another inspection. Complete and land the remaining screens now."
         };
       }
       return { action: "progress" };

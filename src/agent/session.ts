@@ -8,6 +8,7 @@ import type { StyleRun } from "../design/history";
 import {
   SessionWatchdog,
   recordOutcome,
+  brokenFindings,
   trace,
   nodeCount,
   type AgentTrace
@@ -294,10 +295,29 @@ export async function* runSession(
     return;
   }
 
+  /*
+   * Running out of rounds on a document the audit passes is not a failure.
+   *
+   * One logged run built a 144-node dashboard, one screen, zero blockers — and
+   * ended on a yellow budget-error box, because the loop reports the reason it
+   * stopped rather than what it produced. The round cap is a cost ceiling; it
+   * says nothing about whether the work is done, and the finishing audit
+   * already answers that question.
+   */
+  const broken = brokenFindings(session.doc);
+  if (session.doc.children.length > 0 && broken.length === 0) {
+    recordOutcome(opts.trace, session.doc, watchdog.getMetrics("turn limit, audit clean"));
+    yield { type: "done", messages: sanitizeSessionMessages(out, internal), doc: session.doc };
+    return;
+  }
+
   recordOutcome(opts.trace, session.doc, watchdog.getMetrics("turn limit"));
   yield {
     type: "error",
     code: "budget",
-    message: `The ${maxTurns}-round budget is spent. Everything built is kept — say what to finish and the next run continues from here.`
+    message:
+      `The ${maxTurns}-round budget is spent with ${broken.length} thing${broken.length === 1 ? "" : "s"} ` +
+      `still open: ${broken.slice(0, 3).map((f) => f.rule).join(", ")}. ` +
+      "Everything built is kept — say what to finish and the next run continues from here."
   };
 }

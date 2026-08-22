@@ -42,37 +42,6 @@
   }
 }
 
-.agent-pen-track {
-  transition: left 220ms ease-out, top 220ms ease-out, width 220ms ease-out, height 220ms ease-out;
-}
-
-.agent-pen {
-  position: absolute;
-  top: 0;
-  left: 0;
-  offset-rotate: 0deg;
-  offset-anchor: 12% 88%;
-  animation: agent-pen-orbit 2.6s linear infinite;
-  filter: drop-shadow(0 2px 4px rgba(15, 15, 15, 0.28));
-}
-
-@keyframes agent-pen-orbit {
-  to {
-    offset-distance: 100%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .agent-pen {
-    animation: none;
-    offset-distance: 0%;
-  }
-
-  .agent-pen-track {
-    transition: none;
-  }
-}
-
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;

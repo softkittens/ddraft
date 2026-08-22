@@ -112,3 +112,35 @@ describe("insert_node normalizes what the model wrote", () => {
     expect((parsed.children[0] as any).effect[0].shadowType).toBe("outer");
   });
 });
+
+describe("a property write answers the question the model asks next", () => {
+  it("reports the chain up to the screen, not just the immediate parent", async () => {
+    const session = createDocumentTools(
+      makeDoc(
+        frame("screen", 390, 844, [
+          frame("content", 350, 700, [frame("card", 318, 52, [rect("r", 40, 40)])])
+        ])
+      )
+    );
+    const result = await session.execute("set_property", { id: "card", property: "width", value: 300 });
+
+    // 68 of the 76 follow-up `measure` calls in the logs ask about an ancestor
+    // of the node just written, so the ancestor has to come back with the write.
+    expect(result).toContain("measured:");
+    expect(result).toContain("card");
+    expect(result).toContain("content");
+    expect(result).toContain("screen");
+  });
+
+  it("keeps the two nearest ancestors and the screen when the tree is deep", async () => {
+    let node: any = rect("leaf", 10, 10);
+    for (const id of ["d", "c", "b", "a"]) node = frame(id, 200, 200, [node]);
+    const session = createDocumentTools(makeDoc(frame("screen", 390, 844, [node])));
+    const result = await session.execute("set_property", { id: "leaf", property: "width", value: 20 });
+
+    expect(result).toContain("screen");
+    expect(result).toContain("d");
+    // The middle of the chain is scaffolding the model already knows about.
+    expect(result).not.toContain("b 200x200px");
+  });
+});

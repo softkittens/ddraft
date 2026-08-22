@@ -270,6 +270,11 @@ describe("H4 document tools specification", () => {
     // Icon rename preserves / updates geometry
     await session.execute("set_property", { id: iconNode.id, property: "icon", value: "heart" });
     expect((session.doc.children[0].children?.[0] as any).geometry).toBe(getLucideIconPath("heart"));
+
+    // Compound icons with relative checkmarks (badge-check / verified) correctly normalize absolute start and relative lineto
+    const badgeCheckPath = getLucideIconPath("badge-check");
+    expect(badgeCheckPath).toContain("M 9 12 l 2 2 4-4");
+    expect(getLucideIconPath("verified")).toBe(badgeCheckPath);
   });
 
   it("resolves image generation across providers (Qwen, Gemini, xAI)", async () => {

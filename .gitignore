@@ -11,7 +11,7 @@ dist/
 
 /fixtures
 /probes
-
+/pen-references
 # Scratch notes at the root. Markdown that is source — src/agent/rules.md — is not.
 /*.md
 !/README.md

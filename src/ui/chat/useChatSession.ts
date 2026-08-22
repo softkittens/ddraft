@@ -12,7 +12,7 @@ import {
   persistChat
 } from "../store";
 import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
-import { noteAgentEdits, clearAgentEditTargets, diffChangedNodeIds } from "../canvas/agentEditTargets";
+import { noteAgentEdits, clearAgentEditTargets, diffChangedNodeIds } from "../canvas/agentPen";
 import type { Message } from "../../agent/provider";
 import type { PublicProvider } from "../../agent/credentials";
 import type { Document } from "../../model/types";

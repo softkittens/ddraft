@@ -88,8 +88,11 @@ export function agentSystemPrompt(
     "  2. set_style — commit to that contract and pick the visual system that supports it.",
     "  3. create_screen for ALL requested screens together in one round. Each screen",
     "     becomes its own top-level canvas frame.",
-    "  4. Build reusable components, then insert_node complete screen subtrees into",
-    "     the returned slots in batched calls.",
+    "  4. Insert entire screen subtrees into the returned slots in batched calls (aim for 4–6 rounds total):",
+    "     - Desktop: insert complete subtrees into topBar, rail, main, and aside.",
+    "     - Mobile: insert complete subtrees into content or bleed.",
+    "     - Write list items, KPI cards, and data widgets directly into the subtree instead of single-node edits.",
+    "  5. Finish once all slots and screens are populated. Do not dismantle or micro-tweak in loops.",
     "",
     ...styleSection,
     ...(direction ? [

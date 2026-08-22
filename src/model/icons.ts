@@ -47,9 +47,37 @@ export function iconCatalogAvailable(): boolean {
   return registry !== null;
 }
 
+function normalizeSvgPathSegment(d: string): string {
+  const trimmed = d.trim();
+  if (!trimmed.startsWith("m")) return trimmed;
+
+  const numRegex = /^[+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?/;
+  let rest = trimmed.slice(1).trim();
+
+  const xMatch = rest.match(numRegex);
+  if (!xMatch) return trimmed;
+  const x = xMatch[0];
+  rest = rest.slice(x.length).trim().replace(/^,/, "").trim();
+
+  const yMatch = rest.match(numRegex);
+  if (!yMatch) return trimmed;
+  const y = yMatch[0];
+  rest = rest.slice(y.length).trim().replace(/^,/, "").trim();
+
+  if (!rest) {
+    return `M ${x} ${y}`;
+  }
+
+  if (/^[a-zA-Z]/.test(rest)) {
+    return `M ${x} ${y} ${rest}`;
+  }
+
+  return `M ${x} ${y} l ${rest}`;
+}
+
 export function elementToPath(tag: string, attrs: Record<string, any>): string {
   if (tag === "path") {
-    return (attrs.d || "").trim();
+    return normalizeSvgPathSegment(attrs.d || "");
   }
   if (tag === "circle") {
     const r = Number(attrs.r || 0);
@@ -123,8 +151,12 @@ const CORE_ICONS: Record<string, string> = {
   plus: "M 5 12 h 14 M 12 5 v 14",
   minus: "M 5 12 h 14",
   signal: "M2 20h.01 M7 20v-4 M12 20v-8 M17 20V8 M22 4v16",
-  wifi: "M12 20h.01 M2 8.82a15 15 0 0 1 20 0 M5 12.859a10 10 0 0 1 14 0 M8.5 16.429a5 5 0 0 1 7 0",
-  "battery-full": "M 2 7 a 2 2 0 0 1 2-2 h 14 a 2 2 0 0 1 2 2 v 10 a 2 2 0 0 1-2 2 H 4 a 2 2 0 0 1-2-2 Z M 22 11 v 2"
+  "battery-full": "M 2 7 a 2 2 0 0 1 2-2 h 14 a 2 2 0 0 1 2 2 v 10 a 2 2 0 0 1-2 2 H 4 a 2 2 0 0 1-2-2 Z M 22 11 v 2",
+  "badge-check": "M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z M 9 12 l 2 2 4-4",
+  calendar: "M 8 2 v 4 M 16 2 v 4 M 3 10 h 18 M 5 4 h 14 a 2 2 0 0 1 2 2 v 14 a 2 2 0 0 1 -2 2 H 5 a 2 2 0 0 1 -2 -2 V 6 a 2 2 0 0 1 2 -2 Z",
+  clock: "M 12 2 a 10 10 0 1 0 0 20 a 10 10 0 1 0 0 -20 M 12 6 v 6 l 4 2",
+  info: "M 12 2 a 10 10 0 1 0 0 20 a 10 10 0 1 0 0 -20 M 12 16 v -4 M 12 8 h .01",
+  bookmark: "M 19 21 l -7 -4 l -7 4 V 5 a 2 2 0 0 1 2 -2 h 10 a 2 2 0 0 1 2 2 Z"
 };
 
 const ALIASES: Record<string, string> = {

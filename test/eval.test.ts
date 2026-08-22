@@ -315,6 +315,51 @@ describe("agent session lifecycle & stall detection", () => {
     expect(readEvents.filter((e) => e.type === "done")).toHaveLength(1);
   });
 
+
+  it("running out of rounds on a clean document finishes instead of erroring", async () => {
+    /*
+     * A logged run built a 144-node dashboard, one screen, zero blockers, and
+     * ended on a budget error, because the loop reported why it stopped rather
+     * than what it made.
+     */
+    let calls = 0;
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "build" }],
+      makeDoc(frame("f", 100, 100, [rect("r", 40, 40)])),
+      {
+        maxTurns: 3,
+        fetch: async () => {
+          calls += 1;
+          return callsSse("set_property", { id: "r", property: "width", value: 40 + calls }, `c${calls}`);
+        }
+      }
+    ));
+    const last = events.at(-1)!;
+    expect(last.type).toBe("done");
+  });
+
+  it("running out of rounds with work still open says what is open", async () => {
+    let calls = 0;
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "build" }],
+      makeDoc(frame("f", 200, 200, [txt("t", "")])),
+      {
+        maxTurns: 3,
+        fetch: async () => {
+          calls += 1;
+          return callsSse("set_property", { id: "f", property: "width", value: 200 + calls }, `c${calls}`);
+        }
+      }
+    ));
+    const last = events.at(-1) as { type: string; code?: string; message?: string };
+    expect(last.type).toBe("error");
+    expect(last.code).toBe("budget");
+    expect(last.message).toContain("still open");
+    expect(last.message).toContain("empty_text");
+  });
+
   it("manages round budget ceilings, warnings, and cancellation signals", async () => {
     // Budget warning insertion
     const posted: string[] = [];
@@ -333,9 +378,13 @@ describe("agent session lifecycle & stall detection", () => {
       }
     ));
     const sent = JSON.parse(posted.at(-1)!) as { messages: Array<{ content: unknown }> };
-    const warnings = sent.messages.filter((m) => JSON.stringify(m.content).includes("Land what is on the canvas"));
+    const warnings = sent.messages.filter((m) => JSON.stringify(m.content).includes("rounds left"));
     expect(warnings).toHaveLength(1);
     expect(JSON.stringify(warnings[0].content)).toContain("3 rounds left");
+    // The wrap-up has to push density up, not caution up: counting down at the
+    // model measurably cost 21% of the tool calls per round in the logged runs.
+    expect(JSON.stringify(warnings[0].content)).toContain("one tool call or twenty");
+    expect(JSON.stringify(warnings[0].content)).toContain("batch_set_properties");
 
     // Abort controller propagation
     const ac = new AbortController();

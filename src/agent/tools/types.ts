@@ -62,13 +62,35 @@ export function measuredNote(doc: Document, id: string): string {
     if (!node) return "";
     const box = (n: { box: { width: number; height: number } }) =>
       `${Math.round(n.box.width)}x${Math.round(n.box.height)}`;
-    const self = findNode(doc.children, id);
-    const parts = [`measured: ${self?.name ? `"${self.name}"` : id} is now ${box(node)}px`];
-    const parentId = parentOfNode(doc, id);
-    const parent = parentId ? flat.get(parentId) : undefined;
-    if (parent && parentId) {
-      const parentNode = findNode(doc.children, parentId);
-      parts.push(`inside ${parentNode?.name ? `"${parentNode.name}"` : parentId} at ${box(parent)}px`);
+    const label = (nid: string): string => {
+      const data = findNode(doc.children, nid);
+      return data?.name ? `"${data.name}"` : nid;
+    };
+    const parts = [`measured: ${label(id)} is now ${box(node)}px`];
+
+    /*
+     * The whole ancestor chain, not just the parent.
+     *
+     * 68 of the 76 `measure` calls that follow a property write in the logs
+     * ask about an ancestor rather than the node just written — usually the
+     * screen root. The model does not want to know how big the card is, it
+     * wants to know what the card did to the screen. Answering only one level
+     * up left that question open, and the only way to close it was a round
+     * trip, which is the single most common way this loop spends its round
+     * budget on nothing.
+     */
+    const chain: string[] = [];
+    let cursor = parentOfNode(doc, id);
+    for (let hops = 0; cursor && hops < 12; hops += 1) {
+      const ancestor = flat.get(cursor);
+      if (ancestor) chain.push(`${label(cursor)} ${box(ancestor)}px`);
+      cursor = parentOfNode(doc, cursor);
+    }
+    if (chain.length > 0) {
+      // Keep the two nearest and the screen: the middle of a deep chain is
+      // scaffolding the model already knows about.
+      const shown = chain.length <= 3 ? chain : [chain[0], chain[1], chain[chain.length - 1]];
+      parts.push(`inside ${shown.join(" < ")}`);
     }
     return parts.join(", ") + ".";
   } catch {

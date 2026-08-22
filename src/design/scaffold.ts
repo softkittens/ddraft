@@ -210,11 +210,11 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
     name: "Top Bar",
     metadata: { scaffold: "slot" },
     width: "fill_container",
-    height: 64,
+    height: 56,
     layout: "horizontal",
     justifyContent: "space_between",
     alignItems: "center",
-    padding: [0, 32],
+    padding: [0, 8],
     children: []
   } as PenNode;
   slots.topBar = topBar.id;
@@ -227,8 +227,8 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
     width: 260,
     height: "fill_container",
     layout: "vertical",
-    padding: 20,
-    gap: 8,
+    padding: 12,
+    gap: 12,
     children: []
   } as PenNode;
   slots.rail = rail.id;
@@ -243,8 +243,8 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
     width: "fill_container",
     height: "fill_container",
     layout: "vertical",
-    padding: 32,
-    gap: 24,
+    padding: [0, 8],
+    gap: 14,
     children: []
   } as PenNode;
   slots.main = main.id;
@@ -257,8 +257,8 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
     width: 320,
     height: "fill_container",
     layout: "vertical",
-    padding: 24,
-    gap: 16,
+    padding: 0,
+    gap: 14,
     children: []
   } as PenNode;
   slots.aside = aside.id;
@@ -268,20 +268,33 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
     id: slots.screen,
     name: spec.name,
     width: 1440,
-    height: 1024,
+    height: 900,
     layout: "vertical",
     fill: "$surface-primary",
+    padding: [16, 24, 16, 24],
+    gap: 12,
     clip: true,
+    metadata: { screenKind: "desktop" },
     children: [
       topBar,
+      {
+        type: "rectangle",
+        id: id(),
+        name: "Header Divider",
+        metadata: { scaffold: "chrome" },
+        width: "fill_container",
+        height: 1,
+        fill: "$border-subtle"
+      } as PenNode,
       {
         type: "frame",
         id: id(),
         name: "Body",
-    metadata: { scaffold: "slot" },
+        metadata: { scaffold: "slot" },
         width: "fill_container",
         height: "fill_container",
         layout: "horizontal",
+        gap: 16,
         children: [rail, main, aside]
       } as PenNode
     ]
