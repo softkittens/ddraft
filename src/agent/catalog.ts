@@ -8,7 +8,7 @@ export interface CatalogModel {
 }
 
 export interface CatalogProvider {
-  id: "openai" | "opencode-go" | "qwen-studio" | "gemini" | "xai";
+  id: "vercel" | "opencode-go" | "qwen-studio" | "gemini" | "xai";
   label: string;
   envKeys: string[];
   baseUrlEnv?: string | string[];
@@ -28,29 +28,13 @@ export interface CatalogProvider {
 
 export const PROVIDER_CATALOG: CatalogProvider[] = [
   {
-    id: "openai",
-    label: "OpenAI",
-    envKeys: ["OPENAI_API_KEY"],
-    baseUrlEnv: "OPENAI_BASE_URL",
-    baseUrl: "https://api.openai.com/v1",
+    id: "vercel",
+    label: "Vercel AI Gateway",
+    envKeys: ["VERCEL_API_KEY", "AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"],
+    baseUrlEnv: ["VERCEL_BASE_URL", "AI_GATEWAY_BASE_URL"],
+    baseUrl: "https://ai-gateway.vercel.sh/v1",
     models: [
-      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
-      { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
-      { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
-      { id: "gpt-5.5", label: "GPT-5.5" },
-      { id: "gpt-5.4", label: "GPT-5.4" },
-      { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-      { id: "gpt-5.2", label: "GPT-5.2" },
-      { id: "gpt-5.1", label: "GPT-5.1" },
-      { id: "gpt-5", label: "GPT-5" },
-      { id: "gpt-4.1", label: "GPT-4.1" },
-      { id: "gpt-4.1-mini", label: "GPT-4.1 mini" },
-      { id: "gpt-4o", label: "GPT-4o" },
-      { id: "gpt-4o-mini", label: "GPT-4o mini" },
-      { id: "o4-mini", label: "o4 mini" },
-      { id: "o3", label: "o3" },
-      { id: "o3-mini", label: "o3 mini" },
-      { id: "o1", label: "o1" }
+      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", vision: true }
     ]
   },
   {
@@ -126,8 +110,8 @@ export function catalogById(id: string): CatalogProvider | undefined {
  * function because two places used to answer this question — loadProvider and
  * toApiMessages — and they answered it differently.
  */
-export function modelSupportsVision(provider: CatalogProvider, model: CatalogModel): boolean {
-  return model.vision ?? provider.id === "openai";
+export function modelSupportsVision(_provider: CatalogProvider, model: CatalogModel): boolean {
+  return Boolean(model.vision);
 }
 
 /**

@@ -12,7 +12,7 @@ import type { Document } from "../src/model/types";
 import { streamed, saysSse, callsSse } from "./agent-harness";
 
 const testProvider: Provider = {
-  id: "openai",
+  id: "vercel",
   baseUrl: "https://example.test/v1",
   model: "test",
   apiKey: "k"
@@ -146,7 +146,7 @@ describe("eval reporting & cohort comparisons", () => {
 
   function file(rows: RunRow[], over: Partial<RunFile> = {}): RunFile {
     return {
-      provider: "openai",
+      provider: "vercel",
       model: "test",
       briefHash: "abc",
       at: "t",
@@ -594,7 +594,7 @@ describe("a truncated reply is not a finished one", () => {
         maxTurns: 2
       })
     );
-    expect(sent[0].max_tokens).toBe(16000);
+    expect(sent[0].max_completion_tokens ?? sent[0].max_tokens).toBe(16000);
   });
 });
 
@@ -707,6 +707,6 @@ describe("what a truncated run changes about the next attempt", () => {
         }
       )
     );
-    expect(sent[0].max_tokens).toBe(4096);
+    expect(sent[0].max_completion_tokens ?? sent[0].max_tokens).toBe(4096);
   });
 });

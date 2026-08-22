@@ -4,7 +4,7 @@ import type { FetchFn } from "./provider";
 
 export interface ImageGenResult {
   url: string;
-  provider: "gemini" | "xai" | "qwen" | "openai";
+  provider: "gemini" | "xai" | "qwen";
 }
 
 /** Thrown when no image provider is configured or every provider failed. */
@@ -199,49 +199,10 @@ export async function generateDesignImage(
     }
   }
 
-  // 2. Fallback to OpenAI DALL-E if OPENAI_API_KEY is available
-  const openaiKey = getEnvKey("OPENAI_API_KEY", env);
-  if (openaiKey && openaiKey.length > 5) {
-    try {
-      const openaiResp = await fetchImpl("https://api.openai.com/v1/images/generations", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${openaiKey}`
-        },
-        body: JSON.stringify({
-          model: "dall-e-3",
-          prompt: prompt,
-          size: options.aspectRatio === "landscape" ? "1792x1024" : options.aspectRatio === "portrait" ? "1024x1792" : "1024x1024",
-          n: 1
-        })
-      });
-
-      if (openaiResp.ok) {
-        const openaiData = await openaiResp.json() as any;
-        const imgUrl = openaiData?.data?.[0]?.url;
-        if (imgUrl) {
-          return { url: imgUrl, provider: "openai" };
-        }
-        failures.push("OpenAI returned no image");
-      } else {
-        const data = await openaiResp.json().catch(() => null) as { error?: { message?: string } } | null;
-        failures.push(`OpenAI ${openaiResp.status}: ${data?.error?.message || "request failed"}`);
-      }
-    } catch (err) {
-      failures.push(`OpenAI request failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  // There is no third option. An earlier version returned one fixed stock
-  // photograph here, with the prompt appended as a url fragment — which no
-  // server ever receives. Every "generated" image was the same picture, and
-  // the caller could not tell. A tool that cannot do its job says so.
   if (failures.length > 0) {
     throw new ImageGenUnavailableError(`Image generation failed. ${failures.join(" ")}`);
   }
   throw new ImageGenUnavailableError(
-    "Image generation is not configured. Set QWEN_API_KEY (or DASHSCOPE_API_KEY) " +
-      "or OPENAI_API_KEY to enable it."
+    "Image generation is not configured. Set QWEN_API_KEY (or DASHSCOPE_API_KEY), GEMINI_API_KEY, or XAI_API_KEY to enable it."
   );
 }

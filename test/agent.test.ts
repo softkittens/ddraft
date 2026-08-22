@@ -134,12 +134,15 @@ describe("H1 provider client & streaming protocol", () => {
 
 describe("H2 credentials & model catalog discovery", () => {
   it("resolves configured providers, keys, and model validation", () => {
-    expect(loadProvider("openai", {})).toBeNull();
+    expect(loadProvider("vercel", {})).toBeNull();
     expect(listConfiguredProviders({})).toEqual([]);
 
-    const configured = listConfiguredProviders({ OPENAI_API_KEY: "sk-openai", DASHSCOPE_API_KEY: "sk-qwen" });
-    expect(configured.map((p) => p.id)).toEqual(["openai", "qwen-studio"]);
-    expect(JSON.stringify(configured)).not.toContain("sk-openai");
+    const configured = listConfiguredProviders({ DASHSCOPE_API_KEY: "sk-qwen", VERCEL_API_KEY: "v-key" });
+    expect(configured.map((p) => p.id)).toEqual(["vercel", "qwen-studio"]);
+    expect(JSON.stringify(configured)).not.toContain("v-key");
+
+    const pVercel = loadProvider("vercel", { VERCEL_API_KEY: "v-key" }, "gpt-5.6-luna");
+    expect(pVercel).toMatchObject({ baseUrl: "https://ai-gateway.vercel.sh/v1", model: "gpt-5.6-luna", apiKey: "v-key", vision: true });
 
     const pOpenCode = loadProvider("opencode-go", { OPENCODE_API_KEY: "sk-live" }, "glm-5.2");
     expect(pOpenCode).toMatchObject({ baseUrl: "https://opencode.ai/zen/go/v1", model: "glm-5.2", apiKey: "sk-live" });

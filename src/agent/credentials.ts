@@ -56,7 +56,7 @@ export function loadProvider(
     model: model || spec.models[0].id,
     apiKey,
     reasoningEffort,
-    api: selected?.api || "chat",
+    api: selected?.api || (/^(gpt-5|grok-4\.[56])/i.test(model || spec.models[0].id) ? "responses" : "chat"),
     vision: selected ? modelSupportsVision(spec, selected) : false,
     maxOutputTokens: selected?.maxOutputTokens ?? spec.maxOutputTokens
   };

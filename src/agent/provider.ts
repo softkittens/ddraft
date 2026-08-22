@@ -162,6 +162,9 @@ export async function complete(
     : {
         model: p.model,
         messages: toApiMessages(messages, p),
+        ...(p.baseUrl.includes("api.openai.com") || Boolean(p.reasoningEffort) || /^(o[134]|gpt-5|gpt-4o)/i.test(p.model)
+          ? { max_completion_tokens: p.maxOutputTokens ?? 4096 }
+          : { max_tokens: p.maxOutputTokens ?? 4096 }),
         ...(p.reasoningEffort ? { reasoning_effort: p.reasoningEffort } : {})
       };
   const endpoint = api === "chat" ? "chat/completions" : api;

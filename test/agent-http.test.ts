@@ -27,7 +27,7 @@ describe("H2 key configuration & /agent/status", () => {
 
     const res = await handleAgentRequest(new Request("http://pen.test/agent/status"), {
       env: {
-        OPENAI_API_KEY: "sk-o",
+        VERCEL_API_KEY: "sk-v",
         OPENCODE_GO_API_KEY: "sk-g",
         GEMINI_API_KEY: "sk-m",
         XAI_API_KEY: "sk-x",
@@ -36,9 +36,9 @@ describe("H2 key configuration & /agent/status", () => {
     });
     const body = (await res.json()) as { configured: boolean; providers: { id: string; models: { id: string }[] }[] };
     expect(body.configured).toBe(true);
-    expect(body.providers.map((p) => p.id)).toEqual(["openai", "opencode-go", "gemini", "xai", "qwen-studio"]);
+    expect(body.providers.map((p) => p.id)).toEqual(["vercel", "opencode-go", "gemini", "xai", "qwen-studio"]);
     expect(body.providers[2].models.map((m) => m.id)).toEqual(["gemini-3.1-pro-preview", "gemini-3.7-flash"]);
-    expect(JSON.stringify(body)).not.toMatch(/sk-[ogmxq]/);
+    expect(JSON.stringify(body)).not.toMatch(/sk-[vgmxq]/);
   });
 });
 
@@ -102,8 +102,8 @@ describe("H5 agent HTTP run endpoint & session logging", () => {
     const ac = new AbortController();
     const pending = agentPost(
       "run",
-      { messages: [{ role: "user", content: "widen gap" }], doc: makeDoc(frame("f", 200, 100, [rect("r", 40, 40)], { gap: 8 })) },
-      { env: { OPENAI_API_KEY: "sk-test" }, fetch: fakeFetch },
+      { providerId: "opencode-go", model: "glm-5.2", messages: [{ role: "user", content: "widen gap" }], doc: makeDoc(frame("f", 200, 100, [rect("r", 40, 40)], { gap: 8 })) },
+      { env: { OPENCODE_API_KEY: "sk-test" }, fetch: fakeFetch },
       { signal: ac.signal }
     );
 
@@ -132,9 +132,9 @@ const REVIEW = JSON.stringify(validReview);
 
 describe("agent review HTTP endpoint & vision handoffs", () => {
   it("routes visual reviews with system prompts and provider-specific payload shapes", async () => {
-    // OpenAI Chat vision
+    // Gemini Chat vision
     const pChat = fakeProvider(() => chatReply(REVIEW));
-    const resChat = await reviewPost({ brief: "Essays", digest: "title Cover" }, { env: { OPENAI_API_KEY: "k" }, fetch: pChat.fetch });
+    const resChat = await reviewPost({ providerId: "gemini", model: "gemini-3.7-flash", brief: "Essays", digest: "title Cover" }, { env: { GEMINI_API_KEY: "k" }, fetch: pChat.fetch });
     expect(resChat.status).toBe(200);
     expect(await resChat.json()).toMatchObject(validReview);
     expect(pChat.body().tools).toBeUndefined();
@@ -175,17 +175,17 @@ describe("agent review HTTP endpoint & vision handoffs", () => {
   it("enforces validation and rejects malformed requests (400, 403, 413, 422)", async () => {
     // Malformed review JSON reply
     const pBad = fakeProvider(() => chatReply("not json"));
-    expect((await reviewPost({ brief: "x" }, { env: { OPENAI_API_KEY: "k" }, fetch: pBad.fetch })).status).toBe(422);
+    expect((await reviewPost({ providerId: "gemini", model: "gemini-3.7-flash", brief: "x" }, { env: { GEMINI_API_KEY: "k" }, fetch: pBad.fetch })).status).toBe(422);
 
     // Non-image screenshot URL
-    expect((await reviewPost({ screenshot: "https://example.com/shot.png" }, { env: { OPENAI_API_KEY: "k" } })).status).toBe(400);
+    expect((await reviewPost({ screenshot: "https://example.com/shot.png" }, { env: { GEMINI_API_KEY: "k" } })).status).toBe(400);
 
     // Oversized body payload (413)
-    const res413 = await agentPost("review", "{}", { env: { OPENAI_API_KEY: "k" } }, { headers: { "Content-Length": String(9 * 1024 * 1024) } });
+    const res413 = await agentPost("review", "{}", { env: { GEMINI_API_KEY: "k" } }, { headers: { "Content-Length": String(9 * 1024 * 1024) } });
     expect(res413.status).toBe(413);
 
     // Disallowed origin (403)
-    const res403 = await agentPost("review", { brief: "x", digest: "y", screenshot: PNG }, { env: { OPENAI_API_KEY: "k" } }, { headers: { Origin: "http://evil.example" } });
+    const res403 = await agentPost("review", { brief: "x", digest: "y", screenshot: PNG }, { env: { GEMINI_API_KEY: "k" } }, { headers: { Origin: "http://evil.example" } });
     expect(res403.status).toBe(403);
   });
 });
