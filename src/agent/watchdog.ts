@@ -21,7 +21,7 @@ export function trace(callback: AgentTrace | undefined, event: Record<string, un
 
 export const MAX_STALLED_TURNS = 4;
 export const WRAP_UP_ROUNDS = 3;
-export const MAX_RESEARCH_TURNS = 6;
+export const MAX_RESEARCH_TURNS = 4;
 export const MAX_CORRECTIONS = 3;
 
 export const READ_ONLY_TOOLS = new Set(["read_digest", "measure", "search_icons"]);
@@ -182,9 +182,9 @@ export class SessionWatchdog {
         return {
           action: "nudge",
           text:
-            "That is enough looking things up. Build with what you have now: any icon " +
-            "name you could not confirm can be replaced later, and an unfinished screen " +
-            "is worth more than another search."
+            "That is enough looking things up and measuring. Build with auto-layout " +
+            "(fill_container, fit_content, gap, padding): dimensions resolve automatically, " +
+            "and an unfinished screen is worth more than another inspection."
         };
       }
       return { action: "progress" };

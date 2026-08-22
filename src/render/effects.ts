@@ -66,7 +66,8 @@ export function paintStroke(
   strokeColor: Fill | string | undefined,
   strokeWidth: number | { top?: number; right?: number; bottom?: number; left?: number } = 1,
   alignment: StrokeAlignment = "center",
-  variables?: Record<string, any>
+  variables?: Record<string, any>,
+  cornerRadius?: number | number[] | [number, number, number, number]
 ): void {
   if (!strokeColor) return;
   const color = resolveVariable(strokeColor, variables);
@@ -110,20 +111,37 @@ export function paintStroke(
   const width = typeof strokeWidth === "number" ? strokeWidth : 1;
   if (width <= 0) return;
 
+  const drawPath = (x: number, y: number, w: number, h: number, r?: number | number[] | [number, number, number, number]) => {
+    ctx.beginPath();
+    if (r !== undefined && typeof ctx.roundRect === "function") {
+      ctx.roundRect(x, y, w, h, r as any);
+    } else {
+      ctx.rect(x, y, w, h);
+    }
+  };
+
   if (alignment === "center") {
     ctx.lineWidth = width;
-    ctx.strokeRect(0, 0, box.width, box.height);
+    drawPath(0, 0, box.width, box.height, cornerRadius);
+    ctx.stroke();
   } else if (alignment === "inner") {
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, box.width, box.height);
+    drawPath(0, 0, box.width, box.height, cornerRadius);
     ctx.clip();
     ctx.lineWidth = width * 2;
-    ctx.strokeRect(0, 0, box.width, box.height);
+    drawPath(0, 0, box.width, box.height, cornerRadius);
+    ctx.stroke();
     ctx.restore();
   } else if (alignment === "outer") {
     ctx.lineWidth = width;
-    ctx.strokeRect(-width / 2, -width / 2, box.width + width, box.height + width);
+    const offset = width / 2;
+    const outerRadius = typeof cornerRadius === "number"
+      ? cornerRadius + offset
+      : Array.isArray(cornerRadius)
+      ? cornerRadius.map((cr) => cr + offset)
+      : undefined;
+    drawPath(-offset, -offset, box.width + width, box.height + width, outerRadius as any);
+    ctx.stroke();
   }
 }
 

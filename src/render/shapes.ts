@@ -239,7 +239,7 @@ export function drawShape(
       }
 
       if (data?.stroke && data?.strokeWidth) {
-        paintStroke(ctx, box, data.stroke, data.strokeWidth, "center", variables);
+        paintStroke(ctx, box, data.stroke, data.strokeWidth, "center", variables, radius);
       }
       break;
     }
