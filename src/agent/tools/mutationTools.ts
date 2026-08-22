@@ -9,14 +9,15 @@ import {
   WHOLE_DOC_ALIASES,
   digestId,
   parentIdOf,
-  resolveIconGeometry
+  resolveIconGeometry,
+  resolvePercentSizes
 } from "./types";
 import { normalizeNodeTree, describeNormalization, type NormalizeReport } from "./normalize";
 
 export const createScreenTool: DocumentToolDefinition = {
   name: "create_screen",
   description:
-    "Build a mobile or desktop screen frame on the canvas with optional tab bar. Mobile screens are fixed at 390x844 with standard top/bottom insets and status bar.",
+    "Build a mobile or desktop screen frame. Omit tabs except on multi-destination apps. Width is the device (390 or 1440). A SITE (persuade) page is tall — 2800-4500 desktop, 2400-4000 mobile — so bands can stack. A TOOL stays at one viewport (844 or 900).",
   parameters: {
     type: "object",
     properties: {
@@ -48,7 +49,13 @@ export const createScreenTool: DocumentToolDefinition = {
           },
           required: ["label", "icon"]
         },
-        description: "Bottom tab bar destinations. Mobile only."
+        description:
+          "Bottom tab bar destinations. Mobile only, and only when the product is an app with multiple primary destinations. Omit for websites, landing pages, booking flows, and single-purpose screens."
+      },
+      height: {
+        type: "number",
+        description:
+          "Page height in px. A SITE is 2400-4000 (mobile) or 2800-4500 (desktop) so stacked bands fit. A TOOL stays at 844 / 900. Smaller values are raised to the viewport."
       }
     },
     required: ["name", "kind"]
@@ -71,7 +78,12 @@ export const createScreenTool: DocumentToolDefinition = {
       : [];
     if (tabs.length > 0 && !activeFound) tabs[0].active = true;
 
-    const spec: ScreenSpec = { name, kind: a.kind, tabs: tabs.length > 0 ? tabs : undefined };
+    const spec: ScreenSpec = {
+      name,
+      kind: a.kind,
+      tabs: tabs.length > 0 ? tabs : undefined,
+      height: typeof a.height === "number" ? a.height : undefined
+    };
     let counter = 0;
     const base = getNextNodeId(doc, "n").split("_")[1];
     const scaffold = buildScreen(spec, () => `n${Number(base) + counter++}`);
@@ -154,11 +166,16 @@ export const insertNodeTool: DocumentToolDefinition = {
     const before = doc;
     doc = insertChild(doc, targetParent, nodeToInsert as PenNode, typeof a.index === "number" ? a.index : undefined);
     if (doc === before) return `error: could not insert into ${rawParentId || "canvas"}`;
+
+    // Only after the subtree is in the tree: a percentage is a share of a
+    // parent, and the parent has no resolved box until the child is under it.
+    const percent = resolvePercentSizes(doc);
+    doc = percent.doc;
     ctx.setDoc(doc);
 
     const body = targetParent ? digestSubtree(doc, targetParent) : digest(doc);
     const note = insertionNote(doc, (nodeToInsert as PenNode).id);
-    return [normalizationNote, body, note].filter(Boolean).join("\n");
+    return [normalizationNote, ...percent.notes, body, note].filter(Boolean).join("\n");
   }
 };
 

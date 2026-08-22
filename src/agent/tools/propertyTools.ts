@@ -11,11 +11,12 @@ import {
   splitInstanceId,
   setInstanceProperty,
   applyIconRename,
-  resizesMobileScreen,
-  mobileSizeError,
+  screenSizeError,
   measuredNote,
-  formatLayout
+  formatLayout,
+  resolvePercentSizes
 } from "./types";
+import { normalizePropertyValue } from "./normalize";
 
 export const readDigestTool: DocumentToolDefinition = {
   name: "read_digest",
@@ -62,6 +63,10 @@ export const setPropertyTool: DocumentToolDefinition = {
     if (!ALLOWED_PROPERTIES.has(a.property)) {
       return `error: invalid property "${a.property}"`;
     }
+    const vocabulary = normalizePropertyValue(a.property, a.value);
+    if (vocabulary.value === undefined) return vocabulary.note;
+    a.value = vocabulary.value;
+    const vocabularyNote = vocabulary.note;
     if (!findNode(doc.children, a.id)) {
       const inside = splitInstanceId(doc, a.id);
       if (!inside) return `error: node ${a.id} not found`;
@@ -80,7 +85,8 @@ export const setPropertyTool: DocumentToolDefinition = {
         .filter(Boolean)
         .join("\n");
     }
-    if (resizesMobileScreen(doc, a.id, a.property)) return mobileSizeError(a.id);
+    const sizeError = screenSizeError(doc, a.id, a.property, a.value);
+    if (sizeError) return sizeError;
     const beforeWrite = doc;
     doc = setProperty(doc, a.id, a.property, a.value);
     doc = applyIconRename(doc, a.id, a.property, a.value);
@@ -96,10 +102,12 @@ export const setPropertyTool: DocumentToolDefinition = {
     if (doc === beforeWrite) {
       return `no change: ${a.id}.${a.property} is already ${JSON.stringify(a.value)}. Something else is deciding this box — measure it, or change the parent instead.${layoutTip}`;
     }
+    const percent = resolvePercentSizes(doc);
+    doc = percent.doc;
     ctx.setDoc(doc);
     const note = GEOMETRY_PROPERTIES.has(a.property) ? measuredNote(doc, a.id) : "";
     const loop = ctx.recordWrite(a.id, a.property, a.value);
-    return [digestSubtree(doc, a.id), note, loop, layoutTip].filter(Boolean).join("\n");
+    return [digestSubtree(doc, a.id), vocabularyNote, ...percent.notes, note, loop, layoutTip].filter(Boolean).join("\n");
   }
 };
 
@@ -134,23 +142,25 @@ export const batchSetPropertiesTool: DocumentToolDefinition = {
     const updates: Array<Record<string, unknown>> = Array.isArray(a.updates) ? a.updates : [];
     if (updates.length === 0) return "error: updates array is required";
 
-    const blocked = updates.find(
-      (u) =>
-        u &&
-        typeof u.id === "string" &&
-        typeof u.property === "string" &&
-        resizesMobileScreen(doc, u.id, u.property)
-    );
+    const blocked = updates.find((u) => {
+      if (!u || typeof u.id !== "string" || typeof u.property !== "string") return false;
+      return Boolean(screenSizeError(doc, u.id, u.property, u.value));
+    });
     if (blocked) {
-      return mobileSizeError(blocked.id as string);
+      return screenSizeError(doc, blocked.id as string, blocked.property as string, blocked.value)!;
     }
 
     let newDoc = doc;
     const modifiedIds: string[] = [];
+    const vocabularyNotes: string[] = [];
 
     for (const u of updates) {
       if (!u || typeof u.id !== "string" || typeof u.property !== "string") continue;
       if (!ALLOWED_PROPERTIES.has(u.property)) continue;
+      const vocabulary = normalizePropertyValue(u.property, u.value);
+      if (vocabulary.value === undefined) { vocabularyNotes.push(vocabulary.note); continue; }
+      if (vocabulary.note) vocabularyNotes.push(vocabulary.note);
+      u.value = vocabulary.value;
       if (!findNode(newDoc.children, u.id)) {
         const inside = splitInstanceId(newDoc, u.id);
         if (!inside) continue;
@@ -164,7 +174,8 @@ export const batchSetPropertiesTool: DocumentToolDefinition = {
     }
 
     const unchanged = newDoc === doc && modifiedIds.length > 0;
-    doc = newDoc;
+    const percent = resolvePercentSizes(newDoc);
+    doc = percent.doc;
     ctx.setDoc(doc);
     const head = `ok: updated ${modifiedIds.length} properties (${modifiedIds.slice(0, 6).join(", ")}${modifiedIds.length > 6 ? "..." : ""})`;
     if (unchanged) {
@@ -183,12 +194,12 @@ export const batchSetPropertiesTool: DocumentToolDefinition = {
           .map((u) => u.id as string)
       )
     ].slice(0, 6);
-    const notes = touched.map((id) => measuredNote(doc, id)).filter(Boolean);
+    const notes = [...percent.notes, ...touched.map((id) => measuredNote(doc, id)).filter(Boolean)];
     const loops = updates
       .filter((u) => u && typeof u.id === "string" && typeof u.property === "string")
       .map((u) => ctx.recordWrite(u.id as string, u.property as string, u.value))
       .filter(Boolean);
-    return [head, ...notes, ...loops].join("\n");
+    return [head, ...new Set(vocabularyNotes), ...notes, ...loops].join("\n");
   }
 };
 

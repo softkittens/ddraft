@@ -1,6 +1,9 @@
 import { describe, it, expect } from "bun:test";
 import { decideAgentDocument } from "../src/ui/agentDocument";
 import { makeDoc, frame, rect } from "./harness";
+import { findNode } from "../src/model/tree";
+import { layoutResolvedDocument, flattenLayoutTree } from "../src/layout/layout";
+import { resolveInstances } from "../src/model/instance";
 import { setProperty } from "../src/model/edit";
 import { createDocumentTools } from "../src/agent/tools";
 import { parseDocument } from "../src/model/parse";
@@ -85,6 +88,30 @@ describe("insert_node normalizes what the model wrote", () => {
     expect(frameNode.alignItems).toBe("center");
   });
 
+  it("defaults centering on a status chip with a dot and a label", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: {
+        type: "frame",
+        id: "pill",
+        name: "Status",
+        width: 96,
+        height: 36,
+        cornerRadius: 99,
+        layout: "none",
+        children: [
+          { type: "rectangle", id: "dot", width: 6, height: 6, fill: "$status-ok" },
+          { type: "text", id: "state", content: "RUNNING", fontSize: 11 }
+        ]
+      }
+    });
+    expect(result).toContain("filled in");
+    const frameNode = session.doc.children[0] as any;
+    expect(frameNode.layout).toBe("horizontal");
+    expect(frameNode.justifyContent).toBe("center");
+    expect(frameNode.alignItems).toBe("center");
+  });
+
   it("parses pen.dev files with forward-compatible shadowType and offset effect properties", () => {
     const raw = JSON.stringify({
       version: "2.17",
@@ -110,6 +137,165 @@ describe("insert_node normalizes what the model wrote", () => {
     const parsed = parseDocument(raw);
     expect(parsed.children).toHaveLength(1);
     expect((parsed.children[0] as any).effect[0].shadowType).toBe("outer");
+  });
+});
+
+describe("values the engine reads, not the CSS the model knows", () => {
+  it("stands bar charts on their baseline instead of hanging them from the top", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: {
+        type: "frame", id: "plot", name: "Plot", layout: "horizontal",
+        width: 400, height: 120, gap: 10, alignItems: "flex_end",
+        children: [
+          { type: "frame", id: "b1", name: "Bar 1", width: 40, height: 40, fill: "#0af" },
+          { type: "frame", id: "b2", name: "Bar 2", width: 40, height: 90, fill: "#0af" }
+        ]
+      }
+    });
+    /*
+     * computeCrossAxisPosition falls through its `default` to 'start', so
+     * 'flex_end' put every bar at the top of the plot with its varied height
+     * hanging downward — the exact look of a chart that reads as broken. Our
+     * own bar-chart rule asked for 'flex_end' until this landed.
+     */
+    expect(result).toContain("'flex_end' -> 'end'");
+    const flat = flattenLayoutTree(layoutResolvedDocument(resolveInstances(session.doc)));
+    const bottom = (id: string) => {
+      const box = flat.get(id)!.box;
+      return Math.round(box.y + box.height);
+    };
+    expect(bottom("b1")).toBe(bottom("b2"));
+    expect(bottom("b1")).toBe(120);
+  });
+
+  it("reads the hyphenated spelling of space-between", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: {
+        type: "frame", id: "row", name: "Row", layout: "horizontal", width: 300, height: 24,
+        justifyContent: "space-between",
+        children: [
+          { type: "text", id: "k", content: "Battery" },
+          { type: "text", id: "v", content: "78%" }
+        ]
+      }
+    });
+    // 256 writes in the logs, every one left-packing a row meant to be justified.
+    expect(result).toContain("'space-between' -> 'space_between'");
+    const flat = flattenLayoutTree(layoutResolvedDocument(resolveInstances(session.doc)));
+    expect(Math.round(flat.get("v")!.box.x + flat.get("v")!.box.width)).toBe(300);
+  });
+
+  it("normalizes the same vocabulary on the single-property path", async () => {
+    const session = createDocumentTools(makeDoc(
+      frame("r", 300, 40, [], { layout: "horizontal" })
+    ));
+    const result = await session.execute("set_property", {
+      id: "r", property: "justifyContent", value: "space-between"
+    });
+    expect(result).toContain("applied as 'space_between'");
+    expect((findNode(session.doc.children, "r") as any).justifyContent).toBe("space_between");
+  });
+
+  it("says what to write instead of a value the engine does not have", async () => {
+    const session = createDocumentTools(makeDoc(frame("r", 300, 40, [], { layout: "horizontal" })));
+    const result = await session.execute("set_property", { id: "r", property: "alignItems", value: "stretch" });
+    // Renaming this would be guessing: stretch is a child-side decision here.
+    expect(result).toContain("no 'stretch'");
+    expect(result).toContain("fill_container");
+    expect((findNode(session.doc.children, "r") as any).alignItems).toBeUndefined();
+  });
+
+  it("maps the textGrowth spellings that meant something else", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: {
+        type: "frame", id: "c", name: "C", width: 300, height: 80, layout: "vertical",
+        children: [
+          { type: "text", id: "a", content: "x".repeat(60), width: "fill_container", textGrowth: "fixed" },
+          { type: "text", id: "b", content: "y".repeat(60), width: "fill_container", textGrowth: "fit_content" }
+        ]
+      }
+    });
+    expect(result).toContain("'fixed' -> 'fixed-width'");
+    expect(result).toContain("'fit_content' -> 'auto'");
+    expect((findNode(session.doc.children, "a") as any).textGrowth).toBe("fixed-width");
+    expect((findNode(session.doc.children, "b") as any).textGrowth).toBe("auto");
+  });
+});
+
+describe("the engine gets what the model meant, not what it typed", () => {
+  it("reads size on an icon as a square box and on text as a font size", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: {
+        type: "frame", id: "row", name: "Row", layout: "horizontal", gap: 8, width: 200, height: 40,
+        children: [
+          { type: "icon", id: "i", icon: "search", size: 16, stroke: "#fff" },
+          { type: "text", id: "t", content: "Search", size: 13 }
+        ]
+      }
+    });
+    // `size` meant fontSize in the alias table, so an icon written this way had
+    // its only dimension dropped and rendered 0x0. Two logged runs shipped 39
+    // and 11 invisible icons that way.
+    expect(result).toContain("icon.size -> width + height");
+    const icon: any = findNode(session.doc.children, "i");
+    const text: any = findNode(session.doc.children, "t");
+    expect([icon.width, icon.height]).toEqual([16, 16]);
+    expect(text.fontSize).toBe(13);
+    expect(text.width).toBeUndefined();
+  });
+
+  it("gives an icon with no size the 24px Lucide draws on", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: { type: "icon", id: "i", icon: "bell", stroke: "#fff", width: undefined }
+    });
+    expect(result).toContain("on an icon with no size");
+    const icon: any = findNode(session.doc.children, "i");
+    expect([icon.width, icon.height]).toEqual([24, 24]);
+  });
+
+  it("resolves a percentage width into the pixels it meant", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: {
+        type: "frame", id: "card", name: "Zone", layout: "vertical", width: 400, height: 120, padding: 16,
+        children: [{
+          type: "frame", id: "track", name: "Track", layout: "horizontal",
+          width: "fill_container", height: 7, fill: "#222",
+          children: [{ type: "frame", id: "fill", name: "Fill", width: "82%", height: "fill_container", fill: "#0af" }]
+        }]
+      }
+    });
+    // 400 less 16px of padding either side is a 368px track; 82% of it is 302.
+    expect(result).toContain("82% of 368px = 302px");
+    expect((findNode(session.doc.children, "fill") as any).width).toBe(302);
+  });
+
+  it("resolves a percentage written by set_property too", async () => {
+    const session = createDocumentTools(makeDoc(
+      frame("track", 200, 7, [frame("fill", 10, "fill_container")])
+    ));
+    const result = await session.execute("set_property", { id: "fill", property: "width", value: "50%" });
+    expect(result).toContain("50% of 200px = 100px");
+    expect((findNode(session.doc.children, "fill") as any).width).toBe(100);
+  });
+
+  it("leaves the percentage in place when the parent has no size to share", async () => {
+    // A parent hugging this child has nothing to take a share of yet. Resolving
+    // against it would write a real 0, which is worse than the string: the
+    // string is what invisible_node reports back as the cause.
+    const session = createDocumentTools(makeDoc());
+    await session.execute("insert_node", {
+      node: {
+        type: "frame", id: "hug", name: "Hug", layout: "horizontal", width: "fit_content", height: "fit_content",
+        children: [{ type: "frame", id: "f", name: "F", width: "60%", height: 8, fill: "#0af" }]
+      }
+    });
+    expect((findNode(session.doc.children, "f") as any).width).toBe("60%");
   });
 });
 

@@ -1,11 +1,12 @@
 import type { Document, PenNode } from "../../model/types";
 import { setProperty } from "../../model/edit";
 import { childrenOf, findNode } from "../../model/tree";
+import { normalisePadding } from "../../layout/padding";
 import { resolveInstances } from "../../model/instance";
 import { layoutResolvedDocument, flattenLayoutTree } from "../../layout/layout";
 import type { LayoutNode } from "../../layout/types";
 import { getLucideIconPath } from "../../model/icons";
-import { MOBILE_HEIGHT, MOBILE_WIDTH } from "../../design/scaffold";
+import { viewportFor, MAX_SCREEN_HEIGHT } from "../../design/scaffold";
 import type { FetchFn, Tool } from "../provider";
 
 export interface ToolContext {
@@ -48,6 +49,75 @@ export function resolveIconGeometry<T>(node: T): T {
     for (const child of item.children) resolveIconGeometry(child);
   }
   return node;
+}
+
+/** A CSS percentage written where the engine only understands numbers. */
+const PERCENT_SIZE = /^\s*(\d+(?:\.\d+)?)\s*%\s*$/;
+
+/**
+ * Turn `width: "82%"` into the pixels it meant.
+ *
+ * The engine has no percentage. parseSizing falls through to its last line,
+ * `{ mode: "fixed", value: 0 }`, so a node sized this way renders as a
+ * zero-pixel box and nothing anywhere says so — not the tool result, not the
+ * audit, not the critic. All twelve percentage sizes in the logs are the fill
+ * of a progress track, and all twelve shipped a bar that draws nothing beside
+ * a label reading "82%".
+ *
+ * The model was not wrong about what it wanted, only about how to say it, and
+ * the parent's resolved box is right here. Refusing the write would cost a
+ * round trip to learn a number this tool already knows, so it resolves the
+ * value and reports the arithmetic instead.
+ */
+export function resolvePercentSizes(doc: Document): { doc: Document; notes: string[] } {
+  const pending: { id: string; axis: "width" | "height"; pct: number }[] = [];
+  const collect = (nodes: readonly PenNode[]): void => {
+    for (const node of nodes) {
+      for (const axis of ["width", "height"] as const) {
+        const raw = (node as any)[axis];
+        const match = typeof raw === "string" ? raw.match(PERCENT_SIZE) : null;
+        if (match) pending.push({ id: node.id, axis, pct: parseFloat(match[1]) });
+      }
+      collect(childrenOf(node));
+    }
+  };
+  collect(doc.children);
+  if (pending.length === 0) return { doc, notes: [] };
+
+  const flat = flattenLayoutTree(layoutResolvedDocument(resolveInstances(doc)));
+  const notes: string[] = [];
+  let next = doc;
+
+  for (const { id, axis, pct } of pending) {
+    const parentId = parentOfNode(doc, id);
+    const parentBox = parentId ? flat.get(parentId)?.box : undefined;
+    const parentNode = parentId ? findNode(doc.children, parentId) : undefined;
+    if (!parentBox) continue;
+    const pad = normalisePadding((parentNode as any)?.padding);
+    const inner =
+      axis === "width"
+        ? parentBox.width - pad.left - pad.right
+        : parentBox.height - pad.top - pad.bottom;
+    // A parent that is itself hugging this child has no size to take a share
+    // of yet. Leaving the percentage in place keeps it visible to the audit
+    // rather than silently resolving it to nothing.
+    if (!(inner > 1)) continue;
+    const px = Math.round((inner * pct) / 100);
+    next = setProperty(next, id, axis, px);
+    notes.push(`${id}.${axis}: ${pct}% of ${Math.round(inner)}px = ${px}px`);
+  }
+
+  if (notes.length === 0) return { doc, notes: [] };
+  return {
+    doc: next,
+    notes: [
+      `note: resolved ${notes.length} percentage size${notes.length === 1 ? "" : "s"} to pixels ` +
+        "(the engine has no percentage — an unresolved one renders as a 0px box): " +
+        notes.slice(0, 6).join(", ") +
+        (notes.length > 6 ? ", ..." : "") +
+        "."
+    ]
+  };
 }
 
 export function applyIconRename(doc: Document, id: string, property: string, value: unknown): Document {
@@ -162,14 +232,29 @@ export function setInstanceProperty(
   return setProperty(doc, target.refId, "descendants", descendants);
 }
 
-export function resizesMobileScreen(doc: Document, id: string, property: string): boolean {
-  if (property !== "width" && property !== "height") return false;
+export function screenSizeError(
+  doc: Document,
+  id: string,
+  property: string,
+  value: unknown
+): string | undefined {
+  if (property !== "width" && property !== "height") return undefined;
   const root = doc.children.find((node) => node.id === id);
-  return root?.type === "frame" && root.metadata?.screenKind === "mobile";
-}
-
-export function mobileSizeError(id: string): string {
-  return `error: ${id} is a fixed ${MOBILE_WIDTH}x${MOBILE_HEIGHT} mobile screen. Keep the root size; shorten or remove content, or reduce inner gaps and padding so it fits.`;
+  if (root?.type !== "frame") return undefined;
+  const kind = root.metadata?.screenKind;
+  if (kind !== "mobile" && kind !== "desktop") return undefined;
+  const { width, height } = viewportFor(kind);
+  if (property === "width") {
+    if (value === width) return undefined;
+    return `error: ${id} is a ${kind} screen. Width stays ${width}px. Grow height if the page scrolls.`;
+  }
+  if (typeof value === "number" && Number.isFinite(value) && value >= height && value <= MAX_SCREEN_HEIGHT) {
+    return undefined;
+  }
+  if (typeof value === "number" && value > MAX_SCREEN_HEIGHT) {
+    return `error: ${id} height ${value}px is above ${MAX_SCREEN_HEIGHT}px. Shorten the page or split it across screens.`;
+  }
+  return `error: ${id} is a ${kind} screen. Height is at least ${height}px (the first viewport). Pass ${height} or taller for a scrolling page.`;
 }
 
 export function digestId(doc: Document, id: unknown): string | undefined {
