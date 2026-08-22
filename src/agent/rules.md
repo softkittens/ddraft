@@ -9,8 +9,11 @@
 MOBILE SCREEN COMPOSITION (390pt wide)
 
 create_screen builds chrome and returns slot ids. Put aligned text/controls in
-content; edge-to-edge imagery or colour in bleed. You may place bleed children
-before or after content for photo-led layouts. Restyle tabBar for custom navigation.
+content; edge-to-edge imagery or colour in bleed (cornerRadius: 0).
+
+Hero imagery & photo layouts:
+- Full-bleed hero (in bleed): spans edge-to-edge (390px) and MUST have cornerRadius: 0 (flush against screen edges).
+- Inset photo card (in content): floating/swipeable profile or product card with cornerRadius from active style scale ($radius-lg, $radius-xl). Never put rounded corners on a full-bleed edge-to-edge frame.
 
   1. Choose a distinct composition; avoid generic app shells.
   2. Gestalt rhythm: 6–12px gap within a group, 24–36px between sections. Never insert empty frames as spacers.
@@ -45,6 +48,7 @@ RULES
   13. Accent in at most two visible roles per screen. Do not number sections unless sequence carries information.
   14. Declare elevation once per container: either a stroke ($border-subtle) or a shadow effect, never both on the same card.
   15. Vary controls in forms and settings: use segmented pills, toggle switches, or badge chips for choices rather than repetitive text rows with identical slider icons.
+  16. Rounded corners vs Full-bleed: Images and containers that span edge-to-edge (in bleed, or width touching screen borders) must have cornerRadius: 0. Rounded corners belong strictly on inset cards and media inside content (with side padding/margins).
 
 ## canvas-api
 

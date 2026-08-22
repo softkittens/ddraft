@@ -6,11 +6,8 @@ import {
   Frame,
   Undo2,
   Redo2,
-  ZoomIn,
-  ZoomOut,
   FolderOpen,
-  PanelLeft,
-  PanelRight,
+  Layers,
   BotMessageSquare,
   Trash2
 } from "lucide-solid";
@@ -18,15 +15,11 @@ import {
   toolMode,
   setToolMode,
   camera,
-  zoomIn,
-  zoomOut,
   resetZoom100,
   handleUndo,
   handleRedo,
   layersVisible,
   setLayersVisible,
-  inspectorVisible,
-  setInspectorVisible,
   chatVisible,
   setChatVisible,
   updateDoc,
@@ -35,6 +28,9 @@ import {
 } from "./store";
 
 import { openDesignFile } from "../model/importZip";
+
+const iconBtn =
+  "w-9 h-9 flex items-center justify-center rounded-full text-neutral-700 hover:bg-black/5 transition";
 
 export const Toolbar: Component = () => {
   let fileInputRef: HTMLInputElement | undefined;
@@ -62,9 +58,14 @@ export const Toolbar: Component = () => {
   };
 
   return (
-    <div class="h-10 bg-white border-b border-neutral-200 flex items-center justify-between px-3 z-30 select-none shadow-xs">
-      {/* Left Tools */}
-      <div class="flex items-center gap-1">
+    <>
+      <div class="absolute top-3 left-3 z-40 flex items-center gap-2 select-none">
+        <span class="px-1 text-[15px] font-semibold tracking-tight text-neutral-800 drop-shadow-[0_1px_0_rgba(255,255,255,0.8)]">
+          PenX
+        </span>
+      </div>
+
+      <div class="absolute top-3 right-3 z-40 flex items-center gap-2 select-none">
         <input
           ref={fileInputRef}
           type="file"
@@ -72,153 +73,49 @@ export const Toolbar: Component = () => {
           class="hidden"
           onChange={handleFileChange}
         />
-        <button
-          onClick={() => fileInputRef?.click()}
-          title="Open Pen (.pen, .json, .zip)"
-          class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100 rounded transition"
-        >
-          <FolderOpen size={14} />
-          <span>Open</span>
-        </button>
-
-        <button
-          onClick={() => setConfirmingClear(true)}
-          disabled={!canClear()}
-          title="Clear canvas"
-          class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded transition text-neutral-700 hover:bg-red-50 hover:text-red-700 disabled:text-neutral-300 disabled:hover:bg-transparent disabled:hover:text-neutral-300 disabled:cursor-default"
-        >
-          <Trash2 size={14} />
-          <span>Clear</span>
-        </button>
-
-        <div class="h-4 w-px bg-neutral-200 mx-1.5" />
-
-        {/* Shape / Creation Tools */}
-        <button
-          onClick={() => setToolMode("select")}
-          title="Select tool (V)"
-          class={`p-1.5 rounded transition ${
-            toolMode() === "select"
-              ? "bg-[#0d99ff] text-white shadow-xs"
-              : "text-neutral-700 hover:bg-neutral-100"
-          }`}
-        >
-          <MousePointer size={15} />
-        </button>
-        <button
-          onClick={() => setToolMode("frame")}
-          title="Frame tool (F)"
-          class={`p-1.5 rounded transition ${
-            toolMode() === "frame"
-              ? "bg-[#0d99ff] text-white shadow-xs"
-              : "text-neutral-700 hover:bg-neutral-100"
-          }`}
-        >
-          <Frame size={15} />
-        </button>
-
-        <button
-          onClick={() => setToolMode("rect")}
-          title="Rectangle tool (R)"
-          class={`p-1.5 rounded transition ${
-            toolMode() === "rect"
-              ? "bg-[#0d99ff] text-white shadow-xs"
-              : "text-neutral-700 hover:bg-neutral-100"
-          }`}
-        >
-          <Square size={15} />
-        </button>
-        <button
-          onClick={() => setToolMode("text")}
-          title="Text tool (T)"
-          class={`p-1.5 rounded transition ${
-            toolMode() === "text"
-              ? "bg-[#0d99ff] text-white shadow-xs"
-              : "text-neutral-700 hover:bg-neutral-100"
-          }`}
-        >
-          <Type size={15} />
-        </button>
-      </div>
-
-      {/* Center History & Zoom */}
-      <div class="flex items-center gap-1">
-        <button
-          onClick={handleUndo}
-          title="Undo (Cmd+Z)"
-          class="p-1.5 text-neutral-700 hover:bg-neutral-100 rounded transition"
-        >
-          <Undo2 size={15} />
-        </button>
-        <button
-          onClick={handleRedo}
-          title="Redo (Cmd+Shift+Z)"
-          class="p-1.5 text-neutral-700 hover:bg-neutral-100 rounded transition"
-        >
-          <Redo2 size={15} />
-        </button>
-
-        <div class="h-4 w-px bg-neutral-200 mx-1.5" />
-
-        <button
-          onClick={zoomOut}
-          title="Zoom out (-)"
-          class="p-1.5 text-neutral-700 hover:bg-neutral-100 rounded transition"
-        >
-          <ZoomOut size={15} />
-        </button>
-        <button
-          onClick={resetZoom100}
-          title="Reset zoom to 100% (Cmd+0)"
-          class="px-2 py-0.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded min-w-[48px] text-center"
-        >
-          {Math.round(camera().zoom * 100)}%
-        </button>
-        <button
-          onClick={zoomIn}
-          title="Zoom in (+)"
-          class="p-1.5 text-neutral-700 hover:bg-neutral-100 rounded transition"
-        >
-          <ZoomIn size={15} />
-        </button>
-      </div>
-
-      {/* Right Sidebar Toggles */}
-      <div class="flex items-center gap-1">
+        <div class="chrome-surface h-10 rounded-full px-1.5 flex items-center gap-0.5">
+          <button
+            onClick={() => setConfirmingClear(true)}
+            disabled={!canClear()}
+            title="Clear canvas"
+            class="flex items-center gap-1.5 px-3 h-8 text-[13px] font-medium rounded-full text-neutral-700 hover:bg-black/5 transition disabled:text-neutral-300 disabled:hover:bg-transparent disabled:cursor-default"
+          >
+            <Trash2 size={14} />
+            Clear
+          </button>
+          <button
+            onClick={() => fileInputRef?.click()}
+            title="Open Pen (.pen, .json, .zip)"
+            class="flex items-center gap-1.5 px-3 h-8 text-[13px] font-medium rounded-full text-neutral-700 hover:bg-black/5 transition"
+          >
+            <FolderOpen size={14} />
+            Open
+          </button>
+        </div>
         <button
           onClick={() => setLayersVisible(!layersVisible())}
-          title="Toggle Layers sidebar (\)"
-          class={`p-1.5 rounded transition ${
+          title="Toggle layers (\\)"
+          class={`w-9 h-9 flex items-center justify-center rounded-full transition ${
             layersVisible()
-              ? "bg-neutral-200 text-neutral-900"
-              : "text-neutral-500 hover:bg-neutral-100"
+              ? "bg-neutral-900 text-white shadow-[0_10px_40px_rgba(15,15,15,0.08)]"
+              : `chrome-surface ${iconBtn}`
           }`}
         >
-          <PanelLeft size={15} />
-        </button>
-        <button
-          onClick={() => setInspectorVisible(!inspectorVisible())}
-          title="Toggle Inspector sidebar (])"
-          class={`p-1.5 rounded transition ${
-            inspectorVisible()
-              ? "bg-neutral-200 text-neutral-900"
-              : "text-neutral-500 hover:bg-neutral-100"
-          }`}
-        >
-          <PanelRight size={15} />
-        </button>
-        <button
-          onClick={() => setChatVisible(!chatVisible())}
-          title="Toggle AI chat sidebar"
-          class={`p-1.5 rounded transition ${
-            chatVisible()
-              ? "bg-blue-100 text-blue-700"
-              : "text-neutral-500 hover:bg-neutral-100"
-          }`}
-        >
-          <BotMessageSquare size={15} />
+          <Layers size={15} />
         </button>
       </div>
+
+      <button
+        onClick={() => setChatVisible(true)}
+        title="Open chat"
+        class={`chat-reopen absolute bottom-4 left-3 z-40 origin-bottom-left w-14 h-14 rounded-full bg-neutral-900 text-white flex items-center justify-center shadow-[0_10px_28px_rgba(15,15,15,0.28),0_2px_6px_rgba(15,15,15,0.16)] hover:bg-neutral-800 hover:shadow-[0_14px_32px_rgba(15,15,15,0.32)] hover:-translate-y-0.5 active:translate-y-0 active:scale-95 ${
+          chatVisible() ? "opacity-0 scale-90 pointer-events-none" : "opacity-100 scale-100"
+        }`}
+        tabindex={chatVisible() ? -1 : 0}
+        aria-hidden={chatVisible()}
+      >
+        <BotMessageSquare size={22} stroke-width={1.8} />
+      </button>
 
       <Show when={confirmingClear()}>
         <div
@@ -231,9 +128,6 @@ export const Toolbar: Component = () => {
             aria-labelledby="clear-canvas-title"
             class="w-[340px] bg-white rounded-xl shadow-2xl border border-neutral-200 p-5"
             onClick={(e) => e.stopPropagation()}
-            // The dialog opens on a click, so it is on screen before the key
-            // handler is attached. Focusing it here makes Escape work without
-            // the user having to click into it first.
             ref={(el) => queueMicrotask(() => el.focus())}
             tabindex="-1"
             onKeyDown={(e) => {
@@ -272,6 +166,77 @@ export const Toolbar: Component = () => {
           </div>
         </div>
       </Show>
+    </>
+  );
+};
+
+function railButtonClass(active: boolean): string {
+  return `w-9 h-9 flex items-center justify-center rounded-full transition ${
+    active ? "bg-neutral-900 text-white shadow-xs" : "text-neutral-700 hover:bg-black/5"
+  }`;
+}
+
+export const ToolRail: Component = () => {
+  return (
+    <div class="chrome-surface absolute right-3 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-0.5 rounded-full p-1.5 select-none">
+      <button
+        onClick={() => setToolMode("select")}
+        title="Select tool (V)"
+        class={railButtonClass(toolMode() === "select")}
+      >
+        <MousePointer size={16} />
+      </button>
+      <button
+        onClick={() => setToolMode("frame")}
+        title="Frame tool (F)"
+        class={railButtonClass(toolMode() === "frame")}
+      >
+        <Frame size={16} />
+      </button>
+      <button
+        onClick={() => setToolMode("rect")}
+        title="Rectangle tool (R)"
+        class={railButtonClass(toolMode() === "rect")}
+      >
+        <Square size={16} />
+      </button>
+      <button
+        onClick={() => setToolMode("text")}
+        title="Text tool (T)"
+        class={railButtonClass(toolMode() === "text")}
+      >
+        <Type size={16} />
+      </button>
+    </div>
+  );
+};
+
+export const ZoomControls: Component = () => {
+  return (
+    <div class="absolute bottom-4 right-3 z-30 flex items-center gap-2 select-none">
+      <div class="chrome-surface flex items-center gap-0.5 rounded-full p-1">
+        <button
+          onClick={handleUndo}
+          title="Undo (Cmd+Z)"
+          class="w-8 h-8 flex items-center justify-center text-neutral-700 hover:bg-black/5 rounded-full transition"
+        >
+          <Undo2 size={15} />
+        </button>
+        <button
+          onClick={handleRedo}
+          title="Redo (Cmd+Shift+Z)"
+          class="w-8 h-8 flex items-center justify-center text-neutral-700 hover:bg-black/5 rounded-full transition"
+        >
+          <Redo2 size={15} />
+        </button>
+      </div>
+      <button
+        onClick={resetZoom100}
+        title="Reset zoom to 100% (Cmd+0)"
+        class="chrome-surface h-10 min-w-[56px] px-3 rounded-full text-xs font-semibold text-neutral-800 hover:bg-white/90 transition"
+      >
+        {Math.round(camera().zoom * 100)}%
+      </button>
     </div>
   );
 };

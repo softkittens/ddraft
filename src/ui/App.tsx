@@ -1,5 +1,5 @@
 import { Component, Show, onMount, onCleanup } from "solid-js";
-import { Toolbar } from "./Toolbar";
+import { Toolbar, ToolRail, ZoomControls } from "./Toolbar";
 import { LayersPanel } from "./LayersPanel";
 import { InspectorPanel } from "./InspectorPanel";
 import { ChatPanel } from "./ChatPanel";
@@ -85,26 +85,21 @@ export const App: Component = () => {
   });
 
   return (
-    <div class="flex flex-col w-screen h-screen overflow-hidden bg-neutral-100">
+    <div class="relative w-screen h-screen overflow-hidden bg-neutral-100">
+      <CanvasView />
       <Toolbar />
-      <div class="flex flex-1 overflow-hidden relative">
-        <Show when={layersVisible()}>
-          <LayersPanel />
-        </Show>
-
-        <div class="flex-1 h-full relative overflow-hidden flex">
-          <ChatPanel />
-          <CanvasView />
-        </div>
-
-        <Show when={inspectorVisible()}>
-          <InspectorPanel />
-        </Show>
-
-        <Show when={typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1"}>
-          <PerfHUD />
-        </Show>
-      </div>
+      <ChatPanel />
+      <ToolRail />
+      <ZoomControls />
+      <Show when={layersVisible()}>
+        <LayersPanel />
+      </Show>
+      <Show when={inspectorVisible()}>
+        <InspectorPanel />
+      </Show>
+      <Show when={typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1"}>
+        <PerfHUD />
+      </Show>
     </div>
   );
 };

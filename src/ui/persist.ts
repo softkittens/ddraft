@@ -119,30 +119,37 @@ export function restoreRecord(raw: any): PersistedSession | null {
   };
 }
 
+let cachedSession: PersistedSession | null = null;
+let timer: ReturnType<typeof setTimeout> | null = null;
+let maxWaitTimer: ReturnType<typeof setTimeout> | null = null;
+let writeQueue: Promise<unknown> = Promise.resolve();
+const MAX_WAIT_MS = 1000;
+
 export async function loadSession(): Promise<PersistedSession | null> {
-  return restoreRecord(await withStore<unknown>("readonly", (s) => s.get(KEY)));
+  const record = restoreRecord(await withStore<unknown>("readonly", (s) => s.get(KEY)));
+  if (record) cachedSession = record;
+  return record;
 }
 
-let pending: Partial<PersistedSession> = {};
-let timer: ReturnType<typeof setTimeout> | null = null;
-let writeQueue: Promise<unknown> = Promise.resolve();
-
 async function write(): Promise<void> {
-  const patch = pending;
-  pending = {};
-  if (!patch.doc && !patch.camera && !patch.chat) return;
+  if (timer !== null) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  if (maxWaitTimer !== null) {
+    clearTimeout(maxWaitTimer);
+    maxWaitTimer = null;
+  }
 
-  const existing = (await withStore<unknown>("readonly", (s) => s.get(KEY))) as any;
-  const chat = patch.chat ?? existing?.chat;
-  const doc = patch.doc ?? existing?.doc;
-  if (!doc) return;
+  if (!cachedSession || !cachedSession.doc) return;
 
   const session: PersistedSession = {
+    ...cachedSession,
     version: SCHEMA_VERSION,
     savedAt: new Date().toISOString(),
-    doc,
-    camera: patch.camera ?? existing?.camera,
-    chat: chat ? { ...chat, entries: chat.entries.slice(-MAX_ENTRIES) } : undefined
+    chat: cachedSession.chat
+      ? { ...cachedSession.chat, entries: cachedSession.chat.entries.slice(-MAX_ENTRIES) }
+      : undefined
   };
 
   try {
@@ -152,9 +159,23 @@ async function write(): Promise<void> {
   }
 }
 
-/** Queue part of the session for saving with debounce. */
+/** Queue part of the session for saving with debounce and max-wait guarantee. */
 export function saveSession(patch: Partial<PersistedSession>): void {
-  pending = { ...pending, ...patch };
+  cachedSession = {
+    version: SCHEMA_VERSION,
+    savedAt: new Date().toISOString(),
+    doc: patch.doc ?? cachedSession?.doc!,
+    camera: patch.camera ?? cachedSession?.camera,
+    chat: patch.chat ?? cachedSession?.chat
+  };
+
+  if (maxWaitTimer === null) {
+    maxWaitTimer = setTimeout(() => {
+      maxWaitTimer = null;
+      writeQueue = writeQueue.then(write, write);
+    }, MAX_WAIT_MS);
+  }
+
   if (timer !== null) clearTimeout(timer);
   timer = setTimeout(() => {
     timer = null;
@@ -162,11 +183,15 @@ export function saveSession(patch: Partial<PersistedSession>): void {
   }, DEBOUNCE_MS);
 }
 
-/** Immediately write queued state to disk (e.g. before page unload). */
+/** Immediately write queued state to disk (e.g. before page unload or upon stopping). */
 export function flushSession(): Promise<unknown> {
   if (timer !== null) {
     clearTimeout(timer);
     timer = null;
+  }
+  if (maxWaitTimer !== null) {
+    clearTimeout(maxWaitTimer);
+    maxWaitTimer = null;
   }
   writeQueue = writeQueue.then(write, write);
   return writeQueue;
@@ -174,10 +199,14 @@ export function flushSession(): Promise<unknown> {
 
 /** Delete persisted session from storage. */
 export async function clearSession(): Promise<void> {
-  pending = {};
+  cachedSession = null;
   if (timer !== null) {
     clearTimeout(timer);
     timer = null;
+  }
+  if (maxWaitTimer !== null) {
+    clearTimeout(maxWaitTimer);
+    maxWaitTimer = null;
   }
   await writeQueue.catch(() => {});
   await withStore("readwrite", (s) => s.delete(KEY));

@@ -340,6 +340,19 @@ describe("Composition & Anti-Patterns", () => {
     expectFinding(missedBleed, "missed_bleed", { severity: "warning" });
     expectFinding(missingDisplay, "missing_display", { severity: "warning" });
     expectFinding(emptyTail, "empty_tail", { severity: "warning" });
+
+    // An intentional rounded card inside Inset Content does NOT trigger missed_bleed
+    const roundedCard = screenWith(frame("inset", "fill_container", "fit_content", [
+      frame("hero", "fill_container", 400, [], { name: "Hero Card", cornerRadius: 20, fill: { type: "image", url: "x.jpg" } })
+    ], { name: "Inset Content", padding: [0, 20], layout: "vertical" }));
+    expect(rules(roundedCard)).not.toContain("missed_bleed");
+    expect(rules(roundedCard)).not.toContain("radius_scale");
+
+    // An edge-to-edge container touching screen borders with rounded corners triggers radius_scale warning
+    const edgeToEdgeRounded = screenWith(
+      frame("hero", 390, 380, [], { name: "Bleed Hero", cornerRadius: 24, fill: { type: "image", url: "x.jpg" } })
+    );
+    expectFinding(edgeToEdgeRounded, "radius_scale", { message: "spans edge-to-edge" });
   });
 
   it("evaluates cloned content and stat tile rows", () => {

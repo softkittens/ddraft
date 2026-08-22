@@ -18,7 +18,7 @@ export const InspectorPanel: Component = () => {
   const selectedCount = () => selectedIds().size;
 
   return (
-    <div class="w-64 bg-white border-l border-neutral-200 flex flex-col h-full z-20 select-none shadow-xs">
+    <div class="chrome-surface absolute top-14 right-16 z-30 w-64 max-h-[min(560px,calc(100%-5rem))] rounded-2xl flex flex-col select-none overflow-hidden">
       <div class="h-9 px-3 border-b border-neutral-200 flex items-center justify-between font-semibold text-xs text-neutral-800 tracking-wide uppercase">
         <div class="flex items-center gap-1.5">
           <SlidersHorizontal size={13} class="text-neutral-500" />

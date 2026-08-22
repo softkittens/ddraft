@@ -83,4 +83,12 @@ describe("restoring a stored session", () => {
 
     expect(restored.chat?.lastBrief).toBe("");
   });
+
+  it("handles saveSession and flushSession safely", async () => {
+    const { saveSession, flushSession, clearSession } = await import("../src/ui/persist");
+    const testDoc = makeDoc(frame("screen", 390, 844, [txt("t", "Hello")]));
+    saveSession({ doc: testDoc });
+    await expect(flushSession()).resolves.toBeUndefined();
+    await expect(clearSession()).resolves.toBeUndefined();
+  });
 });

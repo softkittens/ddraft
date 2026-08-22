@@ -10,6 +10,38 @@
   }
 }
 
+.chrome-surface {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 10px 40px rgba(15, 15, 15, 0.08), 0 1px 2px rgba(15, 15, 15, 0.04);
+}
+
+.chat-shell {
+  transition: opacity 150ms ease-out, transform 150ms ease-out, height 160ms ease-out;
+}
+
+.chat-shell-body {
+  transition: grid-template-rows 160ms ease-out;
+}
+
+.chat-reopen {
+  transition:
+    opacity 150ms ease-out,
+    transform 150ms ease-out,
+    box-shadow 150ms ease-out,
+    background-color 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-shell,
+  .chat-shell-body,
+  .chat-reopen {
+    transition: none;
+  }
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;

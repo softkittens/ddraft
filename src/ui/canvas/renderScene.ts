@@ -19,7 +19,7 @@ function getDotPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
   const offCtx = offscreen.getContext("2d");
   if (!offCtx) return null;
 
-  offCtx.fillStyle = "rgba(15, 23, 42, 0.22)";
+  offCtx.fillStyle = "rgba(15, 23, 42, 0.176)";
   offCtx.beginPath();
   offCtx.arc(10, 10, 1, 0, Math.PI * 2);
   offCtx.fill();

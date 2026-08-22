@@ -1,4 +1,4 @@
-import { Component, For, Show } from "solid-js";
+import { Component, For, Show, createSignal, onCleanup } from "solid-js";
 import {
   ChevronDown,
   ChevronRight,
@@ -115,10 +115,85 @@ const NodeRow: Component<{ node: PenNode; depth: number }> = (props) => {
   );
 };
 
+const LAYERS_MIN_W = 260;
+const LAYERS_MIN_H = 240;
+const LAYERS_MAX_W = 520;
+
+const [layersPanelWidth, setLayersPanelWidth] = createSignal(320);
+const [layersPanelHeight, setLayersPanelHeight] = createSignal(640);
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
 export const LayersPanel: Component = () => {
+  const [resizing, setResizing] = createSignal(false);
+
+  const startResize = (axisX: boolean, axisY: boolean) => (e: PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const handle = e.currentTarget as HTMLElement;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startW = layersPanelWidth();
+    const startH = layersPanelHeight();
+    handle.setPointerCapture(e.pointerId);
+    setResizing(true);
+
+    const onMove = (ev: PointerEvent) => {
+      if (axisX) {
+        setLayersPanelWidth(
+          clamp(startW + (startX - ev.clientX), LAYERS_MIN_W, Math.min(LAYERS_MAX_W, window.innerWidth - 96))
+        );
+      }
+      if (axisY) {
+        setLayersPanelHeight(
+          clamp(startH + (ev.clientY - startY), LAYERS_MIN_H, window.innerHeight - 80)
+        );
+      }
+    };
+
+    const onUp = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.removeEventListener("pointercancel", onUp);
+      setResizing(false);
+    };
+
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointercancel", onUp);
+  };
+
+  onCleanup(() => setResizing(false));
+
   return (
-    <div class="w-60 bg-white border-r border-neutral-200 flex flex-col h-full z-20 select-none shadow-xs">
-      <div class="h-9 px-3 border-b border-neutral-200 flex items-center justify-between font-semibold text-xs text-neutral-800 tracking-wide uppercase">
+    <div
+      class={`chrome-surface absolute top-14 right-16 z-30 rounded-2xl flex flex-col select-none overflow-hidden ${
+        resizing() ? "cursor-grabbing" : ""
+      }`}
+      style={{
+        width: `${layersPanelWidth()}px`,
+        height: `min(${layersPanelHeight()}px, calc(100vh - 5rem))`
+      }}
+    >
+      <div
+        class="absolute left-0 top-0 bottom-0 w-1.5 z-10 cursor-ew-resize"
+        onPointerDown={startResize(true, false)}
+        title="Resize width"
+      />
+      <div
+        class="absolute left-0 right-0 bottom-0 h-1.5 z-10 cursor-ns-resize"
+        onPointerDown={startResize(false, true)}
+        title="Resize height"
+      />
+      <div
+        class="absolute left-0 bottom-0 w-3 h-3 z-20 cursor-nesw-resize"
+        onPointerDown={startResize(true, true)}
+        title="Resize"
+      />
+
+      <div class="h-9 px-3 border-b border-neutral-200/80 flex items-center justify-between font-semibold text-xs text-neutral-800 tracking-wide uppercase shrink-0">
         <span>Layers</span>
         <button
           onClick={() => setLayersVisible(false)}
@@ -129,12 +204,11 @@ export const LayersPanel: Component = () => {
         </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto custom-scrollbar py-1">
+      <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar py-1">
         <For each={doc().children}>
           {(node) => <NodeRow node={node} depth={0} />}
         </For>
       </div>
-
     </div>
   );
 };

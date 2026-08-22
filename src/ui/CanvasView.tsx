@@ -121,7 +121,7 @@ export const CanvasView: Component = () => {
       onDragOver={fileDrop.handleDragOver}
       onDragLeave={fileDrop.handleDragLeave}
       onDrop={fileDrop.handleDrop}
-      class="flex-1 h-full min-w-0 relative overflow-hidden"
+      class="absolute inset-0 min-w-0 overflow-hidden"
     >
       <canvas
         ref={canvasRef}

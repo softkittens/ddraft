@@ -109,3 +109,62 @@ export function isAssistantMessage(entry: Entry): entry is MessageEntry {
 export function isToolMessage(entry: Entry): entry is MessageEntry {
   return entry.kind === "message" && entry.message.role === "tool";
 }
+
+function firstLine(text: string, max = 72): string {
+  const line = text.trim().split(/\n/)[0] ?? "";
+  if (line.length <= max) return line;
+  return `${line.slice(0, max - 1)}…`;
+}
+
+export function collapsedActivity(args: {
+  entries: Entry[];
+  pending: PendingStep | null;
+  streamReasoning: string;
+  streamText: string;
+  running: boolean;
+}): { title: string; detail?: string; live: boolean } {
+  const pending = args.pending;
+  if (pending) {
+    return { title: pending.label, detail: pending.detail, live: true };
+  }
+  const stream = args.streamText.trim();
+  if (stream) {
+    return { title: firstLine(stream), live: true };
+  }
+  if (args.streamReasoning.trim()) {
+    return { title: "Thinking…", live: true };
+  }
+  if (args.running) {
+    return { title: "Working…", live: true };
+  }
+
+  for (let i = args.entries.length - 1; i >= 0; i--) {
+    const entry = args.entries[i];
+    switch (entry.kind) {
+      case "review":
+        return {
+          title: `Visual review ${entry.pass}`,
+          detail: entry.review.verdict,
+          live: false
+        };
+      case "note":
+        return { title: firstLine(entry.text), live: false };
+      case "message": {
+        if (entry.message.role === "tool") {
+          return { title: entry.tool ?? "tool", detail: "ran", live: false };
+        }
+        if (entry.message.role === "assistant") {
+          const text = renderMessageText(entry.message.content).trim();
+          if (text) return { title: firstLine(text), live: false };
+        }
+        break;
+      }
+      default: {
+        const _exhaustive: never = entry;
+        return _exhaustive;
+      }
+    }
+  }
+
+  return { title: "No recent activity", live: false };
+}

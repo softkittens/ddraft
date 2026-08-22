@@ -246,8 +246,9 @@ export function checkCompositionExpectations(ctx: AuditContext): AuditFinding[] 
     const screenBox = ctx.boxes.get(screen.id)?.box;
     if (!screenBox || screenBox.height <= 0) continue;
     const screenHeight = screenBox.height;
+    const screenWidth = screenBox.width;
 
-    // 1. Missed bleed
+    // 1. Missed bleed vs Edge-to-edge corner radius discipline
     function findNamed(node: PenNode, name: RegExp): PenNode | undefined {
       if (name.test(node.name ?? "")) return node;
       for (const child of childrenOf(node)) {
@@ -262,8 +263,11 @@ export function checkCompositionExpectations(ctx: AuditContext): AuditFinding[] 
       const insetRoot = inset;
       walkEnabled([inset], (node) => {
         const box = ctx.boxes.get(node.id)?.box;
+        const r = node.cornerRadius;
+        const hasRadius = typeof r === "number" ? r > 0 : Array.isArray(r) && r.some((v) => typeof v === "number" && v > 0);
         if (
           hasImageFill(node) &&
+          !hasRadius &&
           box &&
           box.height >= screenHeight * 0.4 &&
           (node === insetRoot || isDescendant(node, insetRoot))
@@ -279,6 +283,28 @@ export function checkCompositionExpectations(ctx: AuditContext): AuditFinding[] 
         }
       });
     }
+
+    // Edge-to-edge containers must have cornerRadius: 0
+    walkEnabled([screen], (node) => {
+      if (node === screen) return;
+      const box = ctx.boxes.get(node.id)?.box;
+      if (!box) return;
+
+      const r = node.cornerRadius;
+      const hasRadius = typeof r === "number" ? r > 0 : Array.isArray(r) && r.some((v) => typeof v === "number" && v > 0);
+      const isEdgeToEdge = box.x <= 2 && box.width >= screenWidth - 4;
+
+      if (isEdgeToEdge && hasRadius && (hasImageFill(node) || node.type === "frame")) {
+        findings.push(
+          warning(
+            "radius_scale",
+            node.id,
+            `"${node.name ?? node.id}" spans edge-to-edge (${Math.round(box.width)}px) but has rounded corners (cornerRadius: ${Array.isArray(r) ? r.join(",") : r}). Edge-to-edge elements must have cornerRadius: 0.`,
+            "Set cornerRadius: 0 for a flush edge-to-edge bleed container, or place it inside Inset Content with side margins for a rounded card."
+          )
+        );
+      }
+    });
 
     // 2. Missing display heading
     const contentType: number[] = [];

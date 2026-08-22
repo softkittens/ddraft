@@ -12,37 +12,37 @@ export const ReviewCard: Component<{
   const scores = () => Object.entries(review().scores) as [string, number][];
 
   return (
-    <div class="mr-auto w-full max-w-[96%] rounded-xl border border-indigo-200/70 bg-indigo-50/40 text-xs shadow-2xs overflow-hidden">
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-indigo-200/60 bg-indigo-50/70">
-        <Eye size={11} class="text-indigo-500 shrink-0" />
-        <span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-600">
+    <div class="mr-auto w-full rounded-2xl bg-black/[0.03] text-[12px] overflow-hidden">
+      <div class="flex items-center gap-1.5 px-3 py-2">
+        <Eye size={12} class="text-neutral-400 shrink-0" />
+        <span class="text-[11px] font-medium text-neutral-600">
           Visual review {props.entry.pass}
         </span>
         <span
-          class={`ml-auto text-[9px] font-semibold uppercase tracking-wider rounded px-1.5 py-0.5 ${
+          class={`ml-auto text-[10px] font-medium rounded-full px-2 py-0.5 ${
             review().verdict === "pass"
-              ? "bg-emerald-100 text-emerald-700"
-              : "bg-amber-100 text-amber-800"
+              ? "bg-emerald-50 text-emerald-700"
+              : "bg-amber-50 text-amber-800"
           }`}
         >
           {review().verdict}
         </span>
       </div>
 
-      <div class="px-2.5 py-2 space-y-1.5">
+      <div class="px-3 pb-2.5 space-y-1.5">
         <Show when={props.entry.thumbnail}>
           {(src) => (
             <img
               src={src()}
               alt="The mockup the critic was shown"
-              class="w-full max-h-44 object-contain rounded-md border border-indigo-200/60 bg-white"
+              class="w-full max-h-44 object-contain rounded-xl bg-white"
             />
           )}
         </Show>
 
         <Show when={by()}>
           {(who) => (
-            <div class="text-[10px] text-indigo-900/70 leading-relaxed">
+            <div class="text-[11px] text-neutral-500 leading-relaxed">
               Read by <span class="font-medium">{modelLabel(props.providers, who().providerId, who().model)}</span>
               <Show when={who().handoff}>
                 {(why) => <span class="opacity-70"> — {why()}</span>}
@@ -54,7 +54,7 @@ export const ReviewCard: Component<{
         <div class="flex flex-wrap gap-1">
           <For each={scores()}>
             {([name, value]) => (
-              <span class="rounded bg-white/80 border border-indigo-200/60 px-1.5 py-0.5 text-[10px] text-indigo-900">
+              <span class="rounded-full bg-white/70 px-2 py-0.5 text-[10px] text-neutral-600">
                 {name} <span class="font-semibold">{value}</span>/5
               </span>
             )}
@@ -62,7 +62,7 @@ export const ReviewCard: Component<{
         </div>
 
         <Show when={props.entry.applied > 0}>
-          <div class="text-[10px] text-indigo-900/70">
+          <div class="text-[11px] text-neutral-500">
             {props.entry.applied} propert{props.entry.applied === 1 ? "y" : "ies"} corrected directly.
           </div>
         </Show>

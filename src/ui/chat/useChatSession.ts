@@ -24,6 +24,7 @@ import { currentDirection } from "../../design/styleSystem";
 import { STYLE_METADATA_KEY } from "../../design/styleKeys";
 import { loadHistory, recordRun, saveHistory } from "../../design/history";
 import { auditDocument, formatAudit } from "../../design/evaluator";
+import { flushSession } from "../persist";
 import {
   type Entry,
   type PendingStep,
@@ -148,6 +149,7 @@ export function useChatSession() {
   function stop() {
     abort?.abort();
     reviewAbort?.abort();
+    void flushSession();
   }
 
   async function runAgentPass(text: string, context: Message[], sessionId: string) {
@@ -364,6 +366,7 @@ export function useChatSession() {
       setPending(null);
       setRunning(false);
       rememberStyle(doc(), text);
+      void flushSession();
     }
   }
 
@@ -374,9 +377,11 @@ export function useChatSession() {
     setAgentMessages([]);
     setLastBrief("");
     setStreamText("");
+    setStreamReasoning("");
     setPending(null);
     setRunning(false);
     persistChat({ entries: [], agentMessages: [], lastBrief: "" });
+    void flushSession();
   };
 
   return {
