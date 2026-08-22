@@ -16,7 +16,8 @@ import { useKeyboardControls } from "./canvas/useKeyboardControls";
 import { useCanvasPointer } from "./canvas/useCanvasPointer";
 import { useFileDrop } from "./canvas/useFileDrop";
 import { InlineTextEditor } from "./canvas/InlineTextEditor";
-import { AgentPens } from "./canvas/AgentPens";
+import { WorkingFrameIndicator } from "./canvas/WorkingFrameIndicator";
+import { workingFrameIds } from "./canvas/workingFrames";
 
 export const CanvasView: Component = () => {
   let containerRef: HTMLDivElement | undefined;
@@ -59,7 +60,8 @@ export const CanvasView: Component = () => {
       shapeCurrent: pointer.shapeCurrent(),
       marqueeStart: pointer.marqueeStart(),
       marqueeCurrent: pointer.marqueeCurrent(),
-      editingTextId: editingTextId()
+      editingTextId: editingTextId(),
+      workingFrameIds: workingFrameIds()
     });
 
     stopPaint();
@@ -83,6 +85,7 @@ export const CanvasView: Component = () => {
     pointer.shapeCurrent();
     pointer.marqueeStart();
     pointer.marqueeCurrent();
+    workingFrameIds();
 
     if (animFrameId) cancelAnimationFrame(animFrameId);
     animFrameId = requestAnimationFrame(render);
@@ -145,7 +148,7 @@ export const CanvasView: Component = () => {
         </div>
       </Show>
       <InlineTextEditor />
-      <AgentPens />
+      <WorkingFrameIndicator />
     </div>
   );
 };

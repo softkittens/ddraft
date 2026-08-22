@@ -12,7 +12,7 @@ import {
   persistChat
 } from "../store";
 import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
-import { noteAgentEdits, clearAgentEditTargets, diffChangedNodeIds } from "../canvas/agentPen";
+import { noteAgentEdits, clearAgentEditTargets, diffChangedNodeIds } from "../canvas/workingFrames";
 import type { Message } from "../../agent/provider";
 import type { PublicProvider } from "../../agent/credentials";
 import type { Document } from "../../model/types";
@@ -30,22 +30,14 @@ import {
   type Entry,
   type PendingStep,
   AUTO_REVIEW_REVISIONS,
-  toolLabel,
   modelLabel,
-  createThumbnail
+  createThumbnail,
+  commitAgentPass
 } from "./types";
 import { fetchAgentStatus, streamAgentRun, fetchAgentReview } from "./chatClient";
 
 function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError";
-}
-
-function toEntries(messages: Message[]): Entry[] {
-  return messages.map((message, i) => ({
-    kind: "message" as const,
-    message,
-    tool: message.role === "tool" ? toolLabel(messages, i) : undefined
-  }));
 }
 
 function applyCanvasUpdate(nextDoc: Document) {
@@ -73,11 +65,20 @@ function rememberStyle(doc: Document, brief: string) {
 export function useChatSession() {
   const [configured, setConfigured] = createSignal(false);
   const [providers, setProviders] = createSignal<PublicProvider[]>([]);
-  const [choice, setChoice] = createSignal(choiceValue("opencode-go", "gpt-5.6-luna"));
-  const [effort, setEffort] = createSignal<"low" | "medium" | "high">("high");
-  // Seeded from the stored session, which store.ts has already read and
-  // validated by the time this component mounts.
   const saved = restoredChat();
+  const defaultChoice = choiceValue("vercel", "gpt-5.6-luna");
+  const initialChoice =
+    (typeof localStorage !== "undefined" && localStorage.getItem("pen_selected_model")) ||
+    saved?.choice ||
+    defaultChoice;
+  const [choice, setChoice] = createSignal(initialChoice);
+
+  const initialEffort =
+    (typeof localStorage !== "undefined" && (localStorage.getItem("pen_selected_effort") as "low" | "medium" | "high")) ||
+    saved?.effort ||
+    "high";
+  const [effort, setEffort] = createSignal<"low" | "medium" | "high">(initialEffort);
+
   const [entries, setEntries] = createSignal<Entry[]>(saved?.entries ?? []);
   const [agentMessages, setAgentMessages] = createSignal<Message[]>(saved?.agentMessages ?? []);
   const [inputPrompt, setInputPrompt] = createSignal("");
@@ -87,12 +88,14 @@ export function useChatSession() {
   const [lastBrief, setLastBrief] = createSignal(saved?.lastBrief ?? "");
   const [pending, setPending] = createSignal<PendingStep | null>(null);
 
-  // The transcript is saved with the canvas it describes. streamText and
-  // pending are deliberately left out: they are the state of a run in flight,
-  // and a reload has already ended that run.
+  // The transcript is saved with the canvas it describes.
   createEffect(
-    on([entries, agentMessages, lastBrief], ([e, messages, brief]) => {
-      persistChat({ entries: e, agentMessages: messages, lastBrief: brief });
+    on([entries, agentMessages, lastBrief, choice, effort], ([e, messages, brief, c, eff]) => {
+      persistChat({ entries: e, agentMessages: messages, lastBrief: brief, choice: c, effort: eff });
+      if (typeof localStorage !== "undefined") {
+        if (c) localStorage.setItem("pen_selected_model", c);
+        if (eff) localStorage.setItem("pen_selected_effort", eff);
+      }
     }, { defer: true })
   );
 
@@ -136,7 +139,17 @@ export function useChatSession() {
 
   createEffect(() => {
     const list = choices();
-    if (list.length > 0 && !list.includes(choice())) setChoice(list[0]);
+    if (list.length === 0) return;
+    const current = choice();
+    if (list.includes(current)) return;
+    const savedModel = typeof localStorage !== "undefined" ? localStorage.getItem("pen_selected_model") : null;
+    if (savedModel && list.includes(savedModel)) {
+      setChoice(savedModel);
+    } else if (list.includes(defaultChoice)) {
+      setChoice(defaultChoice);
+    } else {
+      setChoice(list[0]);
+    }
   });
 
   onMount(async () => {
@@ -239,7 +252,14 @@ export function useChatSession() {
             setStreamText("");
             setPending(null);
             finalMessages = event.messages.filter((m) => m.role !== "system");
-            setEntries([...visibleBase, ...toEntries(finalMessages).slice(context.length)]);
+            setEntries((live) =>
+              commitAgentPass({
+                live,
+                visibleBase,
+                finalMessages,
+                contextLength: context.length
+              })
+            );
             setSelectedIds((prev) => {
               const nextSel = new Set<string>();
               const valid = nodeMap();

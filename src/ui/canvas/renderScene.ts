@@ -92,10 +92,11 @@ export function renderScene(
     );
   };
 
-  // Root frame titles (only for visible roots)
+  const working = new Set(state.workingFrameIds ?? []);
   ctx.font = `${11 / camera.zoom}px -apple-system, sans-serif`;
   for (const root of tree) {
     if (skipId && root.id === skipId) continue;
+    if (working.has(root.id)) continue;
     if (root.type === "frame" && isVisible(root.box)) {
       const rootDoc = map.get(root.id);
       const name = rootDoc?.name || root.id;
@@ -155,7 +156,7 @@ export function renderScene(
     }
   }
 
-  // Floating elevated drag ghost (zero-allocation lookup via findLayoutNode)
+  // Floating drag ghost (zero-allocation lookup via findLayoutNode)
   if (dragSession) {
     const draggedLayout = findLayoutNode(tree, dragSession.nodeId);
     if (draggedLayout) {
@@ -166,9 +167,6 @@ export function renderScene(
 
       ctx.save();
       ctx.globalAlpha = 0.88;
-      ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
-      ctx.shadowBlur = 16 / camera.zoom;
-      ctx.shadowOffsetY = 8 / camera.zoom;
 
       ctx.translate(ghostX - draggedLayout.box.x, ghostY - draggedLayout.box.y);
       paintNode(ctx, draggedLayout, map, variables);

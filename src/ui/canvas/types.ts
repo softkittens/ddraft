@@ -21,6 +21,7 @@ export interface CanvasRenderState {
   marqueeStart?: Point | null;
   marqueeCurrent?: Point | null;
   editingTextId?: string | null;
+  workingFrameIds?: readonly string[];
 }
 
 export function insertNodeAtWorld(node: PenNode, world: Point, skipFrameId?: string): Document {

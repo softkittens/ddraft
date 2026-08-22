@@ -29,12 +29,13 @@ export const NoticeBubble: Component<{ item: NoteEntry }> = (props) => {
   );
 };
 
-export const UserBubble: Component<{ message: Message; pinned?: boolean }> = (props) => {
+export const UserBubble: Component<{ message: Message; sticky?: boolean; pinned?: boolean }> = (props) => {
+  const isSticky = () => props.sticky || props.pinned;
   return (
     <div
       class={
-        props.pinned
-          ? "rounded-2xl bg-neutral-100 px-3.5 py-3 text-[13px] text-neutral-800 leading-relaxed whitespace-pre-wrap max-h-36 overflow-y-auto custom-scrollbar"
+        isSticky()
+          ? "sticky top-0 z-10 rounded-2xl bg-neutral-100/95 backdrop-blur-sm px-3.5 py-2.5 text-[13px] text-neutral-800 leading-relaxed whitespace-pre-wrap shadow-[0_4px_12px_-4px_rgba(0,0,0,0.08)] border border-black/[0.04]"
           : "rounded-2xl bg-neutral-100/80 px-3.5 py-2.5 text-[13px] text-neutral-800 leading-relaxed whitespace-pre-wrap"
       }
     >
@@ -86,6 +87,65 @@ export const ToolAccordion: Component<{
           <div class="font-mono text-[10px] text-neutral-500 leading-tight whitespace-pre-wrap max-h-36 overflow-y-auto custom-scrollbar">
             {renderMessageText(props.item.message.content)}
           </div>
+        </div>
+      </Show>
+    </div>
+  );
+};
+
+export const ToolGroupAccordion: Component<{
+  items: MessageEntry[];
+  expanded: boolean;
+  onToggle: () => void;
+  expandedToolIndices: Set<number>;
+  onToggleToolIndex: (idx: number) => void;
+  startIndex: number;
+}> = (props) => {
+  const count = () => props.items.length;
+  const toolSummary = () => {
+    const names = props.items.map((it) => it.tool ?? "tool");
+    const unique = Array.from(new Set(names));
+    if (unique.length <= 3) return unique.join(", ");
+    return `${unique.slice(0, 2).join(", ")} +${unique.length - 2} more`;
+  };
+
+  return (
+    <div class="rounded-xl bg-black/[0.03] text-[12px] overflow-hidden border border-black/[0.03]">
+      <button
+        onClick={props.onToggle}
+        class="w-full px-2.5 py-1.5 flex items-center justify-between gap-2 hover:bg-black/[0.04] transition text-left cursor-pointer"
+        title={props.expanded ? "Collapse tools" : "Expand tools"}
+      >
+        <div class="flex items-center gap-1.5 min-w-0 text-neutral-600">
+          <Wrench size={11} class="shrink-0 text-neutral-400" />
+          <span class="font-medium text-[11px] truncate text-neutral-700">
+            {count()} {count() === 1 ? "tool call" : "tool calls"}
+          </span>
+          <span class="text-[10px] text-neutral-400 truncate">· {toolSummary()}</span>
+        </div>
+        <ChevronDown
+          size={11}
+          class={`text-neutral-400 shrink-0 transition-transform duration-150 ${
+            props.expanded ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+
+      <Show when={props.expanded}>
+        <div class="px-2 pb-2 pt-1 flex flex-col gap-1.5 border-t border-black/[0.03]">
+          <For each={props.items}>
+            {(item, i) => {
+              const globalIdx = () => props.startIndex + i();
+              const isExpanded = () => props.expandedToolIndices.has(globalIdx());
+              return (
+                <ToolAccordion
+                  item={item}
+                  expanded={isExpanded()}
+                  onToggle={() => props.onToggleToolIndex(globalIdx())}
+                />
+              );
+            }}
+          </For>
         </div>
       </Show>
     </div>

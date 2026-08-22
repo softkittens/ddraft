@@ -23,6 +23,8 @@ export interface ChatSnapshot {
   entries: Entry[];
   agentMessages: Message[];
   lastBrief: string;
+  choice?: string;
+  effort?: "low" | "medium" | "high";
 }
 
 export interface PersistedSession {
@@ -98,7 +100,9 @@ function validChat(v: any): ChatSnapshot | undefined {
     return {
       entries: v.entries.slice(-MAX_ENTRIES),
       agentMessages: v.agentMessages,
-      lastBrief: typeof v.lastBrief === "string" ? v.lastBrief : ""
+      lastBrief: typeof v.lastBrief === "string" ? v.lastBrief : "",
+      choice: typeof v.choice === "string" ? v.choice : undefined,
+      effort: v.effort === "low" || v.effort === "medium" || v.effort === "high" ? v.effort : undefined
     };
   }
 }

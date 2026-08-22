@@ -25,7 +25,7 @@ export const ChatPanel: Component = () => {
           : "opacity-0 translate-y-1.5 scale-[0.98] pointer-events-none"
       } ${
         chatExpanded()
-          ? "h-[calc(100vh-4.5rem)] overflow-hidden"
+          ? "h-[calc(100vh-5.5rem)] overflow-hidden"
           : session.running()
             ? "h-[5.75rem] overflow-hidden"
             : "h-[8.5rem] overflow-visible"
@@ -79,6 +79,7 @@ export const ChatPanel: Component = () => {
               pending={session.pending()}
               configured={session.configured()}
               providers={session.providers()}
+              expanded={chatExpanded()}
               onSelectPrompt={session.setInputPrompt}
             />
           </div>

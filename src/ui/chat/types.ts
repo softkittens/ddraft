@@ -33,7 +33,7 @@ export interface PendingStep {
 }
 
 export const SETUP_NOTICE =
-  "No provider key found. Add OPENAI_API_KEY, OPENCODE_GO_API_KEY, GEMINI_API_KEY, or DASHSCOPE_API_KEY to your .env file and restart. Keys stay on your local agent server.";
+  "No provider key found. Add VERCEL_API_KEY, OPENCODE_GO_API_KEY, GEMINI_API_KEY, or DASHSCOPE_API_KEY to your .env file and restart. Keys stay on your local agent server.";
 
 export const AUTO_REVIEW_REVISIONS = 2;
 
@@ -108,6 +108,75 @@ export function isAssistantMessage(entry: Entry): entry is MessageEntry {
 
 export function isToolMessage(entry: Entry): entry is MessageEntry {
   return entry.kind === "message" && entry.message.role === "tool";
+}
+
+export type DisplayItem =
+  | { type: "entry"; entry: Entry }
+  | { type: "tool_group"; entries: MessageEntry[]; startIndex: number };
+
+export function groupTranscriptEntries(entries: Entry[]): DisplayItem[] {
+  const items: DisplayItem[] = [];
+  let currentTools: MessageEntry[] = [];
+  let groupStartIndex = 0;
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (isToolMessage(entry)) {
+      if (currentTools.length === 0) {
+        groupStartIndex = i;
+      }
+      currentTools.push(entry);
+    } else {
+      if (currentTools.length > 0) {
+        items.push({ type: "tool_group", entries: currentTools, startIndex: groupStartIndex });
+        currentTools = [];
+      }
+      items.push({ type: "entry", entry });
+    }
+  }
+
+  if (currentTools.length > 0) {
+    items.push({ type: "tool_group", entries: currentTools, startIndex: groupStartIndex });
+  }
+
+  return items;
+}
+
+export function transcriptFromMessages(messages: Message[]): Entry[] {
+  return messages.map((message, i) => ({
+    kind: "message" as const,
+    message,
+    tool: message.role === "tool" ? toolLabel(messages, i) : undefined
+  }));
+}
+
+export function commitAgentPass(args: {
+  live: Entry[];
+  visibleBase: Entry[];
+  finalMessages: Message[];
+  contextLength: number;
+}): Entry[] {
+  const rebuilt = [
+    ...args.visibleBase,
+    ...transcriptFromMessages(args.finalMessages).slice(args.contextLength)
+  ];
+  if (rebuilt.filter(isToolMessage).length >= args.live.filter(isToolMessage).length) {
+    return rebuilt;
+  }
+
+  const closing = [...args.finalMessages]
+    .reverse()
+    .find((m) => m.role === "assistant" && renderMessageText(m.content).trim().length > 0);
+  if (!closing) return args.live;
+
+  const text = renderMessageText(closing.content).trim();
+  const already = args.live.some(
+    (entry) =>
+      entry.kind === "message" &&
+      entry.message.role === "assistant" &&
+      renderMessageText(entry.message.content).trim() === text
+  );
+  return already ? args.live : [...args.live, { kind: "message", message: closing }];
 }
 
 function firstLine(text: string, max = 72): string {

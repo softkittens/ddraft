@@ -60,9 +60,7 @@ export const Toolbar: Component = () => {
   return (
     <>
       <div class="absolute top-3 left-3 z-40 flex items-center gap-2 select-none">
-        <span class="px-1 text-[15px] font-semibold tracking-tight text-neutral-800 drop-shadow-[0_1px_0_rgba(255,255,255,0.8)]">
-          PenX
-        </span>
+        <img src="/logo.png" alt="draft." class="h-10 w-auto select-none" />
       </div>
 
       <div class="absolute top-3 right-3 z-40 flex items-center gap-2 select-none">
