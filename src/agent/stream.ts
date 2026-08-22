@@ -1,6 +1,7 @@
 import {
   toApiMessages,
   toResponsesInput,
+  usesMaxCompletionTokens,
   type CompleteOptions,
   type Message,
   type Provider,
@@ -195,16 +196,12 @@ export async function* completeStream(
 
   const fetchImpl = opts.fetch ?? fetch;
   const cap = outputCap(p);
-  const useMaxCompletionTokens =
-    p.baseUrl.includes("api.openai.com") ||
-    Boolean(p.reasoningEffort) ||
-    /^(o[134]|gpt-5|gpt-4o)/i.test(p.model);
 
   const body: Record<string, unknown> = {
     model: p.model,
     messages: toApiMessages(messages, p),
     stream: true,
-    ...(useMaxCompletionTokens ? { max_completion_tokens: cap } : { max_tokens: cap }),
+    ...(usesMaxCompletionTokens(p) ? { max_completion_tokens: cap } : { max_tokens: cap }),
     ...(p.reasoningEffort ? { reasoning_effort: p.reasoningEffort } : {})
   };
   if (tools && tools.length > 0) {

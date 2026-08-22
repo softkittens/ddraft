@@ -141,6 +141,12 @@ function toMessagesInput(messages: Message[]) {
   return { system: system.join("\n\n"), messages: input };
 }
 
+export function usesMaxCompletionTokens(p: Provider): boolean {
+  return p.baseUrl.includes("api.openai.com") ||
+    Boolean(p.reasoningEffort) ||
+    /^(o[134]|gpt-5|gpt-4o)/i.test(p.model);
+}
+
 export async function complete(
   p: Provider,
   messages: Message[],
@@ -162,7 +168,7 @@ export async function complete(
     : {
         model: p.model,
         messages: toApiMessages(messages, p),
-        ...(p.baseUrl.includes("api.openai.com") || Boolean(p.reasoningEffort) || /^(o[134]|gpt-5|gpt-4o)/i.test(p.model)
+        ...(usesMaxCompletionTokens(p)
           ? { max_completion_tokens: p.maxOutputTokens ?? 4096 }
           : { max_tokens: p.maxOutputTokens ?? 4096 }),
         ...(p.reasoningEffort ? { reasoning_effort: p.reasoningEffort } : {})
