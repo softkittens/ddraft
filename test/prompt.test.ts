@@ -18,7 +18,13 @@ describe("System prompt carries rules, not a design", () => {
       "Starlight",
       "Maya Bennett",
       "gallops",
-      "Lorem"
+      "Lorem",
+      "SYSTEMS NOMINAL",
+      "Shift Handoff",
+      "Fleet Registry",
+      "Floor 03",
+      "Live Production",
+      "MAINT"
     ];
     for (const literal of leakedFromATemplate) {
       expect(prompt).not.toContain(literal);
@@ -42,15 +48,31 @@ describe("System prompt carries rules, not a design", () => {
 
   it("requires real generated imagery for image-led products", () => {
     expect(prompt).toContain("product depends on photography or illustration");
+    expect(prompt).toContain("first viewport");
     expect(prompt).toMatch(/call\s+generate_image/);
-    expect(prompt).toContain("fixed device frame");
     expect(prompt).not.toContain("review_design");
+  });
+
+  it("does not treat every mobile screen as an app with a tab bar", () => {
+    expect(prompt).toContain("Omit tabs unless this is a multi-destination app");
+  });
+
+  it("splits site pages from tools and tells a site to stay tall", () => {
+    expect(prompt).toContain("SITE (persuade)");
+    expect(prompt).toContain("from the surface, not the product");
+    expect(prompt).toContain("A landing page is still SITE");
+    expect(prompt).toContain("leave rail and aside empty");
+    expect(prompt).toContain("height 2800-4500");
+    expect(prompt).toContain("one shoot");
   });
 
   it("names the template reflexes it refuses and exposes full-bleed composition", () => {
     expect(prompt).toContain("edge-to-edge imagery or colour in bleed");
     expect(prompt).toContain("Do not put an eyebrow or kicker above a heading");
     expect(prompt).toContain("same-size icon + heading + text cards");
+    expect(prompt).toContain("Three or more equal cards");
+    expect(prompt).toContain("not a product");
+    expect(prompt).toContain("about a third of the screen");
     expect(prompt).toContain("nest cards inside cards");
     expect(prompt).toContain("at most two visible roles per screen");
     expect(prompt).toContain("gradient text");

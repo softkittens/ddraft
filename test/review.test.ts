@@ -124,6 +124,32 @@ describe("Fixes the critic applies itself", () => {
     expect(parsed.fixes).toEqual([{ nodeId: "title", property: "fontSize", value: 32 }]);
   });
 
+  it("drops a fix that deletes the element instead of adjusting it", () => {
+    const parsed = parseDesignReview({
+      verdict: "pass",
+      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 4 },
+      strengths: [],
+      issues: [],
+      fixes: [
+        { nodeId: "title", property: "fontSize", value: 0 },
+        { nodeId: "body", property: "fontSize", value: 8 },
+        { nodeId: "card", property: "opacity", value: 0 },
+        { nodeId: "card", property: "width", value: 0 },
+        { nodeId: "card", property: "height", value: 0 },
+        { nodeId: "title", property: "fontSize", value: 11 }
+      ]
+    }, digestText);
+    /*
+     * A critic that cannot restructure reaches for the nearest property that
+     * makes the thing it objects to disappear, and the nearest property is a
+     * zero. One logged review returned `fontSize: 0` on all four KPI labels of
+     * a factory dashboard to satisfy an eyebrow warning — a deletion in the
+     * shape of a fix, and applyReviewFixes writes fixes with no model in the
+     * loop. Removing an element belongs in `issues`, where a model decides.
+     */
+    expect(parsed.fixes).toEqual([{ nodeId: "title", property: "fontSize", value: 11 }]);
+  });
+
   it("drops a fix whose value is the wrong shape for its property", () => {
     const parsed = parseDesignReview({
       verdict: "refine",
@@ -196,5 +222,17 @@ describe("Fixes the critic applies itself", () => {
   it("tells the critic that a single property belongs in fixes", () => {
     expect(CRITIC_PROMPT).toContain("belongs in 'fixes'");
     expect(CRITIC_PROMPT).toContain("fontSize");
+  });
+
+  it("judges use-scene and leftover viewport, not a factory costume", () => {
+    expect(CRITIC_PROMPT).toContain("Uncentered chips");
+    expect(CRITIC_PROMPT).toContain("Unused viewport");
+    expect(CRITIC_PROMPT).toContain("house as an operations console");
+    expect(CRITIC_PROMPT).toContain("Subject too small");
+    expect(CRITIC_PROMPT).toContain("Catalog as page");
+    expect(CRITIC_PROMPT).toContain("Data That Is Not Drawn");
+    expect(CRITIC_PROMPT).not.toContain("SYSTEMS NOMINAL");
+    expect(CRITIC_PROMPT).not.toContain("Shift Handoff");
+    expect(CRITIC_PROMPT).not.toContain("requires dark/mission-critical");
   });
 });
