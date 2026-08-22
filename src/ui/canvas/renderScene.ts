@@ -3,6 +3,8 @@ import { paintSelectionOverlay } from "../../interaction/selection";
 import { pruneFinishedAnimations, getAnimatedPositions } from "../../interaction/animate";
 import { findLayoutNode } from "../../layout/layout";
 import type { Box } from "../../layout/types";
+import type { Point } from "../../interaction/camera";
+import type { AlignmentGuide, DistanceGuide } from "../../interaction/drag";
 import type { CanvasRenderState } from "./types";
 
 let dotPattern: CanvasPattern | null = null;
@@ -32,7 +34,20 @@ export function renderScene(
   height: number,
   state: CanvasRenderState
 ): void {
-  const { camera, tree, map, variables, selectedIds, hoveredId, dragSession, isAltHeld, shapeStart, shapeCurrent } = state;
+  const {
+    camera,
+    tree,
+    map,
+    variables,
+    selectedIds,
+    hoveredId,
+    dragSession,
+    isAltHeld,
+    shapeStart,
+    shapeCurrent,
+    marqueeStart,
+    marqueeCurrent
+  } = state;
 
   ctx.save();
   ctx.fillStyle = "#e8eaed";
@@ -87,7 +102,7 @@ export function renderScene(
   }
 
   // Paint scene nodes (frustum-culled at the root level and child level)
-  const skipId = dragSession && !isAltHeld ? dragSession.nodeId : undefined;
+  const skipId = (dragSession && !isAltHeld ? dragSession.nodeId : undefined) || state.editingTextId || undefined;
   const viewBounds = {
     left: viewLeft - cullingMargin,
     top: viewTop - cullingMargin,
@@ -133,7 +148,7 @@ export function renderScene(
   // Selection & hover bounding box overlays (frustum-culled at the root level)
   for (const root of tree) {
     if (isVisible(root.box)) {
-      paintSelectionOverlay(ctx, root, selectedIds, hoveredId, camera.zoom);
+      paintSelectionOverlay(ctx, root, selectedIds, hoveredId, camera.zoom, map);
     }
   }
 
@@ -141,8 +156,8 @@ export function renderScene(
   if (dragSession) {
     const draggedLayout = findLayoutNode(tree, dragSession.nodeId);
     if (draggedLayout) {
-      const dx = dragSession.currentWorld.x - dragSession.startWorld.x;
-      const dy = dragSession.currentWorld.y - dragSession.startWorld.y;
+      const dx = dragSession.currentWorld.x - dragSession.startWorld.x + (dragSession.snapOffset?.x || 0);
+      const dy = dragSession.currentWorld.y - dragSession.startWorld.y + (dragSession.snapOffset?.y || 0);
       const ghostX = dragSession.worldOffset.x + dx;
       const ghostY = dragSession.worldOffset.y + dy;
 
@@ -161,21 +176,143 @@ export function renderScene(
 
       ctx.restore();
     }
+
+    // Figma-style smart alignment reference guides
+    if (dragSession.guides && dragSession.guides.length > 0) {
+      paintSmartGuides(ctx, dragSession.guides, camera.zoom);
+    }
+    // Figma-style equal gap distance markers
+    if (dragSession.distanceGuides && dragSession.distanceGuides.length > 0) {
+      paintDistanceGuides(ctx, dragSession.distanceGuides, camera.zoom);
+    }
   }
 
   // Shape drawing preview
   if (shapeStart && shapeCurrent) {
-    const x = Math.min(shapeStart.x, shapeCurrent.x);
-    const y = Math.min(shapeStart.y, shapeCurrent.y);
-    const w = Math.abs(shapeCurrent.x - shapeStart.x);
-    const h = Math.abs(shapeCurrent.y - shapeStart.y);
-    ctx.save();
-    ctx.strokeStyle = "#0d99ff";
-    ctx.lineWidth = 1 / camera.zoom;
-    ctx.setLineDash([4 / camera.zoom, 4 / camera.zoom]);
-    ctx.strokeRect(x, y, w, h);
-    ctx.restore();
+    paintShapePreview(ctx, shapeStart, shapeCurrent, camera.zoom);
   }
 
+  // Marquee selection preview
+  if (marqueeStart && marqueeCurrent) {
+    paintMarqueeBox(ctx, marqueeStart, marqueeCurrent, camera.zoom);
+  }
+
+  ctx.restore();
+}
+
+function paintSmartGuides(ctx: CanvasRenderingContext2D, guides: AlignmentGuide[], zoom: number): void {
+  ctx.save();
+  ctx.strokeStyle = "#ff007a";
+  ctx.lineWidth = 1 / zoom;
+  const s = 3.5 / zoom;
+
+  ctx.beginPath();
+  for (const g of guides) {
+    const isVert = g.type === "vertical";
+    if (isVert) {
+      ctx.moveTo(g.position, g.start);
+      ctx.lineTo(g.position, g.end);
+    } else {
+      ctx.moveTo(g.start, g.position);
+      ctx.lineTo(g.end, g.position);
+    }
+    if (g.points) {
+      for (const p of g.points) {
+        const cx = isVert ? g.position : p;
+        const cy = isVert ? p : g.position;
+        ctx.moveTo(cx - s, cy - s);
+        ctx.lineTo(cx + s, cy + s);
+        ctx.moveTo(cx - s, cy + s);
+        ctx.lineTo(cx + s, cy - s);
+      }
+    }
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function paintDistanceGuides(ctx: CanvasRenderingContext2D, guides: DistanceGuide[], zoom: number): void {
+  ctx.save();
+  ctx.strokeStyle = "#ff007a";
+  ctx.lineWidth = 1 / zoom;
+  const tick = 4 / zoom;
+
+  for (const g of guides) {
+    const dist = Math.round(g.distance);
+    if (dist <= 0) continue;
+
+    const isX = g.axis === "x";
+    ctx.beginPath();
+    if (isX) {
+      ctx.moveTo(g.start, g.crossPos);
+      ctx.lineTo(g.end, g.crossPos);
+      ctx.moveTo(g.start, g.crossPos - tick);
+      ctx.lineTo(g.start, g.crossPos + tick);
+      ctx.moveTo(g.end, g.crossPos - tick);
+      ctx.lineTo(g.end, g.crossPos + tick);
+    } else {
+      ctx.moveTo(g.crossPos, g.start);
+      ctx.lineTo(g.crossPos, g.end);
+      ctx.moveTo(g.crossPos - tick, g.start);
+      ctx.lineTo(g.crossPos + tick, g.start);
+      ctx.moveTo(g.crossPos - tick, g.end);
+      ctx.lineTo(g.crossPos + tick, g.end);
+    }
+    ctx.stroke();
+
+    const midX = isX ? (g.start + g.end) / 2 : g.crossPos;
+    const midY = isX ? g.crossPos : (g.start + g.end) / 2;
+    paintDistancePill(ctx, midX, midY, dist, zoom);
+  }
+  ctx.restore();
+}
+
+function paintDistancePill(ctx: CanvasRenderingContext2D, cx: number, cy: number, dist: number, zoom: number): void {
+  const text = `${dist}`;
+  const fontSize = 10 / zoom;
+  ctx.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const metrics = ctx.measureText(text);
+  const pillW = metrics.width + 8 / zoom;
+  const pillH = 15 / zoom;
+  const r = 3 / zoom;
+
+  ctx.save();
+  ctx.fillStyle = "#ff007a";
+  ctx.beginPath();
+  ctx.roundRect(cx - pillW / 2, cy - pillH / 2, pillW, pillH, r);
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(text, cx, cy);
+  ctx.restore();
+}
+
+function paintMarqueeBox(ctx: CanvasRenderingContext2D, start: Point, current: Point, zoom: number): void {
+  const x = Math.min(start.x, current.x);
+  const y = Math.min(start.y, current.y);
+  const w = Math.abs(current.x - start.x);
+  const h = Math.abs(current.y - start.y);
+  ctx.save();
+  ctx.fillStyle = "rgba(13, 153, 255, 0.08)";
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = "#0d99ff";
+  ctx.lineWidth = 1 / zoom;
+  ctx.strokeRect(x, y, w, h);
+  ctx.restore();
+}
+
+function paintShapePreview(ctx: CanvasRenderingContext2D, start: Point, current: Point, zoom: number): void {
+  const x = Math.min(start.x, current.x);
+  const y = Math.min(start.y, current.y);
+  const w = Math.abs(current.x - start.x);
+  const h = Math.abs(current.y - start.y);
+  ctx.save();
+  ctx.strokeStyle = "#0d99ff";
+  ctx.lineWidth = 1 / zoom;
+  ctx.setLineDash([4 / zoom, 4 / zoom]);
+  ctx.strokeRect(x, y, w, h);
   ctx.restore();
 }

@@ -1,4 +1,5 @@
 import { createSignal, onMount, onCleanup } from "solid-js";
+import { selectedIds, nodeMap, editingTextId, setEditingTextId, deleteSelectedNodes } from "../store";
 
 export function useKeyboardControls(opts: {
   onAltChange?: (held: boolean) => void;
@@ -7,10 +8,34 @@ export function useKeyboardControls(opts: {
   let isSpace = false;
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.code === "Space") isSpace = true;
+    const isInput =
+      e.target instanceof HTMLInputElement ||
+      e.target instanceof HTMLTextAreaElement ||
+      (e.target as HTMLElement)?.isContentEditable;
+
+    if (e.code === "Space" && !isInput) isSpace = true;
     if (e.key === "Alt") {
       setIsAltHeld(true);
       opts.onAltChange?.(true);
+    }
+
+    if (!isInput) {
+      if (e.key === "Enter" && selectedIds().size === 1) {
+        const id = Array.from(selectedIds())[0];
+        if (nodeMap().get(id)?.type === "text") {
+          e.preventDefault();
+          setEditingTextId(id);
+        }
+      } else if (e.key === "Escape") {
+        if (editingTextId()) {
+          setEditingTextId(null);
+        }
+      } else if (e.key === "Backspace" || e.key === "Delete") {
+        if (!editingTextId() && selectedIds().size > 0) {
+          e.preventDefault();
+          deleteSelectedNodes();
+        }
+      }
     }
   };
 

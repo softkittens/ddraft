@@ -3,6 +3,7 @@ import { normalisePadding } from "../src/layout/padding";
 import { computeMainAxisPositions, computeCrossAxisPosition } from "../src/layout/arrange";
 import { layoutDocument } from "../src/layout/layout";
 import { measureTextNode, dynamicRatioCache } from "../src/layout/text";
+import type { TextNode } from "../src/model/types";
 import { makeDoc, frame, rect, txt, expectLayout, flattenBoxes } from "./harness";
 import { auditDesign } from "../src/design/evaluator";
 
@@ -161,5 +162,43 @@ describe("available width reaches text during measure", () => {
     const d = makeDoc(frame("row", 320, 60, [txt("a", "left", 14), txt("b", "right", 14)], { layout: "horizontal", gap: 8 }));
     const boxes = flattenBoxes(layoutDocument(d));
     expect(boxes.get("a")!.height).toBeLessThan(30);
+  });
+
+  it("updates text metrics immediately upon variable changes without stale cache hits", () => {
+    dynamicRatioCache.set("Playfair Display", 1.45);
+    dynamicRatioCache.set("Inter", 1.2113);
+
+    const node: TextNode = {
+      id: "title",
+      type: "text",
+      content: "Hello World",
+      fontSize: 24,
+      fontFamily: "$font-heading"
+    };
+
+    const varsPlayfair = { "$font-heading": "Playfair Display" };
+    const varsInter = { "$font-heading": "Inter" };
+
+    const metrics1 = measureTextNode(node, undefined, varsPlayfair);
+    const metrics2 = measureTextNode(node, undefined, varsInter);
+
+    // Height should reflect the different font ratios (24 * 1.45 = 35 vs 24 * 1.2113 = 29)
+    expect(metrics1.height).toBe(35);
+    expect(metrics2.height).toBe(29);
+  });
+
+  it("falls back to font ratio when lineHeight is 0 rather than collapsing to 1px", () => {
+    const node: TextNode = {
+      id: "title",
+      type: "text",
+      content: "Hello World",
+      fontSize: 24,
+      fontFamily: "Inter",
+      lineHeight: 0
+    };
+
+    const metrics = measureTextNode(node);
+    expect(metrics.height).toBe(29); // 24 * 1.2113 rounded = 29, NOT 1px
+    expect(metrics.lineHeight).toBe(29);
   });
 });

@@ -18,6 +18,9 @@ export interface CanvasRenderState {
   isAltHeld: boolean;
   shapeStart: Point | null;
   shapeCurrent: Point | null;
+  marqueeStart?: Point | null;
+  marqueeCurrent?: Point | null;
+  editingTextId?: string | null;
 }
 
 export function insertNodeAtWorld(node: PenNode, world: Point, skipFrameId?: string): Document {

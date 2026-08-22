@@ -52,13 +52,14 @@ CANVAS API
 
   Node types and properties:
   frame  layout ('vertical' | 'horizontal' | 'none'), gap, padding, justifyContent, alignItems, children
-  text   content (copy goes here, not 'text' or 'label'), fontFamily, fontSize, fontWeight, textAlign
+  text   content (copy goes here, not 'text' or 'label'), fontFamily, fontSize, fontWeight, textAlign, lineHeight, letterSpacing, textGrowth
   icon   icon, library
   ref    ref, descendants
   Properties on all nodes: id, name, x, y, width, height, fill, stroke, strokeWidth, cornerRadius, rotation, opacity, clip, reusable, effect.
 
-  width/height: number, 'fill_container', 'fit_content'.
-  fill: token ('$surface-primary'), hex string, gradient object, or { type: 'image', url: '...' }.
+  width/height: number, 'fill_container', 'fit_content' (or 'fit_content(<max>)'). A fixed height on a frame that holds text clips it; use 'fit_content'.
+  fill: token ('$surface-primary'), hex string, { type: 'gradient', gradientType: 'linear' | 'radial', rotation: 0, stops: [{ offset: 0, color: '...' }, { offset: 1, color: '...' }] }, or { type: 'image', url: '...' }.
+  effect: { type: 'shadow', offset: { x: 0, y: 4 }, blur: 12, color: 'rgba(0,0,0,0.08)' }.
   insert_node: builds a whole subtree in one call. Build a screen in a few large calls, not one call per node.
 
 ## critic

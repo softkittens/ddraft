@@ -1,6 +1,6 @@
 import { createSignal, onMount, onCleanup, type Accessor } from "solid-js";
 import { screenToWorld, panCamera, zoomAtScreenPoint, type Point } from "../../interaction/camera";
-import { hitTestScene, hitTestSceneWorld } from "../../interaction/hittest";
+import { hitTestScene, hitTestSceneWorld, findNodesInMarquee } from "../../interaction/hittest";
 import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../../interaction/drag";
 import { duplicateNode, getNextNodeId } from "../../model/edit";
 import { cloneDocument } from "../../model/tree";
@@ -20,7 +20,8 @@ import {
   updateDoc,
   layoutTree,
   nodeMap,
-  selectNode
+  selectNode,
+  setEditingTextId
 } from "../store";
 import { insertNodeAtWorld } from "./types";
 
@@ -33,17 +34,24 @@ export function useCanvasPointer(opts: {
   let startPan = { x: 0, y: 0 };
   let pendingPress: DragSession | null = null;
   let lastWorldMouse: Point | null = null;
+  let initialMarqueeSelection = new Set<string>();
 
   const [dragSession, setDragSession] = createSignal<DragSession | null>(null);
   const [shapeStart, setShapeStart] = createSignal<Point | null>(null);
   const [shapeCurrent, setShapeCurrent] = createSignal<Point | null>(null);
+  const [marqueeStart, setMarqueeStart] = createSignal<Point | null>(null);
+  const [marqueeCurrent, setMarqueeCurrent] = createSignal<Point | null>(null);
+
+  // Held while dragging, this suspends snapping the way ⌘ does in Figma — the
+  // escape hatch for placing something one pixel off a guide on purpose.
+  let snapDisabled = false;
 
   function syncDragState(world: Point) {
     const current = dragSession();
     if (!current) return;
     const stopDrag = telemetry.startSpan("interaction:drag");
-    const updated = { ...current };
-    handleDragMove(doc(), updated, world, layoutTree(), nodeMap());
+    const updated = { ...current, snapDisabled };
+    handleDragMove(doc(), updated, world, layoutTree(), nodeMap(), camera().zoom);
     stopDrag();
     setDragSession(updated);
   }
@@ -71,10 +79,11 @@ export function useCanvasPointer(opts: {
     const hitResult = hitTestSceneWorld(layoutTree(), world, nodeMap());
     stopHit();
 
+    const isMultiKey = e.metaKey || e.ctrlKey || e.shiftKey;
+
     if (hitResult) {
       const hit = hitResult.node;
       const alreadySelected = selectedIds().has(hit.id);
-      const isMultiKey = e.metaKey || e.ctrlKey;
       if (!alreadySelected || isMultiKey) {
         selectNode(hit.id, isMultiKey);
       }
@@ -90,7 +99,12 @@ export function useCanvasPointer(opts: {
         dimensions: { width: hit.box.width, height: hit.box.height }
       };
     } else {
-      setSelectedIds(new Set<string>());
+      if (!isMultiKey) {
+        setSelectedIds(new Set<string>());
+      }
+      setMarqueeStart(world);
+      setMarqueeCurrent(world);
+      initialMarqueeSelection = new Set(selectedIds());
     }
   };
 
@@ -110,9 +124,29 @@ export function useCanvasPointer(opts: {
     const screenPt = { x: e.clientX - rectBounds.left, y: e.clientY - rectBounds.top };
     const world = screenToWorld(screenPt, camera());
     lastWorldMouse = world;
+    snapDisabled = e.metaKey || e.ctrlKey;
 
     if (shapeStart()) {
       setShapeCurrent(world);
+      return;
+    }
+
+    const mStart = marqueeStart();
+    if (mStart) {
+      setMarqueeCurrent(world);
+      const mBox = {
+        x: Math.min(mStart.x, world.x),
+        y: Math.min(mStart.y, world.y),
+        width: Math.abs(world.x - mStart.x),
+        height: Math.abs(world.y - mStart.y)
+      };
+      const hitIds = findNodesInMarquee(layoutTree(), mBox, nodeMap());
+      const isMultiKey = e.metaKey || e.ctrlKey || e.shiftKey;
+      if (isMultiKey) {
+        setSelectedIds(new Set([...initialMarqueeSelection, ...hitIds]));
+      } else {
+        setSelectedIds(new Set(hitIds));
+      }
       return;
     }
 
@@ -193,6 +227,14 @@ export function useCanvasPointer(opts: {
       return;
     }
 
+    const mStart = marqueeStart();
+    if (mStart) {
+      setMarqueeStart(null);
+      setMarqueeCurrent(null);
+      initialMarqueeSelection.clear();
+      return;
+    }
+
     const current = dragSession();
     if (current) {
       const oldPositions = snapshotPositions(layoutTree());
@@ -234,17 +276,38 @@ export function useCanvasPointer(opts: {
   const handleBlur = () => {
     isPanning = false;
     pendingPress = null;
+    setMarqueeStart(null);
+    setMarqueeCurrent(null);
+    initialMarqueeSelection.clear();
+  };
+
+  const handleDoubleClick = (e: MouseEvent) => {
+    const canvas = opts.getCanvas();
+    if (!canvas) return;
+
+    const bounds = canvas.getBoundingClientRect();
+    const world = screenToWorld({ x: e.clientX - bounds.left, y: e.clientY - bounds.top }, camera());
+    const hit = hitTestSceneWorld(layoutTree(), world, nodeMap());
+    if (hit) {
+      const textNode = hit.node.type === "text" ? hit.node : hit.path.slice().reverse().find((n) => n.type === "text");
+      if (textNode) {
+        setEditingTextId(textNode.id);
+        setSelectedIds(new Set([textNode.id]));
+      }
+    }
   };
 
   onMount(() => {
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("dblclick", handleDoubleClick);
     window.addEventListener("blur", handleBlur);
   });
 
   onCleanup(() => {
     window.removeEventListener("mousemove", handleMouseMove);
     window.removeEventListener("mouseup", handleMouseUp);
+    window.removeEventListener("dblclick", handleDoubleClick);
     window.removeEventListener("blur", handleBlur);
   });
 
@@ -252,6 +315,8 @@ export function useCanvasPointer(opts: {
     dragSession,
     shapeStart,
     shapeCurrent,
+    marqueeStart,
+    marqueeCurrent,
     handleMouseDown,
     handleWheel,
     onAltModifierChange: (held: boolean) => {

@@ -133,18 +133,22 @@ export function getDynamicLineHeightRatio(fontFamily: string): number {
 
 function resolveExplicitLineHeight(val: number | string, fontSize: number): number | undefined {
   if (typeof val === "number") {
-    if (val > 0 && val <= 3.5) return Math.round(fontSize * val);
+    if (val <= 0) return undefined;
+    if (val <= 3.5) return Math.round(fontSize * val);
     return Math.max(1, Math.round(val));
   }
   if (typeof val === "string") {
     const trimmed = val.trim();
+    if (!trimmed || trimmed === "normal" || trimmed === "auto") return undefined;
     if (trimmed.endsWith("%")) {
       const pct = parseFloat(trimmed) / 100;
-      if (!isNaN(pct)) return Math.round(fontSize * pct);
+      if (!isNaN(pct) && pct > 0) return Math.round(fontSize * pct);
+      return undefined;
     }
     const num = parseFloat(trimmed);
     if (!isNaN(num)) {
-      if (num > 0 && num <= 3.5 && !trimmed.endsWith("px")) return Math.round(fontSize * num);
+      if (num <= 0) return undefined;
+      if (num <= 3.5 && !trimmed.endsWith("px")) return Math.round(fontSize * num);
       return Math.max(1, Math.round(num));
     }
   }
@@ -162,8 +166,6 @@ export function getLineHeight(node: TextNode, variables?: Record<string, any>): 
   return Math.round(size * ratio);
 }
 
-const textNodeMetricsCache = new Map<string, TextMetricsResult>();
-
 export function measureTextNode(
   node: TextNode,
   containerWidth?: number,
@@ -178,17 +180,11 @@ export function measureTextNode(
   const canWrap = containerWidth !== undefined || typeof node.width === "number";
   const targetWidth = canWrap ? (containerWidth ?? (typeof node.width === "number" ? node.width : 200)) : 0;
 
-  const cacheKey = `${content}|${fontSize}|${fontFamily}|${fontWeight}|${letterSpacing}|${growth}|${targetWidth}|${node.lineHeight ?? 0}`;
-  const cached = textNodeMetricsCache.get(cacheKey);
-  if (cached) return cached;
-
   const lineHeight = getLineHeight(node, variables);
 
   if (growth === "auto" || !canWrap) {
     const width = measureTextWidth(content, fontSize, fontFamily, fontWeight, letterSpacing, variables);
-    const result: TextMetricsResult = { width, height: lineHeight, lineHeight, lines: [content] };
-    textNodeMetricsCache.set(cacheKey, result);
-    return result;
+    return { width, height: lineHeight, lineHeight, lines: [content] };
   }
 
   const words = content.split(" ");
@@ -207,13 +203,11 @@ export function measureTextNode(
   }
   if (currentLine) lines.push(currentLine);
 
-  const result: TextMetricsResult = {
+  return {
     width: targetWidth,
     height: Math.max(1, lines.length) * lineHeight,
     lineHeight,
     lines
   };
-  textNodeMetricsCache.set(cacheKey, result);
-  return result;
 }
 

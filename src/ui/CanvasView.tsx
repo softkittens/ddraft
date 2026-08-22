@@ -4,6 +4,7 @@ import {
   camera,
   selectedIds,
   hoveredId,
+  editingTextId,
   layoutTree,
   nodeMap
 } from "./store";
@@ -14,6 +15,7 @@ import { renderScene } from "./canvas/renderScene";
 import { useKeyboardControls } from "./canvas/useKeyboardControls";
 import { useCanvasPointer } from "./canvas/useCanvasPointer";
 import { useFileDrop } from "./canvas/useFileDrop";
+import { InlineTextEditor } from "./canvas/InlineTextEditor";
 
 export const CanvasView: Component = () => {
   let containerRef: HTMLDivElement | undefined;
@@ -53,7 +55,10 @@ export const CanvasView: Component = () => {
       dragSession: pointer.dragSession(),
       isAltHeld: keyboard.isAltHeld(),
       shapeStart: pointer.shapeStart(),
-      shapeCurrent: pointer.shapeCurrent()
+      shapeCurrent: pointer.shapeCurrent(),
+      marqueeStart: pointer.marqueeStart(),
+      marqueeCurrent: pointer.marqueeCurrent(),
+      editingTextId: editingTextId()
     });
 
     stopPaint();
@@ -70,10 +75,13 @@ export const CanvasView: Component = () => {
     camera();
     selectedIds();
     hoveredId();
+    editingTextId();
     pointer.dragSession();
     keyboard.isAltHeld();
     pointer.shapeStart();
     pointer.shapeCurrent();
+    pointer.marqueeStart();
+    pointer.marqueeCurrent();
 
     if (animFrameId) cancelAnimationFrame(animFrameId);
     animFrameId = requestAnimationFrame(render);
@@ -135,6 +143,7 @@ export const CanvasView: Component = () => {
           </div>
         </div>
       </Show>
+      <InlineTextEditor />
     </div>
   );
 };

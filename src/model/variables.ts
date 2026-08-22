@@ -8,7 +8,7 @@ export function resolveVariable(val: Fill | string | undefined, variables?: Reco
   }
   if (typeof val === "string" && val.startsWith("$") && variables) {
     const key = val.slice(1);
-    const item = variables[key];
+    const item = variables[key] ?? variables[val];
     if (typeof item === "string") return item;
     if (item && typeof item === "object" && typeof item.value === "string") return item.value;
   }

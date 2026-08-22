@@ -185,3 +185,103 @@ export function frameWorldOrigin(hit: HitResult, frameId: string): Point | null 
   }
   return null;
 }
+
+/**
+ * Finds all nodes whose layout geometry intersects a world-space marquee bounding box.
+ * If the marquee is drawn entirely inside a container, matches the container's direct children.
+ * Otherwise, matches top-level root frames / objects.
+ */
+export function findNodesInMarquee(
+  tree: LayoutNode[],
+  marquee: Box,
+  nodeMap?: Map<string, PenNode>
+): string[] {
+  if (marquee.width <= 0 || marquee.height <= 0) return [];
+  const selected: string[] = [];
+
+  for (const root of tree) {
+    const data = nodeMap?.get(root.id);
+    if (data?.enabled === false) continue;
+
+    const rBox = root.box;
+    const intersectsRoot =
+      rBox.x < marquee.x + marquee.width &&
+      rBox.x + rBox.width > marquee.x &&
+      rBox.y < marquee.y + marquee.height &&
+      rBox.y + rBox.height > marquee.y;
+
+    if (!intersectsRoot) continue;
+
+    const isContainedInsideRoot =
+      root.children.length > 0 &&
+      marquee.x >= rBox.x &&
+      marquee.y >= rBox.y &&
+      marquee.x + marquee.width <= rBox.x + rBox.width &&
+      marquee.y + marquee.height <= rBox.y + rBox.height;
+
+    if (isContainedInsideRoot) {
+      const childrenHits = findChildrenInMarquee(root.children, marquee, rBox.x, rBox.y, nodeMap);
+      if (childrenHits.length > 0) {
+        selected.push(...childrenHits);
+      } else {
+        selected.push(root.id);
+      }
+    } else {
+      selected.push(root.id);
+    }
+  }
+
+  return selected;
+}
+
+function findChildrenInMarquee(
+  children: LayoutNode[],
+  marquee: Box,
+  parentX: number,
+  parentY: number,
+  nodeMap?: Map<string, PenNode>
+): string[] {
+  const hits: string[] = [];
+  for (const child of children) {
+    const data = nodeMap?.get(child.id);
+    if (data?.enabled === false) continue;
+
+    const cx = parentX + child.box.x;
+    const cy = parentY + child.box.y;
+    const cw = child.box.width;
+    const ch = child.box.height;
+
+    const intersects =
+      cx < marquee.x + marquee.width &&
+      cx + cw > marquee.x &&
+      cy < marquee.y + marquee.height &&
+      cy + ch > marquee.y;
+
+    if (intersects) {
+      hits.push(child.id);
+    }
+  }
+  return hits;
+}
+
+/**
+ * Finds the absolute world-space bounding box of any node in the layout tree.
+ */
+export function findNodeWorldBox(
+  tree: LayoutNode[],
+  nodeId: string,
+  worldOffset: Point = { x: 0, y: 0 }
+): Box | null {
+  for (const node of tree) {
+    const wx = worldOffset.x + node.box.x;
+    const wy = worldOffset.y + node.box.y;
+    if (node.id === nodeId) {
+      return { x: wx, y: wy, width: node.box.width, height: node.box.height };
+    }
+    if (node.children.length > 0) {
+      const found = findNodeWorldBox(node.children, nodeId, { x: wx, y: wy });
+      if (found) return found;
+    }
+  }
+  return null;
+}

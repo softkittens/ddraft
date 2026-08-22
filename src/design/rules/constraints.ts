@@ -8,7 +8,6 @@ import {
   type AuditContext,
   boxesOverlap,
   boxContains,
-  hasTextContent,
   walkEnabled
 } from "../helpers";
 
@@ -79,7 +78,7 @@ export function checkOverflow(nodes: LayoutNode[], doc: Document): Finding[] {
       for (const child of parent.children) {
         const childDoc = map.get(child.id);
         if (childDoc?.enabled === false) continue;
-        const carriesText = childDoc && hasTextContent(childDoc);
+        const carriesText = childDoc?.type === "text";
         if (!isClipped && !carriesText) continue;
 
         const overRight = child.box.x + child.box.width - parent.box.width;

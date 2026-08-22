@@ -24,6 +24,7 @@ export const [layersVisible, setLayersVisible] = createSignal<boolean>(false);
 export const [inspectorVisible, setInspectorVisible] = createSignal<boolean>(false);
 export const [chatVisible, setChatVisible] = createSignal<boolean>(true);
 export const [chatExpanded, setChatExpanded] = createSignal<boolean>(true);
+export const [editingTextId, setEditingTextId] = createSignal<string | null>(null);
 
 export const { resolvedDoc, nodeMap, layoutTree } = createRoot(() => {
   const resolvedDoc = createMemo(() => resolveInstances(doc()));

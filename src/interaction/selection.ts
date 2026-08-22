@@ -1,8 +1,27 @@
 import type { LayoutNode } from "../layout/types";
+import type { PenNode } from "../model/types";
 
 export interface SelectionState {
   selectedIds: Set<string>;
   hoveredId: string | null;
+}
+
+export type ComponentKind = "component" | "instance" | "regular";
+
+export function getComponentKind(nodeId: string, nodeMap?: Map<string, PenNode>): ComponentKind {
+  const node = nodeMap?.get(nodeId);
+  if (!node) return "regular";
+
+  const nodeType = (node as any).type;
+  if (node.reusable || nodeType === "component") {
+    return "component";
+  }
+
+  if (nodeType === "ref" || nodeType === "instance" || (node as any).ref !== undefined || nodeId.includes(":")) {
+    return "instance";
+  }
+
+  return "regular";
 }
 
 export function createSelectionState(): SelectionState {
@@ -12,7 +31,7 @@ export function createSelectionState(): SelectionState {
   };
 }
 
-function paintSizePill(ctx: CanvasRenderingContext2D, w: number, h: number, zoom: number): void {
+function paintSizePill(ctx: CanvasRenderingContext2D, w: number, h: number, zoom: number, kind: ComponentKind = "regular"): void {
   const labelText = `${Math.round(w)} × ${Math.round(h)}`;
   const fontSize = 11 / zoom;
   ctx.save();
@@ -27,7 +46,9 @@ function paintSizePill(ctx: CanvasRenderingContext2D, w: number, h: number, zoom
   const pillY = h + 6 / zoom;
   const pillRadius = 3 / zoom;
 
-  ctx.fillStyle = "#0d99ff";
+  const pillColor = kind === "component" || kind === "instance" ? "#7b61ff" : "#0d99ff";
+
+  ctx.fillStyle = pillColor;
   ctx.beginPath();
   if (typeof ctx.roundRect === "function") {
     ctx.roundRect(pillX, pillY, pillWidth, pillHeight, pillRadius);
@@ -46,16 +67,17 @@ function paintSizePill(ctx: CanvasRenderingContext2D, w: number, h: number, zoom
 /**
  * Renders selection outlines and corner handles around selected nodes.
  *
- * Why:
- * Drawing with lineWidth = 1 / camera.zoom keeps the selection outline
- * exactly 1 pixel crisp on the screen, whether zoomed in at 500% or zoomed out at 20%.
+ * - Component (Master): Solid purple (#7b61ff) outline and handles.
+ * - Component Instance: Dashed purple (#7b61ff) outline and handles.
+ * - Regular Node: Solid blue (#0d99ff) outline and handles.
  */
 export function paintSelectionOverlay(
   ctx: CanvasRenderingContext2D,
   layoutNode: LayoutNode,
   selectedIds: Set<string>,
   hoveredId: string | null,
-  zoom = 1
+  zoom = 1,
+  nodeMap?: Map<string, PenNode>
 ): void {
   const isSelected = selectedIds.has(layoutNode.id);
   const isHovered = hoveredId === layoutNode.id && !isSelected;
@@ -68,16 +90,28 @@ export function paintSelectionOverlay(
 
   if (isSelected || isHovered) {
     const { width: w, height: h } = layoutNode.box;
-    ctx.strokeStyle = isSelected ? "#0d99ff" : "rgba(13, 153, 255, 0.4)";
+    const kind = getComponentKind(layoutNode.id, nodeMap);
+    const themeColor = kind === "component" || kind === "instance" ? "#7b61ff" : "#0d99ff";
+    const hoverColor = kind === "component" || kind === "instance" ? "rgba(123, 97, 255, 0.45)" : "rgba(13, 153, 255, 0.4)";
+
+    ctx.strokeStyle = isSelected ? themeColor : hoverColor;
     ctx.lineWidth = (isSelected ? 1.5 : 1) / zoom;
+
+    if (kind === "instance") {
+      ctx.setLineDash([4 / zoom, 4 / zoom]);
+    } else {
+      ctx.setLineDash([]);
+    }
+
     ctx.strokeRect(0, 0, w, h);
 
     if (isSelected) {
       const handleSize = 6 / zoom;
       const half = handleSize / 2;
       ctx.fillStyle = "#ffffff";
-      ctx.strokeStyle = "#0d99ff";
+      ctx.strokeStyle = themeColor;
       ctx.lineWidth = 1.5 / zoom;
+      ctx.setLineDash([]);
 
       const corners = [[0, 0], [w, 0], [w, h], [0, h]];
       for (const [cx, cy] of corners) {
@@ -85,12 +119,12 @@ export function paintSelectionOverlay(
         ctx.strokeRect(cx - half, cy - half, handleSize, handleSize);
       }
 
-      paintSizePill(ctx, w, h, zoom);
+      paintSizePill(ctx, w, h, zoom, kind);
     }
   }
 
   for (const child of layoutNode.children) {
-    paintSelectionOverlay(ctx, child, selectedIds, hoveredId, zoom);
+    paintSelectionOverlay(ctx, child, selectedIds, hoveredId, zoom, nodeMap);
   }
   ctx.restore();
 }

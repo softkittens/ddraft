@@ -1,9 +1,10 @@
 import { describe, it, expect } from "bun:test";
 import type { LayoutNode } from "../src/layout/types";
+import type { PenNode } from "../src/model/types";
 import { createCamera, worldToScreen, screenToWorld, zoomAtScreenPoint, panCamera } from "../src/interaction/camera";
-import { hitTestScene, hitTestSceneWorld, nearestFrameHit, worldPointToFrameLocal } from "../src/interaction/hittest";
-import { createSelectionState, paintSelectionOverlay } from "../src/interaction/selection";
-import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../src/interaction/drag";
+import { hitTestScene, hitTestSceneWorld, nearestFrameHit, worldPointToFrameLocal, findNodesInMarquee, findNodeWorldBox } from "../src/interaction/hittest";
+import { createSelectionState, paintSelectionOverlay, getComponentKind } from "../src/interaction/selection";
+import { handleDragMove, commitDragDrop, pastDragThreshold, computeSmartGuides, type DragSession } from "../src/interaction/drag";
 import { trackLayoutTransitions, hasActiveAnimations, getAnimatedPosition } from "../src/interaction/animate";
 import { createHistory, pushDocument, undo, redo } from "../src/model/history";
 import { reorderChild } from "../src/model/edit";
@@ -212,5 +213,345 @@ describe("end-to-end editor driver reality tests", () => {
     expect((altEditor.doc.children[0] as any).children.length).toBe(2);
     altEditor.undo();
     expect((altEditor.doc.children[0] as any).children.length).toBe(1);
+  });
+
+  it("finds intersecting nodes with marquee bounding box on canvas and inside containers", () => {
+    const sceneTree: LayoutNode[] = [
+      { id: "screen1", type: "frame", box: { x: 0, y: 0, width: 300, height: 600 }, children: [] },
+      { id: "screen2", type: "frame", box: { x: 400, y: 0, width: 300, height: 600 }, children: [] },
+      {
+        id: "screen3",
+        type: "frame",
+        box: { x: 800, y: 0, width: 400, height: 600 },
+        children: [
+          { id: "cardA", type: "rectangle", box: { x: 20, y: 20, width: 100, height: 100 }, children: [] },
+          { id: "cardB", type: "rectangle", box: { x: 20, y: 150, width: 100, height: 100 }, children: [] }
+        ]
+      }
+    ];
+
+    // Marquee spanning across screen1 and screen2
+    const m1 = { x: 100, y: 100, width: 400, height: 200 };
+    expect(findNodesInMarquee(sceneTree, m1)).toEqual(["screen1", "screen2"]);
+
+    // Marquee completely inside screen3 selecting cardA
+    const m2 = { x: 810, y: 10, width: 120, height: 120 };
+    expect(findNodesInMarquee(sceneTree, m2)).toEqual(["cardA"]);
+
+    // Marquee touching nothing
+    const m3 = { x: 310, y: 700, width: 50, height: 50 };
+    expect(findNodesInMarquee(sceneTree, m3)).toEqual([]);
+  });
+
+  it("computes Figma-style smart alignment reference guides and snap offsets", () => {
+    const layoutTree: LayoutNode[] = [
+      { id: "screen1", type: "frame", box: { x: 0, y: 0, width: 390, height: 844 }, children: [] },
+      { id: "screen2", type: "frame", box: { x: 450, y: 0, width: 390, height: 844 }, children: [] }
+    ];
+
+    const session: DragSession = {
+      nodeId: "screen2",
+      startWorld: { x: 450, y: 0 },
+      currentWorld: { x: 452, y: 3 }, // 2px offset on X, 3px offset on Y
+      initialNodeX: 450,
+      initialNodeY: 0,
+      worldOffset: { x: 450, y: 0 },
+      dimensions: { width: 390, height: 844 }
+    };
+
+    // When dragged within snap threshold of Y=0
+    const snap = computeSmartGuides(layoutTree, session, 2, 3, 1);
+    expect(snap.snapDy).toBe(-3); // Snaps Y back by -3 to align with screen1 top at Y=0
+    const hGuide = snap.guides.find((g) => g.type === "horizontal" && g.position === 0);
+    expect(hGuide).toBeDefined();
+    expect(hGuide?.points).toBeDefined();
+    expect(hGuide?.points?.length).toBeGreaterThan(0);
+
+    // When dragged far outside snap threshold (> 6px)
+    const farSnap = computeSmartGuides(layoutTree, session, 20, 50, 1);
+    expect(farSnap.snapDx).toBe(0);
+    expect(farSnap.snapDy).toBe(0);
+    expect(farSnap.guides.length).toBe(0);
+  });
+
+  it("snaps to equal distance gaps between sibling elements and generates distance guides", () => {
+    // 3 screens: Screen 1 at [0, 390], Screen 3 at [836, 1226]
+    // Space between 1 and 3 = 836 - 390 = 446.
+    // Screen 2 width = 390. Equal gap on both sides = (446 - 390) / 2 = 28.
+    // Target X = 390 + 28 = 418.
+    const layoutTree: LayoutNode[] = [
+      { id: "screen1", type: "frame", box: { x: 0, y: 0, width: 390, height: 844 }, children: [] },
+      { id: "screen2", type: "frame", box: { x: 420, y: 0, width: 390, height: 844 }, children: [] },
+      { id: "screen3", type: "frame", box: { x: 836, y: 0, width: 390, height: 844 }, children: [] }
+    ];
+
+    const session: DragSession = {
+      nodeId: "screen2",
+      startWorld: { x: 418, y: 0 },
+      currentWorld: { x: 420, y: 0 }, // 2px away from equal gap target at 418
+      initialNodeX: 418,
+      initialNodeY: 0,
+      worldOffset: { x: 418, y: 0 },
+      dimensions: { width: 390, height: 844 }
+    };
+
+    const snap = computeSmartGuides(layoutTree, session, 2, 0, 1);
+    expect(snap.snapDx).toBe(-2); // Snaps back by 2 to achieve exact 28px gap
+    expect(snap.distanceGuides).toBeDefined();
+    expect(snap.distanceGuides?.length).toBe(2);
+    expect(snap.distanceGuides?.[0].distance).toBe(28);
+    expect(snap.distanceGuides?.[1].distance).toBe(28);
+  });
+
+  it("snaps to match sequence continuation gaps after an established sibling pair", () => {
+    // Screen 1: [0, 390], Screen 2: [430, 820] -> gap = 40px
+    // Dragging Screen 3 (width 390) near x=862 (target: 820 + 40 = 860)
+    const layoutTree: LayoutNode[] = [
+      { id: "screen1", type: "frame", box: { x: 0, y: 0, width: 390, height: 844 }, children: [] },
+      { id: "screen2", type: "frame", box: { x: 430, y: 0, width: 390, height: 844 }, children: [] },
+      { id: "screen3", type: "frame", box: { x: 862, y: 0, width: 390, height: 844 }, children: [] }
+    ];
+
+    const session: DragSession = {
+      nodeId: "screen3",
+      startWorld: { x: 860, y: 0 },
+      currentWorld: { x: 862, y: 0 },
+      initialNodeX: 860,
+      initialNodeY: 0,
+      worldOffset: { x: 860, y: 0 },
+      dimensions: { width: 390, height: 844 }
+    };
+
+    const snap = computeSmartGuides(layoutTree, session, 2, 0, 1);
+    expect(snap.snapDx).toBe(-2);
+    expect(snap.distanceGuides).toBeDefined();
+    expect(snap.distanceGuides?.length).toBe(2);
+    expect(snap.distanceGuides?.[0].distance).toBe(40);
+    expect(snap.distanceGuides?.[1].distance).toBe(40);
+  });
+
+  it("computes exact world bounds for deeply nested text nodes and allows content editing", () => {
+    const tree: LayoutNode[] = [
+      {
+        id: "screen",
+        type: "frame",
+        box: { x: 100, y: 50, width: 390, height: 844 },
+        children: [
+          {
+            id: "card",
+            type: "frame",
+            box: { x: 20, y: 30, width: 350, height: 200 },
+            children: [
+              { id: "heading", type: "text", box: { x: 16, y: 12, width: 200, height: 24 }, children: [] }
+            ]
+          }
+        ]
+      }
+    ];
+
+    const worldBox = findNodeWorldBox(tree, "heading");
+    expect(worldBox).toEqual({
+      x: 100 + 20 + 16,
+      y: 50 + 30 + 12,
+      width: 200,
+      height: 24
+    });
+  });
+
+  it("differentiates components (solid purple), instances (dashed purple), and regular nodes (blue)", () => {
+    const nodeMap = new Map<string, any>([
+      ["btn_master", { id: "btn_master", type: "frame", reusable: true }],
+      ["btn_comp", { id: "btn_comp", type: "component" }],
+      ["btn_ref", { id: "btn_ref", type: "ref", ref: "btn_master" }],
+      ["btn_inst", { id: "btn_inst", type: "instance" }],
+      ["btn_ref:icon", { id: "btn_ref:icon", type: "icon" }],
+      ["normal_frame", { id: "normal_frame", type: "frame" }]
+    ]);
+
+    expect(getComponentKind("btn_master", nodeMap)).toBe("component");
+    expect(getComponentKind("btn_comp", nodeMap)).toBe("component");
+    expect(getComponentKind("btn_ref", nodeMap)).toBe("instance");
+    expect(getComponentKind("btn_inst", nodeMap)).toBe("instance");
+    expect(getComponentKind("btn_ref:icon", nodeMap)).toBe("instance");
+    expect(getComponentKind("normal_frame", nodeMap)).toBe("regular");
+
+    // Canvas mock verification
+    const { ctx, calls } = createMockCanvas();
+    const lNode: LayoutNode = { id: "btn_ref", type: "frame", box: { x: 0, y: 0, width: 100, height: 40 }, children: [] };
+    paintSelectionOverlay(ctx, lNode, new Set(["btn_ref"]), null, 1, nodeMap);
+
+    // Verify purple stroke and dashed line
+    expect(calls.some((c) => c.includes("strokeStyle=#7b61ff"))).toBe(true);
+    expect(calls.some((c) => c.startsWith("setLineDash") && c.includes("4"))).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Smart guides: the Figma behaviours the first pass did not have
+ * ------------------------------------------------------------------ */
+
+describe("smart guides behave the way Figma's do", () => {
+  const N = (id: string, x: number, y: number, w: number, h: number, kids: LayoutNode[] = []): LayoutNode =>
+    ({ id, type: "frame", box: { x, y, width: w, height: h }, children: kids } as LayoutNode);
+
+  const session = (id: string, x: number, y: number, w: number, h: number): DragSession => ({
+    nodeId: id,
+    startWorld: { x, y },
+    currentWorld: { x, y },
+    initialNodeX: x,
+    initialNodeY: y,
+    worldOffset: { x, y },
+    dimensions: { width: w, height: h }
+  });
+
+  it("snaps both axes at once instead of picking one", () => {
+    // A node 2px off a corner on both axes. The axis that lost used to be held
+    // to a 2px radius instead of 6 whenever the two distances were comparable,
+    // which included dx = dy = 0 — nudging a node that is already placed.
+    const tree = [N("t", 100, 100, 200, 200), N("m", 98, 98, 50, 50)];
+    const snap = computeSmartGuides(tree, session("m", 98, 98, 50, 50), 0, 0, 1);
+
+    expect(snap.snapDx).toBe(2);
+    expect(snap.snapDy).toBe(2);
+    expect(snap.guides.filter((g) => g.type === "vertical").length).toBeGreaterThan(0);
+    expect(snap.guides.filter((g) => g.type === "horizontal").length).toBeGreaterThan(0);
+  });
+
+  it("keeps snapping the axis it is being dragged along", () => {
+    // Dragged 295px down; X happens to be 1px from an alignment and Y is 5px
+    // from one. The nearer X match used to disqualify the Y snap outright.
+    const tree = [N("t", 100, 100, 200, 200), N("m", 101, 400, 50, 50)];
+    const snap = computeSmartGuides(tree, session("m", 101, 400, 50, 50), 0, -295, 1);
+
+    expect(snap.snapDx).toBe(-1);
+    expect(snap.snapDy).toBe(-5);
+  });
+
+  it("snaps an edge to a target's centre, not only edge to edge", () => {
+    // Centring a button on the frame behind it: the button's own centre against
+    // the parent's. Four of the nine edge pairings were missing, this among them.
+    const tree = [N("screen", 0, 0, 390, 844, [N("btn", 140, 700, 120, 48)])];
+    const snap = computeSmartGuides(tree, session("btn", 140, 700, 120, 48), 0, 0, 1);
+
+    expect(snap.snapDx).toBe(-5);
+    expect(snap.guides.some((g) => g.type === "vertical" && g.position === 195)).toBe(true);
+  });
+
+  it("does not offer a node inside another frame as a snap target", () => {
+    const tree = [
+      N("screen1", 0, 0, 390, 844, [N("card", 20, 300, 100, 60)]),
+      N("screen2", 900, 0, 390, 844, [N("far", 24, 500, 100, 60)])
+    ];
+    // Dragged 900px right, which lands "card" 4px from screen2's child.
+    const snap = computeSmartGuides(tree, session("card", 20, 300, 100, 60), 900, 0, 1);
+
+    expect(snap.snapDx).toBe(0);
+    expect(snap.guides).toHaveLength(0);
+  });
+
+  it("draws every alignment one movement satisfies", () => {
+    // Same width, so landing on the left edge lands on the centre and the right
+    // edge too. All three are true and Figma shows all three.
+    const tree = [N("a", 100, 0, 80, 40), N("b", 100, 100, 80, 40), N("c", 100, 200, 80, 40), N("m", 102, 320, 80, 40)];
+    const snap = computeSmartGuides(tree, session("m", 102, 320, 80, 40), 0, 0, 1);
+
+    expect(snap.snapDx).toBe(-2);
+    const positions = snap.guides.filter((g) => g.type === "vertical").map((g) => g.position).sort((p, q) => p - q);
+    expect(positions).toEqual([100, 140, 180]);
+  });
+
+  it("runs the guide through every element the alignment is true of", () => {
+    const tree = [N("a", 100, 0, 80, 40), N("b", 100, 100, 80, 40), N("c", 100, 200, 80, 40), N("m", 102, 320, 80, 40)];
+    const snap = computeSmartGuides(tree, session("m", 102, 320, 80, 40), 0, 0, 1);
+    const left = snap.guides.find((g) => g.position === 100)!;
+
+    // Spans the topmost target to the bottom of the moving node, with a mark on
+    // each edge it passes through rather than on whichever target came first.
+    expect(left.start).toBe(0);
+    expect(left.end).toBe(360);
+    expect(left.points).toEqual([0, 40, 100, 140, 200, 240, 320, 360]);
+  });
+
+  it("suspends snapping while the modifier is held", () => {
+    const tree = [N("t", 100, 100, 200, 200), N("m", 98, 98, 50, 50)];
+    const held: DragSession = { ...session("m", 98, 98, 50, 50), snapDisabled: true };
+    const snap = computeSmartGuides(tree, held, 0, 0, 1);
+
+    expect(snap.snapDx).toBe(0);
+    expect(snap.snapDy).toBe(0);
+    expect(snap.guides).toHaveLength(0);
+  });
+
+  it("measures a row by overlap, not by matching top edges", () => {
+    // A 24px chip centred beside 200px cards. Comparing top edges called them
+    // different rows, so the spacing this rule exists for was never offered.
+    const tree = [N("card", 0, 0, 160, 200), N("card2", 260, 0, 160, 200), N("chip", 192, 88, 40, 24)];
+    const snap = computeSmartGuides(tree, session("chip", 192, 88, 40, 24), 0, 0, 1);
+
+    expect(snap.snapDx).toBe(-2);
+    expect(snap.distanceGuides?.map((g) => g.distance)).toEqual([30, 30]);
+  });
+
+  it("leaves a snapped node exactly on the guide instead of rounding it off", () => {
+    // The frame sits on a half pixel, so the snapped local x is fractional.
+    // Rounding it put the edge back off the line the guide was drawn on.
+    const doc = makeDoc(frame("screen", 400, 400, [
+      frame("a", 80, 40, [], { x: 20.5, y: 0, layoutPosition: "absolute" }),
+      frame("m", 80, 40, [], { x: 24, y: 200, layoutPosition: "absolute" })
+    ], { layout: "none" }));
+    const tree = layoutDocument(doc);
+    const drag: DragSession = session("m", 24, 200, 80, 40);
+
+    handleDragMove(doc, drag, { x: 24, y: 200 }, tree, undefined, 1);
+    const moved = doc.children[0].children!.find((n: PenNode) => n.id === "m") as any;
+
+    expect(drag.snapOffset?.x).toBeCloseTo(-3.5, 5);
+    expect(moved.x).toBeCloseTo(20.5, 5);
+  });
+});
+
+describe("smart guides inside a frame, which is where design actually happens", () => {
+  const build = () =>
+    makeDoc(frame("screen", 390, 844, [
+      frame("card", 300, 120, [], { x: 20, y: 100, layoutPosition: "absolute" }),
+      frame("moving", 300, 120, [], { x: 24, y: 300, layoutPosition: "absolute" })
+    ], { layout: "none", x: 0, y: 0 }));
+
+  const dragSession = (x: number, y: number): DragSession => ({
+    nodeId: "moving",
+    startWorld: { x, y },
+    currentWorld: { x, y },
+    initialNodeX: x,
+    initialNodeY: y,
+    worldOffset: { x, y },
+    dimensions: { width: 300, height: 120 }
+  });
+
+  it("produces guides for a node dragged inside a layout:none frame", () => {
+    // handleDragMove used to return the moment the pointer was over a frame
+    // that positions its children by hand, so nothing inside one ever snapped.
+    const doc = build();
+    const tree = layoutDocument(doc);
+    const session = dragSession(24, 300);
+
+    handleDragMove(doc, session, { x: 24, y: 300 }, tree, undefined, 1);
+
+    expect(session.snapOffset).toBeDefined();
+    expect(session.snapOffset!.x).toBe(-4);
+    expect(session.guides?.some((g) => g.type === "vertical" && g.position === 20)).toBe(true);
+
+    const moved = doc.children[0].children!.find((n: PenNode) => n.id === "moving") as any;
+    expect(moved.x).toBe(20);
+  });
+
+  it("does not snap the node to itself", () => {
+    const doc = build();
+    const tree = layoutDocument(doc);
+    const session = dragSession(24, 300);
+    // Pushed well clear of the sibling above it, so nothing is in range.
+    handleDragMove(doc, session, { x: 224, y: 500 }, tree, undefined, 1);
+
+    expect(session.snapOffset).toEqual({ x: 0, y: 0 });
+    expect(session.guides).toHaveLength(0);
   });
 });
