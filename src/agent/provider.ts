@@ -1,5 +1,21 @@
 export type ReasoningEffort = "none" | "low" | "medium" | "high";
 
+/**
+ * One notch less deliberation, for a reply the provider cut off mid-thought.
+ *
+ * Asking the model to think less is advice, and advice is refusable — the run
+ * that prompted this had already been told to act and spent another 17,914
+ * characters deliberating instead. The effort setting is not refusable. An
+ * undefined effort means the endpoint picked its own, so the step down states
+ * one explicitly; "low" is the floor, because a reasoning model handed "none"
+ * is a different model and the run did not ask for that.
+ */
+export function stepDownEffort(effort: ReasoningEffort | undefined): ReasoningEffort {
+  if (effort === "none") return "none";
+  if (effort === "high") return "medium";
+  return "low";
+}
+
 export interface Provider {
   id: string;
   baseUrl: string;
@@ -8,6 +24,8 @@ export interface Provider {
   reasoningEffort?: ReasoningEffort;
   api?: "chat" | "responses" | "messages";
   vision?: boolean;
+  /** Output ceiling for one reply, when this provider caps below the default. */
+  maxOutputTokens?: number;
 }
 
 export interface ToolCall {
@@ -140,7 +158,7 @@ export async function complete(
           : {})
       }
     : api === "messages"
-      ? { model: p.model, max_tokens: 4096, ...messagesInput }
+      ? { model: p.model, max_tokens: p.maxOutputTokens ?? 4096, ...messagesInput }
     : {
         model: p.model,
         messages: toApiMessages(messages, p),

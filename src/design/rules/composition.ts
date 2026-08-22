@@ -142,6 +142,102 @@ export function checkEmptyContainers(ctx: AuditContext): AuditFinding[] {
   return findings;
 }
 
+/**
+ * The bars the engine supplies. Everything inside one is chrome as well — the
+ * clock, the signal icons, the tab labels — so the whole subtree is skipped.
+ */
+const SCAFFOLD_CHROME_NAME = /^(status bar|status icons|tab ?bar( inset)?|bottom ?nav|home indicator|tab .+)$/i;
+
+/**
+ * The empty slots create_screen hands back. The frame itself is scaffold, but
+ * its children are precisely where content belongs, so this does not carry
+ * down — that is the difference between a screen that is still empty and one
+ * that has been filled through the slots it was given.
+ */
+const SCAFFOLD_SLOT_NAME = /^(inset content|bleed content|content|body|top ?bar|(left |right )?rail|aside|main|safe area)$/i;
+
+/**
+ * What part of the scaffold a node is, if any.
+ *
+ * The tag is the answer; the names are a fallback for documents written before
+ * create_screen started stamping one, and for a slot the model reparented by
+ * hand. Matching on names alone was the weak point: a model free to rename
+ * anything could call its own list "Content" — harmless — or rename the tab bar,
+ * at which point its icons and labels would count as content and a screen with
+ * nothing on it would score a pass. That is the exact failure this rule exists
+ * to catch, so it should not turn on what the model chose to call something.
+ */
+function scaffoldRole(node: PenNode): "chrome" | "slot" | undefined {
+  const tagged = node.metadata?.scaffold;
+  if (tagged === "chrome" || tagged === "slot") return tagged;
+  const name = node.name ?? "";
+  if (SCAFFOLD_CHROME_NAME.test(name)) return "chrome";
+  if (SCAFFOLD_SLOT_NAME.test(name)) return "slot";
+  return undefined;
+}
+
+/**
+ * Returns true as soon as any user-authored content is found inside the screen.
+ * Short-circuits immediately on the first non-scaffold element.
+ */
+function hasScreenContent(node: PenNode): boolean {
+  if (node.enabled === false) return false;
+  const role = scaffoldRole(node);
+  if (role === "chrome") return false;
+
+  if (role !== "slot") {
+    if (node.type === "text") {
+      if ((node as TextNode).content?.trim()) return true;
+    } else if (node.type !== "frame" && node.type !== "group") {
+      return true;
+    } else if (hasImageFill(node)) {
+      return true;
+    }
+  }
+
+  for (const child of childrenOf(node)) {
+    if (hasScreenContent(child)) return true;
+  }
+  return false;
+}
+
+/**
+ * A screen that is still nothing but the frame create_screen handed back.
+ *
+ * This is the rule that was missing, and the gap it left is the largest one the
+ * audit has had. A run built four screens with create_screen, announced that it
+ * would "place real content into each", was cut off before it could, and
+ * finished with a status bar and a tab bar per screen and nothing between them.
+ * The audit scored that canvas 0 blockers, 0 warnings, 0 info — a clean pass —
+ * so the completion check had nothing to send back and the run ended.
+ *
+ * Nothing else covers it. empty_container needs a box over 80x80, and an empty
+ * content slot is fit_content, so it measures zero and slips under the floor.
+ * collapsed_container needs children to be hiding. The finishing rules all
+ * measure content, and there is none. Each rule was looking at something real;
+ * the case where a screen holds nothing at all was between all of them.
+ */
+export function checkScaffoldOnlyScreens(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+
+  for (const screen of ctx.doc.children) {
+    if (!isScreen(screen) || screen.enabled === false) continue;
+
+    if (!hasScreenContent(screen)) {
+      findings.push(
+        blocker(
+          "scaffold_only",
+          screen.id,
+          `Screen "${screen.name ?? screen.id}" holds nothing but the frame create_screen returned — ` +
+            "its status bar and tab bar and empty slots. There is no content on it.",
+          "Fill the slots create_screen returned. insert_node takes a whole subtree in one call, so build the screen's content and put it in the content or bleed slot."
+        )
+      );
+    }
+  }
+  return findings;
+}
+
 export function checkCompositionExpectations(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
 

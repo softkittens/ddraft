@@ -57,7 +57,8 @@ export function loadProvider(
     apiKey,
     reasoningEffort,
     api: selected?.api || "chat",
-    vision: selected ? modelSupportsVision(spec, selected) : false
+    vision: selected ? modelSupportsVision(spec, selected) : false,
+    maxOutputTokens: selected?.maxOutputTokens ?? spec.maxOutputTokens
   };
 }
 

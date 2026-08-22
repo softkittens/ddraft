@@ -46,7 +46,8 @@ import {
   checkCompositionExpectations,
   checkClonedContent,
   checkIconGeometry,
-  checkStatTileRow
+  checkStatTileRow,
+  checkScaffoldOnlyScreens
 } from "./rules/composition";
 
 /* ------------------------------------------------------------------ *
@@ -91,7 +92,8 @@ const AUDIT_RULES: AuditRuleRunner[] = [
   checkStatTileRow,
   checkClonedContent,
   checkIconGeometry,
-  checkScaleDiscipline
+  checkScaleDiscipline,
+  checkScaffoldOnlyScreens
 ];
 
 /* ------------------------------------------------------------------ *

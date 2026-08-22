@@ -1,6 +1,6 @@
 import type { Document, ImageFill } from "../model/types";
 import { findNode } from "../model/tree";
-import type { Message, Provider, FetchFn, Tool } from "./provider";
+import { stepDownEffort, type Message, type Provider, type FetchFn, type Tool } from "./provider";
 import { completeStream, assembleToolCalls } from "./stream";
 import { TOOL_DEFS, createDocumentTools } from "./tools";
 import { withSystemPrompt, MAX_MODEL_ROUNDS } from "./prompt";
@@ -115,6 +115,8 @@ export async function* runSession(
   const maxTurns = opts.maxTurns ?? MAX_MODEL_ROUNDS;
   const internal = new Set<Message>();
 
+  let currentProvider: Provider = provider;
+
   const nudge = (text: string) => {
     const message: Message = { role: "user", content: [{ type: "text", text }] };
     internal.add(message);
@@ -124,6 +126,7 @@ export async function* runSession(
   try {
     for (let turn = 0; turn < maxTurns; turn++) {
       if (opts.signal?.aborted) break;
+
       watchdog.turnsUsed = turn + 1;
 
       const wrapUpMsg = watchdog.checkWrapUp(turn, maxTurns, session.doc.children.length);
@@ -140,10 +143,12 @@ export async function* runSession(
 
       let content = "";
       let reasoning = "";
+      let truncated = false;
       const partGroups: Parameters<typeof assembleToolCalls>[0] = [];
 
-      for await (const delta of completeStream(provider, out, SESSION_TOOLS, opts)) {
+      for await (const delta of completeStream(currentProvider, out, SESSION_TOOLS, opts)) {
         if (opts.signal?.aborted) break;
+        if (delta.truncated) truncated = true;
         if (delta.reasoning) {
           reasoning += delta.reasoning;
           trace(opts.trace, { type: "reasoning_delta", turn: turn + 1, content: delta.reasoning });
@@ -160,8 +165,25 @@ export async function* runSession(
       if (opts.signal?.aborted) break;
 
       const toolCalls = assembleToolCalls(partGroups).filter((c) => c.id || c.function.name);
-      trace(opts.trace, { type: "model_response", turn: turn + 1, reasoning, content, toolCalls });
+      trace(opts.trace, { type: "model_response", turn: turn + 1, reasoning, content, toolCalls, truncated });
       out.push({ role: "assistant", content, tool_calls: toolCalls.length > 0 ? toolCalls : undefined });
+
+      if (truncated && toolCalls.length === 0) {
+        const evalRes = watchdog.evaluateTruncation(turn, maxTurns);
+        if (evalRes.action === "error") {
+          recordOutcome(opts.trace, session.doc, watchdog.getMetrics(evalRes.reason));
+          yield { type: "error", code: "budget", message: evalRes.message };
+          return;
+        }
+        out.pop();
+        const lowered = stepDownEffort(currentProvider.reasoningEffort);
+        if (lowered !== currentProvider.reasoningEffort) {
+          currentProvider = { ...currentProvider, reasoningEffort: lowered };
+          trace(opts.trace, { type: "effort_step_down", turn: turn + 1, reasoningEffort: lowered });
+        }
+        if (evalRes.action === "nudge") nudge(evalRes.text);
+        continue;
+      }
 
       // 1. Handle answer_user conversational reply
       const answerCall = toolCalls.find((call) => call.function.name === ANSWER_USER_TOOL.name);
@@ -190,7 +212,7 @@ export async function* runSession(
 
       // 2. Handle completion when model makes no tool calls
       if (toolCalls.length === 0) {
-        const evalRes = watchdog.evaluateCompletion(session.doc, turn, maxTurns, session.doc === doc);
+        const evalRes = watchdog.evaluateCompletion(session.doc, turn, maxTurns, session.doc === doc, content);
         if (evalRes.action === "retry_empty") {
           out.pop();
           nudge(evalRes.nudge);

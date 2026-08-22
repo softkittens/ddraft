@@ -459,3 +459,205 @@ describe("document mutation payload routing & model verification", () => {
     expect(outcome!.toolCalls).toEqual({ insert_node: 1 });
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * A reply the provider cut off is not a reply
+ * ------------------------------------------------------------------ */
+
+/** A stream that thinks, then stops because the output cap was reached. */
+const truncatedSse = (reasoning: string) =>
+  streamed(
+    { choices: [{ delta: { reasoning_content: reasoning } }] },
+    { choices: [{ delta: {}, finish_reason: "length" }] }
+  );
+
+describe("a truncated reply is not a finished one", () => {
+  it("asks again instead of shipping what the model was cut off part-way through", async () => {
+    // The run this is taken from: set_style, then four create_screen calls and
+    // "I'll place real content into each", then 20,291 characters of reasoning
+    // cut off mid-word with no tool call. The loop read that as "finished" and
+    // shipped four screens holding a status bar and a tab bar.
+    const responses = [
+      () => callsSse("insert_node", { node: { type: "frame", name: "Home", width: 390, height: 844, children: [] } }),
+      () => truncatedSse("Let me reconsider whether to change it.\n\nGiven"),
+      () => callsSse("insert_node", { parentId: undefined, node: { type: "text", content: "Tonight", fontSize: 28 } }),
+      () => saysSse("Done.")
+    ];
+    const events = await collect(
+      runSession(testProvider, [{ role: "user", content: "build it" }], makeDoc(), {
+        fetch: scriptedFetch(responses),
+        maxTurns: 8
+      })
+    );
+
+    // It carried on rather than stopping at the cut-off round.
+    expect(events.filter((e) => e.type === "tool")).toHaveLength(2);
+    expect(events.at(-1)!.type).toBe("done");
+  });
+
+  it("tells the model where its tokens went, since it cannot see the cap from inside", async () => {
+    const sent: any[] = [];
+    const fetchFn = (() => {
+      let i = 0;
+      return async (_url: any, init: any) => {
+        sent.push(JSON.parse(String(init.body)));
+        i += 1;
+        return i === 1 ? truncatedSse("thinking and thinking") : saysSse("ok");
+      };
+    })();
+
+    await collect(
+      runSession(testProvider, [{ role: "user", content: "hi" }], makeDoc(frame("s", 390, 844)), {
+        fetch: fetchFn as any,
+        maxTurns: 4
+      })
+    );
+
+    const nudge = JSON.stringify(sent.at(-1).messages);
+    expect(nudge).toContain("cut off before any tool call");
+    expect(nudge).toContain("ran out of output tokens");
+  });
+
+  it("gives up after two cut-off replies rather than burning the budget on them", async () => {
+    const events = await collect(
+      runSession(testProvider, [{ role: "user", content: "build" }], makeDoc(), {
+        fetch: scriptedFetch([() => truncatedSse("thinking")]),
+        maxTurns: 20
+      })
+    );
+
+    const last = events.at(-1) as any;
+    expect(last.type).toBe("error");
+    expect(last.code).toBe("budget");
+    expect(last.message).toContain("ran out of room to reply");
+    // Three attempts: the first two are nudged, the third gives up.
+    expect(events.filter((e) => e.type === "status")).toHaveLength(3);
+  });
+
+  it("sends an explicit output cap so the ceiling is ours, not the endpoint's", async () => {
+    const sent: any[] = [];
+    await collect(
+      runSession(testProvider, [{ role: "user", content: "hi" }], makeDoc(frame("s", 390, 844)), {
+        fetch: (async (_u: any, init: any) => {
+          sent.push(JSON.parse(String(init.body)));
+          return saysSse("ok");
+        }) as any,
+        maxTurns: 2
+      })
+    );
+    expect(sent[0].max_tokens).toBe(16000);
+  });
+});
+
+describe("a conversational reply written as prose", () => {
+  it("is accepted after one push-back instead of being asked for three times", async () => {
+    // "hello" cost four round-trips and two minutes: the model answered in
+    // prose every time because it never reached for answer_user, and the loop
+    // asked again until its correction budget ran out.
+    const events = await collect(
+      runSession(testProvider, [{ role: "user", content: "hello" }], makeDoc(), {
+        fetch: scriptedFetch([() => saysSse("Hello! Tell me what you'd like to design.")]),
+        maxTurns: 10
+      })
+    );
+
+    expect(events.at(-1)!.type).toBe("done");
+    // One ask, one re-ask, done — not four.
+    expect(events.filter((e) => e.type === "status")).toHaveLength(2);
+  });
+
+  it("still presses a model that goes silent on an empty canvas", async () => {
+    // No prose and no tool calls is not an answer, and it keeps the full budget.
+    const events = await collect(
+      runSession(testProvider, [{ role: "user", content: "design a cat app" }], makeDoc(), {
+        fetch: scriptedFetch([() => streamed({ choices: [{ delta: {} }] })]),
+        maxTurns: 10
+      })
+    );
+    expect(events.filter((e) => e.type === "status").length).toBeGreaterThan(2);
+  });
+});
+
+describe("what a truncated run changes about the next attempt", () => {
+  it("asks for less deliberation, not just more politely", async () => {
+    // The nudge is advice and advice is refusable: the run this came from had
+    // already been told to act and spent another 17,914 characters thinking.
+    const sent: any[] = [];
+    let i = 0;
+    const fetchFn = (async (_u: any, init: any) => {
+      sent.push(JSON.parse(String(init.body)));
+      i += 1;
+      return i <= 2 ? truncatedSse("deliberating") : saysSse("ok");
+    }) as any;
+
+    await collect(
+      runSession(
+        { ...testProvider, reasoningEffort: "high" },
+        [{ role: "user", content: "hi" }],
+        makeDoc(frame("s", 390, 844)),
+        { fetch: fetchFn, maxTurns: 6 }
+      )
+    );
+
+    expect(sent.map((b) => b.reasoning_effort)).toEqual(["high", "medium", "low"]);
+  });
+
+  it("stops stepping down at low, because none is a different model", async () => {
+    const sent: any[] = [];
+    const fetchFn = (async (_u: any, init: any) => {
+      sent.push(JSON.parse(String(init.body)));
+      return truncatedSse("still deliberating");
+    }) as any;
+
+    await collect(
+      runSession(
+        { ...testProvider, reasoningEffort: "low" },
+        [{ role: "user", content: "hi" }],
+        makeDoc(frame("s", 390, 844)),
+        { fetch: fetchFn, maxTurns: 6 }
+      )
+    );
+
+    expect(new Set(sent.map((b) => b.reasoning_effort))).toEqual(new Set(["low"]));
+  });
+
+  it("leaves the effort alone on a run that was never cut off", async () => {
+    const sent: any[] = [];
+    await collect(
+      runSession(
+        { ...testProvider, reasoningEffort: "high" },
+        [{ role: "user", content: "hi" }],
+        makeDoc(frame("s", 390, 844)),
+        {
+          fetch: (async (_u: any, init: any) => {
+            sent.push(JSON.parse(String(init.body)));
+            return saysSse("ok");
+          }) as any,
+          maxTurns: 3
+        }
+      )
+    );
+    expect(sent.every((b) => b.reasoning_effort === "high")).toBe(true);
+  });
+
+  it("honours a provider that caps output lower than the default", async () => {
+    // A ceiling above what an endpoint accepts is a 400 on every request, not
+    // a shorter reply, so the catalog can state a lower one per provider.
+    const sent: any[] = [];
+    await collect(
+      runSession(
+        { ...testProvider, maxOutputTokens: 4096 },
+        [{ role: "user", content: "hi" }],
+        makeDoc(frame("s", 390, 844)),
+        {
+          fetch: (async (_u: any, init: any) => {
+            sent.push(JSON.parse(String(init.body)));
+            return saysSse("ok");
+          }) as any,
+          maxTurns: 2
+        }
+      )
+    );
+    expect(sent[0].max_tokens).toBe(4096);
+  });
+});

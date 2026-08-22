@@ -89,6 +89,28 @@ for (const [index, run] of runs.entries()) {
     );
   }
 
+  /**
+   * Rounds the provider cut off at the output cap, and how much of each was
+   * spent thinking.
+   *
+   * Invisible here until now, and it is the difference between a model that
+   * chose to stop and one that never got to speak. The run that made this worth
+   * printing spent 20,291 characters reasoning, was cut off mid-word with no
+   * tool call, and was recorded as "model finished" with four empty screens.
+   */
+  const replies = run.filter((e) => e.type === "model_response");
+  const cutOff = replies.filter((e) => e.truncated);
+  const reasoningChars = replies.reduce((n, e) => n + String(e.reasoning ?? "").length, 0);
+  const silent = replies.filter(
+    (e) => ((e.toolCalls as unknown[]) ?? []).length === 0 && !String(e.content ?? "").trim()
+  );
+  if (reasoningChars > 0 || cutOff.length > 0) {
+    console.log(
+      `replies  ${replies.length}  ·  ${Math.round(reasoningChars / 1000)}k chars reasoning  ·  ` +
+      `${cutOff.length} cut off  ·  ${silent.length} said nothing`
+    );
+  }
+
   // Where the budget went.
   const tally = new Map<string, number>();
   for (const call of calls) tally.set(String(call.name), (tally.get(String(call.name)) ?? 0) + 1);
@@ -105,6 +127,12 @@ for (const [index, run] of runs.entries()) {
   console.log(`  building ${pct(build)} · adjusting ${pct(adjust)} · reading ${pct(read)}`);
 
   const flags: string[] = [];
+  if (cutOff.length > 0) {
+    flags.push(`${cutOff.length} repl${cutOff.length === 1 ? "y was" : "ies were"} cut off at the output cap — the model ran out of room before it could act.`);
+  }
+  if (silent.length > 0 && calls.length > 0) {
+    flags.push(`${silent.length} round(s) produced no tool call and no text. Check whether the reply was truncated.`);
+  }
   if (rounds.size >= 8 && solo / rounds.size > 0.6) {
     flags.push(`${solo} of ${rounds.size} rounds carried a single tool call — the run is paying a round-trip per edit.`);
   }

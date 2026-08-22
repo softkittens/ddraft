@@ -34,7 +34,8 @@ export type AuditRule =
   | "stat_tile_row"
   | "cloned_content"
   | "icon_unresolved"
-  | "single_elevation";
+  | "single_elevation"
+  | "scaffold_only";
 
 export type AuditSeverity = "blocker" | "warning" | "info";
 
@@ -257,10 +258,29 @@ export function isDescendant(node: PenNode, ancestor: PenNode): boolean {
   return false;
 }
 
+/**
+ * A top-level frame that is a screen rather than a piece of one.
+ *
+ * The tag create_screen stamps comes first, and the name test is the fallback
+ * for a hand-built frame. Reading names alone made every screen-level rule —
+ * accent overuse, nested screens, duplicate regions, the finishing checks —
+ * conditional on the model not renaming the status bar, because a screen was
+ * only a screen if it still had a child with "bar" in its name. Rename that one
+ * frame and the whole screen stopped being audited, which is the opposite of
+ * what should happen when a model starts moving the chrome around.
+ */
 export function isScreen(node: PenNode): boolean {
   if (node.type !== "frame") return false;
+  // Tagged part of a screen: chrome or a slot is never a screen itself, and
+  // saying so first stops the tab bar counting as one because the tab inside
+  // it is tagged too.
+  const scaffold = (node as any).metadata?.scaffold;
+  if (scaffold === "chrome" || scaffold === "slot") return false;
+  if ((node as any).metadata?.screenKind) return true;
   if (SCREEN_CHROME_NAME.test(node.name ?? "")) return false;
-  return childrenOf(node).some((c) => SCREEN_CHROME_NAME.test(c.name ?? ""));
+  return childrenOf(node).some(
+    (c) => (c as any).metadata?.scaffold === "chrome" || SCREEN_CHROME_NAME.test(c.name ?? "")
+  );
 }
 
 export function collectSubtreeIds(doc: Document, rootId: string): Set<string> | undefined {

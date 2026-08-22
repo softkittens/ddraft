@@ -213,6 +213,23 @@ describe("end-to-end editor driver reality tests", () => {
     expect((altEditor.doc.children[0] as any).children.length).toBe(2);
     altEditor.undo();
     expect((altEditor.doc.children[0] as any).children.length).toBe(1);
+
+    // Dragging a fill_container child out to canvas preserves its concrete width & height
+    const heroDoc = makeDoc(
+      frame("screen", 390, 844, [
+        frame("hero_img", "fill_container", 380, [], { fill: { type: "image", url: "cat.jpg" } })
+      ], { layout: "vertical" })
+    );
+    const heroEditor = new EditorDriver(heroDoc);
+    heroEditor.pointerDown(100, 100);
+    heroEditor.pointerMove(600, 200);
+    heroEditor.pointerUp();
+    expect(heroEditor.doc.children.length).toBe(2);
+    const movedHero = heroEditor.doc.children.find((c) => c.id === "hero_img");
+    expect(movedHero?.width).toBe(390);
+    expect(movedHero?.height).toBe(380);
+    expect(flattenBoxes(heroEditor.layoutTree).get("hero_img")?.width).toBe(390);
+    expect(flattenBoxes(heroEditor.layoutTree).get("hero_img")?.height).toBe(380);
   });
 
   it("finds intersecting nodes with marquee bounding box on canvas and inside containers", () => {

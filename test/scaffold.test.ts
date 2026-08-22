@@ -131,8 +131,50 @@ describe("screen scaffold", () => {
     const doc: Document = { version: "1.0", children: [node], variables: style.variables };
     // Warnings too, not only blockers. The scaffold emits on every screen of
     // every run, so a warning it causes is a warning the model can never clear.
-    const findings = auditDesign(layoutResolvedDocument(doc), doc);
+    //
+    // scaffold_only is the exception and is asserted separately below: it is
+    // not a defect in the chrome, it is the statement that no content has been
+    // put on the screen yet, and the model clears it by doing the work.
+    const findings = auditDesign(layoutResolvedDocument(doc), doc).filter(
+      (f) => f.rule !== "scaffold_only"
+    );
     expect(findings.map((b) => `${b.severity} ${b.rule} ${b.nodeId}: ${b.message}`)).toEqual([]);
+  });
+
+  it("blocks a screen that is still only the scaffold, and stops once it holds content", () => {
+    // The gap that let four empty screens ship. create_screen returns chrome
+    // and empty slots; the run was cut off before it filled them, and the audit
+    // scored the result a clean pass, so the completion check had nothing to
+    // send back.
+    const style = resolveStyle({
+      palette: "Warm Linen", roundness: "Rounded", elevation: "Soft Lift",
+      headings: "Funnel Display", body: "Inter", captions: "Inter"
+    });
+    const { node, slots } = buildScreen(
+      { name: "Home", kind: "mobile", tabs: [{ label: "Home", icon: "house", active: true }, { label: "Saved", icon: "heart" }] },
+      ids()
+    );
+    const bare: Document = { version: "1.0", children: [node], variables: style.variables };
+
+    const blocked = auditDesign(layoutResolvedDocument(bare), bare).filter(
+      (f) => f.rule === "scaffold_only"
+    );
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0].severity).toBe("blocker");
+    expect(blocked[0].nodeId).toBe(node.id);
+    expect(blocked[0].message).toContain("Home");
+
+    // One real line of copy in the content slot is enough: the screen is being
+    // built now, and the rule must not keep firing while that is under way.
+    const content = find(node, "Inset Content") ?? find(node, slots.content ?? "") ;
+    (content as any).children = [
+      { type: "text", id: "copy", content: "Tonight's plan", fontSize: 28, fontFamily: "$font-heading", fill: "$foreground-primary", width: "fill_container", textGrowth: "fixed-width" }
+    ];
+    const filled: Document = { version: "1.0", children: [node], variables: style.variables };
+
+    expect(
+      auditDesign(layoutResolvedDocument(filled), filled).some((f) => f.rule === "scaffold_only")
+    ).toBe(false);
   });
 });
 
@@ -381,5 +423,57 @@ describe("components measure the same as the structure they replace", () => {
     expect(craftMetrics(expanded).components).toBe(0);
     expect(craftMetrics(withComponent).components).toBe(1);
     expect(craftMetrics(withComponent).reuseRatio).toBeGreaterThan(0);
+  });
+});
+
+describe("scaffold_only survives the model renaming things", () => {
+  const build = () => {
+    const style = resolveStyle({
+      palette: "Warm Linen", roundness: "Rounded", elevation: "Soft Lift",
+      headings: "Funnel Display", body: "Inter", captions: "Inter"
+    });
+    const { node } = buildScreen(
+      { name: "Home", kind: "mobile", tabs: [{ label: "Home", icon: "house", active: true }, { label: "Saved", icon: "heart" }] },
+      ids()
+    );
+    return { node, doc: (): Document => ({ version: "1.0", children: [node], variables: style.variables }) };
+  };
+  const fires = (doc: Document) =>
+    auditDesign(layoutResolvedDocument(doc), doc).some((f) => f.rule === "scaffold_only");
+
+  it("still sees an empty screen when the chrome has been renamed", () => {
+    // The regex fallback keys on names, and the model may call anything
+    // anything. Rename the tab bar and its icons and labels stop looking like
+    // chrome — they would be counted as content, and a screen holding nothing
+    // would score a pass. The tag create_screen stamps does not move.
+    const { node, doc } = build();
+    const tabBar = find(node, "Tab Bar")!;
+    tabBar.name = "Floating Pill Nav";
+    find(node, "Status Bar")!.name = "Top Strip";
+    expect(fires(doc())).toBe(true);
+  });
+
+  it("does not count a slot the model renamed as content in itself", () => {
+    const { node, doc } = build();
+    find(node, "Inset Content")!.name = "Feed";
+    expect(fires(doc())).toBe(true);
+  });
+
+  it("clears as soon as real content goes into a renamed slot", () => {
+    const { node, doc } = build();
+    const slot = find(node, "Inset Content")!;
+    slot.name = "Feed";
+    (slot as any).children = [
+      { type: "text", id: "copy", content: "Nearby", fontSize: 24, fontFamily: "$font-heading", fill: "$foreground-primary", width: "fill_container", textGrowth: "fixed-width" }
+    ];
+    expect(fires(doc())).toBe(false);
+  });
+
+  it("reads the tag on a screen whose names carry no hint at all", () => {
+    const { node, doc } = build();
+    walkNodes([node], (n) => {
+      if ((n as any).metadata?.scaffold) n.name = "x";
+    });
+    expect(fires(doc())).toBe(true);
   });
 });

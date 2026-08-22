@@ -591,6 +591,12 @@ export function commitDragDrop(doc: Document, session: DragSession): void {
           node.x = Math.round(dropWorld.x - origin.x);
           node.y = Math.round(dropWorld.y - origin.y);
         }
+        if (typeof node.width === "string" || node.width === undefined) {
+          node.width = Math.round(session.dimensions.width);
+        }
+        if (typeof node.height === "string" || node.height === undefined) {
+          node.height = Math.round(session.dimensions.height);
+        }
         targetChildren.push(node);
       } else {
         delete node.x;
@@ -610,6 +616,12 @@ export function commitDragDrop(doc: Document, session: DragSession): void {
     node.y = Math.round(session.worldOffset.y + dy);
     if (node.layoutPosition === "absolute") {
       delete node.layoutPosition;
+    }
+    if (typeof node.width === "string" || node.width === undefined) {
+      node.width = Math.round(session.dimensions.width);
+    }
+    if (typeof node.height === "string" || node.height === undefined) {
+      node.height = Math.round(session.dimensions.height);
     }
     doc.children.push(node);
   } else {

@@ -7,6 +7,7 @@ import {
   AssistantBubble,
   ToolAccordion,
   PendingStepBubble,
+  ThinkingBubble,
   LiveStreamBubble,
   DisconnectedNotice,
   EmptyState
@@ -22,6 +23,7 @@ import { doc } from "../store";
 
 export const TranscriptList: Component<{
   entries: Entry[];
+  streamReasoning?: string;
   streamText: string;
   pending: PendingStep | null;
   configured: boolean;
@@ -94,6 +96,10 @@ export const TranscriptList: Component<{
 
       <Show when={props.pending}>
         {(step) => <PendingStepBubble step={step()} />}
+      </Show>
+
+      <Show when={props.streamReasoning}>
+        {(text) => <ThinkingBubble text={text()} />}
       </Show>
 
       <Show when={props.streamText}>

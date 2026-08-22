@@ -1,4 +1,4 @@
-import { Component, For, Show } from "solid-js";
+import { Component, For, Show, createSignal } from "solid-js";
 import { Sparkles, Wrench, ImagePlus, Eye, Loader, Bot, Radio } from "lucide-solid";
 import type { Message } from "../../agent/provider";
 import { EXAMPLE_PROMPTS } from "../examplePrompts";
@@ -129,12 +129,46 @@ export const PendingStepBubble: Component<{ step: PendingStep }> = (props) => {
   );
 };
 
+export const ThinkingBubble: Component<{ text: string }> = (props) => {
+  const [expanded, setExpanded] = createSignal(false);
+
+  return (
+    <div class="mr-auto max-w-[96%] border rounded-xl text-xs shadow-2xs overflow-hidden transition-all bg-sky-50/70 border-sky-200/80 text-neutral-800">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded())}
+        class="w-full px-3 py-2 flex items-center justify-between gap-2 hover:bg-sky-100/50 transition text-left cursor-pointer select-none"
+      >
+        <div class="flex items-center gap-2 min-w-0">
+          <Sparkles size={11} class="animate-spin text-sky-500 shrink-0" />
+          <span class="font-medium text-[11px] text-sky-900">Thinking…</span>
+          <span class="text-[10px] text-sky-600/70 font-sans truncate">
+            {props.text.length > 0 ? `${props.text.length} chars` : ""}
+          </span>
+        </div>
+        <div class="text-[10px] text-sky-700 font-sans shrink-0 hover:underline">
+          {expanded() ? "hide ▴" : "view thoughts ▾"}
+        </div>
+      </button>
+
+      <Show when={expanded()}>
+        <div class="px-3 pb-3 pt-1 border-t border-sky-100 bg-white/80">
+          <div class="text-[11px] text-neutral-600 leading-relaxed font-sans whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar">
+            {props.text}
+            <span class="inline-block w-1.5 h-3 bg-sky-500 ml-0.5 animate-pulse align-middle rounded-xs" />
+          </div>
+        </div>
+      </Show>
+    </div>
+  );
+};
+
 export const LiveStreamBubble: Component<{ text: string }> = (props) => {
   return (
-    <div class="mr-auto max-w-[96%] bg-white border border-blue-200 text-neutral-800 rounded-2xl rounded-tl-xs px-3.5 py-2.5 text-xs shadow-xs leading-relaxed">
-      <div class="flex items-center gap-1 text-[10px] font-semibold text-blue-500 mb-1 tracking-wider uppercase">
-        <Sparkles size={9} class="animate-spin text-blue-500" />
-        <span>Thinking…</span>
+    <div class="mr-auto max-w-[96%] bg-white border border-neutral-200 text-neutral-800 rounded-2xl rounded-tl-xs px-3.5 py-2.5 text-xs shadow-xs leading-relaxed">
+      <div class="flex items-center gap-1 text-[10px] font-semibold text-neutral-400 mb-1 tracking-wider uppercase">
+        <Sparkles size={9} class="text-blue-500" />
+        <span>Assistant</span>
       </div>
       <div class="whitespace-pre-wrap">
         {props.text}

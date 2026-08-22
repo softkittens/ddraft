@@ -1,5 +1,16 @@
-import { createSignal, createMemo, createEffect, onMount, onCleanup } from "solid-js";
-import { selectedIds, setSelectedIds, nodeMap, doc, updateDoc, layoutTree, setChatExpanded } from "../store";
+import { createSignal, createMemo, createEffect, on, onMount, onCleanup } from "solid-js";
+import {
+  selectedIds,
+  setSelectedIds,
+  nodeMap,
+  doc,
+  updateDoc,
+  layoutTree,
+  setChatExpanded,
+  restoredChat,
+  resetToken,
+  persistChat
+} from "../store";
 import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
 import type { Message } from "../../agent/provider";
 import type { PublicProvider } from "../../agent/credentials";
@@ -60,13 +71,42 @@ export function useChatSession() {
   const [providers, setProviders] = createSignal<PublicProvider[]>([]);
   const [choice, setChoice] = createSignal(choiceValue("opencode-go", "gpt-5.6-luna"));
   const [effort, setEffort] = createSignal<"low" | "medium" | "high">("high");
-  const [entries, setEntries] = createSignal<Entry[]>([]);
-  const [agentMessages, setAgentMessages] = createSignal<Message[]>([]);
+  // Seeded from the stored session, which store.ts has already read and
+  // validated by the time this component mounts.
+  const saved = restoredChat();
+  const [entries, setEntries] = createSignal<Entry[]>(saved?.entries ?? []);
+  const [agentMessages, setAgentMessages] = createSignal<Message[]>(saved?.agentMessages ?? []);
   const [inputPrompt, setInputPrompt] = createSignal("");
   const [running, setRunning] = createSignal(false);
   const [streamText, setStreamText] = createSignal("");
-  const [lastBrief, setLastBrief] = createSignal("");
+  const [streamReasoning, setStreamReasoning] = createSignal("");
+  const [lastBrief, setLastBrief] = createSignal(saved?.lastBrief ?? "");
   const [pending, setPending] = createSignal<PendingStep | null>(null);
+
+  // The transcript is saved with the canvas it describes. streamText and
+  // pending are deliberately left out: they are the state of a run in flight,
+  // and a reload has already ended that run.
+  createEffect(
+    on([entries, agentMessages, lastBrief], ([e, messages, brief]) => {
+      persistChat({ entries: e, agentMessages: messages, lastBrief: brief });
+    }, { defer: true })
+  );
+
+  // Clearing the canvas clears the conversation about it — every node id in
+  // those messages now refers to something that does not exist.
+  createEffect(
+    on(resetToken, () => {
+      abort?.abort();
+      reviewAbort?.abort();
+      setEntries([]);
+      setAgentMessages([]);
+      setLastBrief("");
+      setStreamText("");
+      setStreamReasoning("");
+      setPending(null);
+      setRunning(false);
+    }, { defer: true })
+  );
 
   let abort: AbortController | null = null;
   let reviewAbort: AbortController | null = null;
@@ -146,17 +186,19 @@ export function useChatSession() {
         switch (event.type) {
           case "status":
             reasoning = "";
+            setStreamReasoning("");
             setStreamText(event.content);
             break;
           case "reasoning":
             reasoning += event.content;
-            setStreamText(reasoning);
+            setStreamReasoning(reasoning);
             break;
           case "delta":
             assembled += event.content;
             setStreamText(assembled);
             break;
           case "tool_start":
+            setStreamReasoning("");
             setStreamText("");
             setPending(
               event.name === "generate_image"
@@ -165,6 +207,7 @@ export function useChatSession() {
             );
             break;
           case "tool":
+            setStreamReasoning("");
             setStreamText("");
             setPending(null);
             assembled = "";
@@ -186,6 +229,7 @@ export function useChatSession() {
             }
             break;
           case "done":
+            setStreamReasoning("");
             setStreamText("");
             setPending(null);
             finalMessages = event.messages.filter((m) => m.role !== "system");
@@ -323,6 +367,18 @@ export function useChatSession() {
     }
   }
 
+  const clearChat = () => {
+    abort?.abort();
+    reviewAbort?.abort();
+    setEntries([]);
+    setAgentMessages([]);
+    setLastBrief("");
+    setStreamText("");
+    setPending(null);
+    setRunning(false);
+    persistChat({ entries: [], agentMessages: [], lastBrief: "" });
+  };
+
   return {
     configured,
     providers,
@@ -333,12 +389,14 @@ export function useChatSession() {
     entries,
     running,
     streamText,
+    streamReasoning,
     pending,
     inputPrompt,
     setInputPrompt,
     activeContextName,
     send: () => sendText(inputPrompt().trim()),
     sendText,
-    stop
+    stop,
+    clearChat
   };
 }

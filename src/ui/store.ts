@@ -1,4 +1,4 @@
-import { createSignal, createMemo, createRoot } from "solid-js";
+import { createSignal, createMemo, createRoot, createEffect, on } from "solid-js";
 import type { Document } from "../model/types";
 import { createHistory, pushDocument, undo as undoDoc, redo as redoDoc, type HistoryState } from "../model/history";
 import { removeNode } from "../model/edit";
@@ -7,6 +7,7 @@ import { resolveInstances } from "../model/instance";
 import { createCamera, zoomAtScreenPoint, type Camera } from "../interaction/camera";
 import { indexDocument } from "../model/tree";
 import { createDefaultDocument } from "../model/defaultDocument";
+import { loadSession, saveSession, clearSession, flushSession, type ChatSnapshot } from "./persist";
 
 export type ToolMode = "select" | "frame" | "rect" | "text";
 
@@ -37,6 +38,94 @@ export function updateDoc(newDoc: Document) {
   if (newDoc === doc()) return;
   setDocState(newDoc);
   setHistoryState((prev) => pushDocument(prev, newDoc));
+}
+
+/* ------------------------------------------------------------------ *
+ * Session persistence
+ * ------------------------------------------------------------------ */
+
+/**
+ * The chat's own state, handed here so it can be saved and restored with the
+ * canvas it describes. The transcript lives in useChatSession; this is the
+ * copy that survives a refresh, and the seed that hook reads on mount.
+ */
+export const [restoredChat, setRestoredChat] = createSignal<ChatSnapshot | null>(null);
+
+/** Bumped by resetCanvas, so the chat hook knows to empty itself. */
+export const [resetToken, setResetToken] = createSignal(0);
+
+/**
+ * True once the stored session has been read, whether or not one was found.
+ *
+ * Saving is held until then. The document signal starts as an empty default
+ * because a signal cannot be initialised from an async read, and writing that
+ * empty default over a real canvas during the few milliseconds the IndexedDB
+ * read takes would lose the work this feature exists to keep.
+ */
+const [hydrated, setHydrated] = createSignal(false);
+export const sessionReady = hydrated;
+
+/** Long enough for a real read, short enough that a wedged database still boots. */
+const HYDRATE_TIMEOUT_MS = 2000;
+
+export async function hydrateSession(): Promise<void> {
+  try {
+    const saved = await Promise.race([
+      loadSession(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), HYDRATE_TIMEOUT_MS))
+    ]);
+    if (saved) {
+      setDocState(saved.doc);
+      setHistoryState(createHistory(saved.doc));
+      if (saved.camera) setCamera(saved.camera);
+      if (saved.chat) setRestoredChat(saved.chat);
+    }
+  } finally {
+    // A failed read must not leave the app unable to save for the rest of the
+    // session, so this is reached on both paths.
+    setHydrated(true);
+  }
+}
+
+export function persistChat(snapshot: ChatSnapshot): void {
+  if (!hydrated()) return;
+  saveSession({ chat: snapshot });
+}
+
+createRoot(() => {
+  createEffect(
+    on([doc, camera], ([currentDoc, currentCamera]) => {
+      if (!hydrated()) return;
+      saveSession({ doc: currentDoc, camera: currentCamera });
+    })
+  );
+});
+
+if (typeof window !== "undefined") {
+  // A debounced save can still be waiting when the tab closes. pagehide fires
+  // for a real close and for the back-forward cache, which visibilitychange
+  // alone does not cover on Safari.
+  window.addEventListener("pagehide", () => void flushSession());
+}
+
+/**
+ * Empty the canvas, the transcript, and the stored copy of both.
+ *
+ * The undo stack goes too. Keeping it would make Cmd+Z bring back a design the
+ * user just confirmed they wanted gone, while the stored session said it was
+ * empty — two answers to the same question.
+ */
+export async function resetCanvas(): Promise<void> {
+  const fresh = createDefaultDocument();
+  setDocState(fresh);
+  setHistoryState(createHistory(fresh));
+  setSelectedIds(new Set<string>());
+  setHoveredId(null);
+  setEditingTextId(null);
+  setCamera(createCamera(40, 40, 1));
+  setRestoredChat(null);
+  setResetToken((n) => n + 1);
+  await clearSession();
 }
 
 export function handleUndo() {

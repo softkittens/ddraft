@@ -3,6 +3,8 @@ export interface CatalogModel {
   label: string;
   api?: "responses" | "messages";
   vision?: boolean;
+  /** Overrides the provider ceiling for this model. See maxOutputTokens below. */
+  maxOutputTokens?: number;
 }
 
 export interface CatalogProvider {
@@ -11,6 +13,16 @@ export interface CatalogProvider {
   envKeys: string[];
   baseUrlEnv?: string | string[];
   baseUrl: string;
+  /**
+   * Most output tokens one reply may use, when this provider caps lower than
+   * the default in stream.ts.
+   *
+   * The default has to be generous — a round is meant to carry several tool
+   * calls and a whole screen subtree is a large argument — but a ceiling above
+   * what an endpoint accepts is a 400 on every request rather than a shorter
+   * reply, so anything known to cap lower states it here.
+   */
+  maxOutputTokens?: number;
   models: CatalogModel[];
 }
 

@@ -1,5 +1,5 @@
-import { Component, Show } from "solid-js";
-import { Sparkles, Minus, Maximize2, X, Layers } from "lucide-solid";
+import { Component, Show, createSignal } from "solid-js";
+import { Sparkles, Minus, Maximize2, X, Layers, RotateCcw, Trash2 } from "lucide-solid";
 import { chatVisible, setChatVisible, chatExpanded, setChatExpanded } from "./store";
 import { useChatSession } from "./chat/useChatSession";
 import { TranscriptList } from "./chat/TranscriptList";
@@ -7,6 +7,14 @@ import { ChatInputBar } from "./chat/ChatInputBar";
 
 export const ChatPanel: Component = () => {
   const session = useChatSession();
+  const [confirmingClearChat, setConfirmingClearChat] = createSignal(false);
+
+  const canClearChat = () => session.entries().length > 0 || session.running();
+
+  const confirmClearChat = () => {
+    setConfirmingClearChat(false);
+    session.clearChat();
+  };
 
   return (
     <Show when={chatVisible()}>
@@ -38,6 +46,14 @@ export const ChatPanel: Component = () => {
           </div>
           <div class="flex items-center gap-1">
             <button
+              onClick={() => setConfirmingClearChat(true)}
+              disabled={!canClearChat()}
+              class="p-1 text-neutral-400 hover:text-red-600 rounded-md hover:bg-red-50 transition disabled:text-neutral-200 disabled:hover:bg-transparent disabled:hover:text-neutral-200 disabled:cursor-default"
+              title="Clear chat transcript"
+            >
+              <RotateCcw size={12} />
+            </button>
+            <button
               onClick={() => setChatExpanded(!chatExpanded())}
               class="p-1 text-neutral-400 hover:text-neutral-700 rounded-md hover:bg-neutral-100 transition"
               title={chatExpanded() ? "Dock down" : "Expand to left sidebar"}
@@ -60,6 +76,7 @@ export const ChatPanel: Component = () => {
         <Show when={chatExpanded()}>
           <TranscriptList
             entries={session.entries()}
+            streamReasoning={session.streamReasoning()}
             streamText={session.streamText()}
             pending={session.pending()}
             configured={session.configured()}
@@ -83,6 +100,56 @@ export const ChatPanel: Component = () => {
           effort={session.effort()}
           onEffortChange={session.setEffort}
         />
+
+        {/* Clear Chat Confirmation Modal */}
+        <Show when={confirmingClearChat()}>
+          <div
+            class="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-100"
+            onClick={() => setConfirmingClearChat(false)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="clear-chat-title"
+              class="w-[340px] bg-white rounded-xl shadow-2xl border border-neutral-200 p-5"
+              onClick={(e) => e.stopPropagation()}
+              ref={(el) => queueMicrotask(() => el.focus())}
+              tabindex="-1"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setConfirmingClearChat(false);
+                if (e.key === "Enter") confirmClearChat();
+              }}
+            >
+              <div class="flex items-start gap-3">
+                <div class="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-100">
+                  <Trash2 size={15} />
+                </div>
+                <div class="min-w-0">
+                  <h2 id="clear-chat-title" class="text-sm font-semibold text-neutral-900">
+                    Clear chat history
+                  </h2>
+                  <p class="text-xs text-neutral-500 mt-1 leading-relaxed">
+                    This clears the conversation transcript and active run. The canvas and your design will remain unchanged.
+                  </p>
+                </div>
+              </div>
+              <div class="flex justify-end gap-2 mt-5">
+                <button
+                  onClick={() => setConfirmingClearChat(false)}
+                  class="px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100 rounded-md transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmClearChat}
+                  class="px-3 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-md transition shadow-xs"
+                >
+                  Clear chat
+                </button>
+              </div>
+            </div>
+          </div>
+        </Show>
       </div>
     </Show>
   );

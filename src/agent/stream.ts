@@ -32,6 +32,17 @@ export async function* parseSseData(body: ReadableStream<Uint8Array>): AsyncGene
 export interface StreamDelta {
   content?: string;
   reasoning?: string;
+  /**
+   * The provider stopped this reply because it ran out of output tokens.
+   *
+   * Worth its own flag because the shape it arrives in is indistinguishable
+   * from a finished answer: no content, no tool calls, the stream simply ends.
+   * A reasoning model at high effort can spend the entire budget thinking — one
+   * logged run wrote 20,291 characters of reasoning, was cut off mid-word, and
+   * emitted nothing, and the session loop read that silence as "done" and
+   * shipped four empty screens.
+   */
+  truncated?: boolean;
   toolCallParts?: {
     index: number;
     id?: string;
@@ -40,6 +51,19 @@ export interface StreamDelta {
     extra_content?: ToolCall["extra_content"];
   }[];
 }
+
+/**
+ * Output cap for one reply.
+ *
+ * Sent explicitly so the ceiling is ours and is the same across providers,
+ * rather than whatever default the endpoint happens to apply. Generous: a round
+ * is meant to carry several tool calls, and a whole screen subtree in one
+ * insert_node is a large argument.
+ */
+export const MAX_OUTPUT_TOKENS = 16000;
+
+/** This provider's ceiling, or the default when it does not set one. */
+export const outputCap = (p: Provider): number => p.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
 
 async function responseError(p: Provider, res: Response): Promise<Error> {
   const text = await res.text();
@@ -67,6 +91,7 @@ async function* completeResponsesStream(
     model: p.model,
     input: toResponsesInput(messages),
     stream: true,
+    max_output_tokens: outputCap(p),
     ...(p.reasoningEffort && p.reasoningEffort !== "none"
       ? { reasoning: { effort: p.reasoningEffort } }
       : {})
@@ -145,6 +170,11 @@ async function* completeResponsesStream(
       };
       continue;
     }
+    if (event.type === "response.incomplete" ||
+        event.response?.incomplete_details?.reason === "max_output_tokens") {
+      yield { truncated: true };
+      continue;
+    }
     if (event.type === "error" || event.type === "response.failed") {
       const error = event.error ?? event.response?.error;
       throw new Error(error?.message ?? "Responses stream failed");
@@ -168,6 +198,7 @@ export async function* completeStream(
     model: p.model,
     messages: toApiMessages(messages, p),
     stream: true,
+    max_tokens: outputCap(p),
     ...(p.reasoningEffort ? { reasoning_effort: p.reasoningEffort } : {})
   };
   if (tools && tools.length > 0) {
@@ -192,14 +223,19 @@ export async function* completeStream(
 
   for await (const data of parseSseData(res.body)) {
     const json = JSON.parse(data) as {
-      choices?: { delta?: { content?: string; reasoning?: string; reasoning_content?: string; thinking?: string; tool_calls?: {
+      choices?: { finish_reason?: string | null; delta?: { content?: string; reasoning?: string; reasoning_content?: string; thinking?: string; tool_calls?: {
         index: number;
         id?: string;
         function?: { name?: string; arguments?: string };
         extra_content?: ToolCall["extra_content"];
       }[] } }[];
     };
-    const delta = json.choices?.[0]?.delta;
+    const choice = json.choices?.[0];
+    // "length" is the provider saying it cut the reply off. It arrives on the
+    // final chunk, whose delta is usually empty, so it has to be read before
+    // the delta guard below returns.
+    if (choice?.finish_reason === "length") yield { truncated: true };
+    const delta = choice?.delta;
     if (!delta) continue;
     const reasoning = delta.reasoning_content ?? delta.reasoning ?? delta.thinking;
     const toolCallParts = (delta.tool_calls ?? []).map((c) => ({
