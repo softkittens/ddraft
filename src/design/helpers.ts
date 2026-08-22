@@ -37,7 +37,12 @@ export type AuditRule =
   | "single_elevation"
   | "scaffold_only"
   | "icon_alignment"
-  | "eyebrow_kicker";
+  | "eyebrow_kicker"
+  | "invisible_node"
+  | "undrawn_series"
+  | "empty_column"
+  | "undersized_subject"
+  | "catalog_row";
 
 export type AuditSeverity = "blocker" | "warning" | "info";
 

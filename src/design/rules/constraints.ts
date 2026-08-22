@@ -10,6 +10,7 @@ import {
   boxContains,
   walkEnabled
 } from "../helpers";
+import { DESKTOP_HEIGHT, MOBILE_HEIGHT } from "../scaffold";
 
 export type FindingRule = "collision" | "overflow" | "unreadable_size" | "off_canvas";
 
@@ -172,8 +173,9 @@ const FIX_OF: Record<FindingRule, string> = {
 };
 
 function overflowFix(node: PenNode | undefined, parent: PenNode | undefined): string {
-  if (parent?.metadata?.screenKind === "mobile") {
-    return "Keep the fixed mobile screen size. Shorten or remove content, or reduce inner gaps and padding until everything fits inside the viewport.";
+  if (parent?.metadata?.screenKind === "mobile" || parent?.metadata?.screenKind === "desktop") {
+    const min = parent.metadata.screenKind === "mobile" ? MOBILE_HEIGHT : DESKTOP_HEIGHT;
+    return `If this is a scrolling page, grow the screen height above ${min}px so the content fits. Otherwise shorten content to fit the first viewport.`;
   }
   if (
     (node && node.type === "frame" && (node as FrameNode).layout === "horizontal") ||

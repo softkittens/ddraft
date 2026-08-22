@@ -17,6 +17,7 @@ import {
   PALETTE_HAND_SIZE,
   dealTypefaces
 } from "../src/design/styleSystem";
+import { deriveStatusTokens, hexToHsl } from "../src/design/statusTokens";
 import { effectSchema } from "../src/model/parse";
 import { agentSystemPrompt } from "../src/agent/prompt";
 import { createDocumentTools } from "../src/agent/tools";
@@ -109,7 +110,7 @@ describe("Style system", () => {
     });
     const guidance = styleGuidelines(style);
     expect(guidance).toContain("44-64 display");
-    expect(guidance).toContain("one 44-64 display treatment per composed screen");
+    expect(guidance).toContain("A tool uses one 44-64 display treatment");
   });
 
   it("set_style writes tokens and the guidelines restate them on later turns", async () => {
@@ -187,6 +188,80 @@ describe("Style system", () => {
         }
       }
     }
+  });
+});
+
+describe("Status colours are derived per palette", () => {
+  it("gives every palette three legible status colours", () => {
+    /*
+     * The whole reason these are derived rather than authored: 58 palettes x 3
+     * colours is 174 contrast decisions, and the one that gets it wrong is the
+     * one nobody checks. Here every one of them is checked on every run.
+     */
+    let worst = Infinity;
+    let worstAt = "";
+    for (const palette of PALETTES) {
+      const status = deriveStatusTokens(palette.tokens, palette.scheme);
+      for (const [role, hex] of Object.entries(status)) {
+        expect(hex).toMatch(/^#[0-9A-F]{6}$/);
+        const ratio = contrastRatio(hex, palette.tokens["surface-secondary"])!;
+        if (ratio < worst) { worst = ratio; worstAt = `${palette.name}/${role}`; }
+      }
+    }
+    // 4.5:1 because these carry 11px bold labels — WARN, MAINT, 92% — not just dots.
+    expect(worst, `worst was ${worstAt}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("keeps each status recognisable as its meaning", () => {
+    const hue = (hex: string) => hexToHsl(hex)!.h;
+    const within = (h: number, centre: number, span: number) => {
+      const d = Math.abs(((h - centre) % 360 + 360) % 360);
+      return Math.min(d, 360 - d) <= span;
+    };
+    for (const palette of PALETTES) {
+      const s = deriveStatusTokens(palette.tokens, palette.scheme);
+      expect(within(hue(s["status-ok"]), 145, 20), `${palette.name} ok`).toBe(true);
+      expect(within(hue(s["status-warn"]), 42, 14), `${palette.name} warn`).toBe(true);
+      expect(within(hue(s["status-fault"]), 8, 14), `${palette.name} fault`).toBe(true);
+    }
+  });
+
+  it("does not hand the same green to every dark palette", () => {
+    // Anchoring lightness to a constant did exactly that: Carbon Frost, Amber
+    // Night and Agentic all came back #49F390, which is a sticker rather than
+    // part of a system. Lightness is offset from each palette's own card now.
+    const darks = PALETTES.filter((p) => p.scheme === "dark");
+    const greens = new Set(darks.map((p) => deriveStatusTokens(p.tokens, p.scheme)["status-ok"]));
+    expect(greens.size).toBeGreaterThan(darks.length / 3);
+  });
+
+  it("moves a status hue off an accent that already occupies it", () => {
+    const green: any = {
+      name: "Test", scheme: "light", mood: "",
+      tokens: {
+        "surface-primary": "#FFFFFF", "surface-secondary": "#F2F2F2",
+        "foreground-primary": "#111111", "foreground-secondary": "#555555",
+        "foreground-muted": "#888888", "border-subtle": "#DDDDDD",
+        "accent-primary": "#2E9E52", "accent-secondary": "#C2703D"
+      }
+    };
+    const ok = deriveStatusTokens(green.tokens, "light")["status-ok"];
+    const gap = Math.abs(hexToHsl(ok)!.h - hexToHsl(green.tokens["accent-primary"])!.h);
+    // A dashboard where "online" and "the primary button" are the same colour
+    // has lost both meanings.
+    expect(gap).toBeGreaterThan(8);
+  });
+
+  it("writes the status tokens onto the document with the rest of the style", () => {
+    const style = resolveStyle({
+      palette: "Carbon Frost", roundness: "Basic", elevation: "Soft Lift",
+      headings: "Inter", body: "Inter", captions: "Inter"
+    });
+    expect(Object.keys(style.variables)).toEqual(
+      expect.arrayContaining(["status-ok", "status-warn", "status-fault"])
+    );
+    expect(styleGuidelines(style)).toContain("$status-ok");
+    expect(styleGuidelines(style)).toContain("running, online, nominal");
   });
 });
 

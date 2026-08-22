@@ -27,6 +27,11 @@ export interface ScreenSpec {
   kind: "mobile" | "desktop";
   /** Mobile only. Omit for a screen with no tab bar, such as onboarding. */
   tabs?: TabSpec[];
+  /**
+   * Page height. The viewport (844 / 900) is the floor — a scrolling landing
+   * page passes a larger number. Values below the floor are raised.
+   */
+  height?: number;
 }
 
 export interface Scaffold {
@@ -37,6 +42,22 @@ export interface Scaffold {
 
 export const MOBILE_WIDTH = 390;
 export const MOBILE_HEIGHT = 844;
+export const DESKTOP_WIDTH = 1440;
+export const DESKTOP_HEIGHT = 900;
+/** A long landing page, not an infinite canvas. */
+export const MAX_SCREEN_HEIGHT = 5000;
+
+export function viewportFor(kind: "mobile" | "desktop"): { width: number; height: number } {
+  return kind === "mobile"
+    ? { width: MOBILE_WIDTH, height: MOBILE_HEIGHT }
+    : { width: DESKTOP_WIDTH, height: DESKTOP_HEIGHT };
+}
+
+export function clampScreenHeight(kind: "mobile" | "desktop", height: number | undefined): number {
+  const min = viewportFor(kind).height;
+  const requested = typeof height === "number" && Number.isFinite(height) ? height : min;
+  return Math.min(MAX_SCREEN_HEIGHT, Math.max(min, requested));
+}
 export const STATUS_BAR_HEIGHT = 62;
 export const TAB_BAR_HEIGHT = 56;
 
@@ -193,7 +214,7 @@ function mobileScreen(spec: ScreenSpec, id: () => string, slots: Record<string, 
     id: slots.screen,
     name: spec.name,
     width: MOBILE_WIDTH,
-    height: MOBILE_HEIGHT,
+    height: clampScreenHeight("mobile", spec.height),
     layout: "vertical",
     justifyContent: "space_between",
     fill: "$surface-primary",
@@ -267,8 +288,8 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
     type: "frame",
     id: slots.screen,
     name: spec.name,
-    width: 1440,
-    height: 900,
+    width: DESKTOP_WIDTH,
+    height: clampScreenHeight("desktop", spec.height),
     layout: "vertical",
     fill: "$surface-primary",
     padding: [16, 24, 16, 24],

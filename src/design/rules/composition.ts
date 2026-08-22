@@ -12,12 +12,14 @@ import {
   isDescendant,
   hasImageFill,
   solidFillOf,
+  contrastRatio,
   boxesOverlap,
   INTERACTIVE_NAME,
   REGION_ROLES,
   SCREEN_CHROME_NAME
 } from "../helpers";
 import { MIN_TAP_TARGET } from "./constraints";
+import { normalisePadding } from "../../layout/padding";
 
 export function checkTapTargets(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
@@ -47,12 +49,10 @@ export function checkTapTargets(ctx: AuditContext): AuditFinding[] {
 
 export function checkDuplicateRegions(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
-  function screensOf(node: PenNode, out: PenNode[]) {
-    if (isScreen(node) && node.enabled !== false) out.push(node);
-    for (const child of childrenOf(node)) screensOf(child, out);
-  }
   const screens: PenNode[] = [];
-  ctx.doc.children.forEach((n) => screensOf(n, screens));
+  walkEnabled(ctx.doc.children, (node) => {
+    if (isScreen(node)) screens.push(node);
+  });
 
   for (const screen of screens) {
     for (const { role, pattern } of REGION_ROLES) {
@@ -83,6 +83,73 @@ export function checkDuplicateRegions(ctx: AuditContext): AuditFinding[] {
   return findings;
 }
 
+/** Below this, a fill and the surface behind it are the same colour to the eye. */
+const SERIES_MIN_CONTRAST = 1.5;
+
+/**
+ * A data series painted in a colour that cannot be seen against its own card.
+ *
+ * checkContrast measures text and only text, so a chart — which is frames, not
+ * text — was never checked at all. Two of the four bar charts in the logs
+ * paint seven of eight bars in '$border-subtle' on a '$surface-secondary'
+ * card: 1.3:1, bars with genuinely varied heights that render as one flat
+ * slab. Both shipped with a clean audit, and one was scored 5/5 for hierarchy
+ * and usability by a critic that called it "a proportional throughput chart".
+ *
+ * The series is identified by shape rather than by name: four or more painted
+ * childless siblings of equal width in a row (or equal height in a column) is
+ * a chart, a meter, or a segmented gauge — never a layout. Requiring uniformity
+ * on the main axis is what keeps a row of cards or nav pills out of it, and
+ * requiring four keeps a pair of buttons out.
+ */
+export function checkUndrawnSeries(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+
+  function walk(node: PenNode, surface: string | undefined): void {
+    if (node.enabled === false) return;
+    const here = solidFillOf(node) ?? surface;
+    const kids = childrenOf(node).filter((c) => c.enabled !== false);
+    const layout = (node as any).layout;
+
+    if (node.type === "frame" && (layout === "horizontal" || layout === "vertical") && kids.length >= 4) {
+      const members = kids.filter(
+        (k) =>
+          (k.type === "frame" || k.type === "rectangle") &&
+          childrenOf(k).length === 0 &&
+          typeof (k as any).fill === "string"
+      );
+      const boxes = members.map((k) => ctx.boxes.get(k.id)?.box);
+      const main = layout === "horizontal" ? "width" : "height";
+      const spans = boxes.map((b) => (b ? Math.round(b[main]) : -1));
+      const sized = boxes.every((b) => b && b.width >= 2 && b.height >= 2);
+      // Uniform along the axis they are laid out on: the bars of a chart share
+      // a width and differ in height. Anything varying on both axes is a
+      // layout, not a series, and this rule has no business in it.
+      if (members.length === kids.length && sized && new Set(spans).size === 1 && here) {
+        const dim = members.filter((k) => {
+          const ratio = contrastRatio((k as any).fill as string, here, ctx.doc.variables);
+          return ratio !== null && ratio < SERIES_MIN_CONTRAST;
+        });
+        if (dim.length >= members.length - 1) {
+          findings.push(
+            warning(
+              "undrawn_series",
+              node.id,
+              `${dim.length} of the ${members.length} elements in "${node.name ?? node.id}" are filled with ${[...new Set(dim.map((d) => String((d as any).fill)))].join(", ")}, under ${SERIES_MIN_CONTRAST}:1 against the ${here} behind them. The series renders, but reads as one flat block.`,
+              "Paint the series in something that separates from its card: $accent-primary for the live values, $accent-secondary or $foreground-muted for comparison. A border token is for borders."
+            )
+          );
+        }
+      }
+    }
+
+    for (const child of kids) walk(child, here);
+  }
+
+  for (const root of ctx.doc.children) walk(root, solidFillOf(root));
+  return findings;
+}
+
 export function checkNestedScreens(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
   function walk(node: PenNode, outerScreen: PenNode | undefined) {
@@ -101,6 +168,55 @@ export function checkNestedScreens(ctx: AuditContext): AuditFinding[] {
     for (const child of childrenOf(node)) walk(child, screenHere ? node : outerScreen);
   }
   ctx.doc.children.forEach((n) => walk(n, undefined));
+  return findings;
+}
+
+/**
+ * Anything painted that renders at zero size.
+ *
+ * The audit had no rule for a leaf: collapsed_container only looks at frames
+ * that hold children, on the reasoning that an empty box hides nothing. That
+ * is false for exactly the nodes a data-dense screen is made of. A progress
+ * fill, a chart bar, an icon and a status dot are all childless, and all of
+ * them are the content.
+ *
+ * Six logged runs shipped 63 of these — eleven progress bars sized in
+ * percentages the engine reads as zero, and fifty icons written with `size`
+ * instead of width and height — every one of them under a clean audit, most
+ * of them beside a label stating the value the bar was supposed to draw. The
+ * tools now resolve both of those at the write, so this is the backstop rather
+ * than the fix: a blocker, because a design whose data does not render is
+ * broken in the way a user sees first.
+ */
+export function checkInvisibleNodes(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type === "text" || node.type === "group") return;
+    if (childrenOf(node).some((c) => c.enabled !== false)) return;
+    const paint = (node as any).fill ?? (node as any).stroke ?? (node as any).geometry;
+    if (paint === undefined || paint === null) return;
+    const box = ctx.boxes.get(node.id)?.box;
+    if (!box) return;
+    if (box.width >= 1 && box.height >= 1) return;
+
+    const axis = box.width < 1 ? "width" : "height";
+    const written = (node as any)[axis];
+    // The written value is the useful half of this: "0px wide" is a symptom,
+    // `width: "82%"` is the cause, and naming it is the difference between a
+    // finding the model can act on and one it has to investigate.
+    const cause =
+      written === undefined
+        ? `no ${axis} is set`
+        : `${axis} is ${JSON.stringify(written)}, which the engine resolves to 0`;
+    findings.push(
+      blocker(
+        "invisible_node",
+        node.id,
+        `"${node.name ?? node.id}" is painted but renders ${Math.round(box.width)}x${Math.round(box.height)}px — ${cause}. Nothing of it is on screen.`,
+        `Set ${axis} to a number of pixels, or to 'fill_container' if it should take the space its parent gives it. Percentages are not sizes the engine has.`
+      )
+    );
+  });
   return findings;
 }
 
@@ -239,6 +355,60 @@ export function checkScaffoldOnlyScreens(ctx: AuditContext): AuditFinding[] {
   return findings;
 }
 
+const DESKTOP_FILL_SLOTS = [
+  { pattern: /^Main$/i, role: "Main" },
+  { pattern: /^Right Rail$/i, role: "Right Rail" }
+] as const;
+
+const EMPTY_COLUMN_FRACTION = 0.18;
+const EMPTY_COLUMN_MIN_PX = 80;
+const EMPTY_COLUMN_MIN_HEIGHT = 240;
+
+function layoutNamed(
+  node: LayoutNode,
+  pattern: RegExp,
+  nodes: Map<string, PenNode>
+): LayoutNode | undefined {
+  if (pattern.test(nodes.get(node.id)?.name ?? "")) return node;
+  for (const child of node.children) {
+    const found = layoutNamed(child, pattern, nodes);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function contentBottom(slot: LayoutNode): number {
+  function extent(node: LayoutNode): number {
+    let bottom = node.box.height;
+    for (const child of node.children) {
+      bottom = Math.max(bottom, child.box.y + extent(child));
+    }
+    return bottom;
+  }
+  let last = 0;
+  for (const child of slot.children) {
+    last = Math.max(last, child.box.y + extent(child));
+  }
+  return last;
+}
+
+function slotHasSubjectImage(
+  slot: LayoutNode,
+  ctx: AuditContext,
+  screenArea: number
+): boolean {
+  const minArea = screenArea * 0.15;
+  function walk(node: LayoutNode): boolean {
+    const data = ctx.nodes.get(node.id);
+    if (data && hasImageFill(data)) {
+      const area = node.box.width * node.box.height;
+      if (area >= minArea) return true;
+    }
+    return node.children.some(walk);
+  }
+  return walk(slot);
+}
+
 export function checkCompositionExpectations(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
 
@@ -332,43 +502,86 @@ export function checkCompositionExpectations(ctx: AuditContext): AuditFinding[] 
       );
     }
 
-    // 3. Empty tail
+    // 3. Empty tail (mobile) / empty column (desktop)
     const layoutRoot = ctx.tree.find((node) => node.id === screen.id);
     if (!layoutRoot) continue;
     const tab = layoutRoot.children.find((node) =>
       /tab ?bar|bottom ?nav/i.test(ctx.nodes.get(node.id)?.name ?? "")
     );
-    if (!tab) continue;
-
-    let lastBottom = 0;
-    function lastVisible(node: LayoutNode, offsetY: number, excluded: boolean) {
-      const data = ctx.nodes.get(node.id);
-      if (!data || data.enabled === false) return;
-      const nowExcluded =
-        excluded ||
-        SCREEN_CHROME_NAME.test(data.name ?? "") ||
-        /tab ?bar|bottom ?nav/i.test(data.name ?? "");
-      const y = offsetY + node.box.y;
-      const structural = /^(Bleed|Inset) Content$/i.test(data.name ?? "");
-      const fill = solidFillOf(data);
-      const visible =
-        node.id !== screen.id &&
-        (data.type === "text" ||
-          data.type === "icon" ||
-          hasImageFill(data) ||
-          (!structural && fill !== undefined && fill !== "$surface-primary"));
-      if (!nowExcluded && visible) lastBottom = Math.max(lastBottom, y + node.box.height);
-      for (const child of node.children) lastVisible(child, y, nowExcluded);
+    if (tab) {
+      let lastBottom = 0;
+      function lastVisible(node: LayoutNode, offsetY: number, excluded: boolean) {
+        const data = ctx.nodes.get(node.id);
+        if (!data || data.enabled === false) return;
+        const nowExcluded =
+          excluded ||
+          SCREEN_CHROME_NAME.test(data.name ?? "") ||
+          /tab ?bar|bottom ?nav/i.test(data.name ?? "");
+        const y = offsetY + node.box.y;
+        const structural = /^(Bleed|Inset) Content$/i.test(data.name ?? "");
+        const fill = solidFillOf(data);
+        const visible =
+          node.id !== screen.id &&
+          (data.type === "text" ||
+            data.type === "icon" ||
+            hasImageFill(data) ||
+            (!structural && fill !== undefined && fill !== "$surface-primary"));
+        if (!nowExcluded && visible) lastBottom = Math.max(lastBottom, y + node.box.height);
+        for (const child of node.children) lastVisible(child, y, nowExcluded);
+      }
+      lastVisible(layoutRoot, 0, false);
+      const tail = tab.box.y - lastBottom;
+      if (lastBottom > 0 && tail > screenHeight * 0.15) {
+        findings.push(
+          warning(
+            "empty_tail",
+            screen.id,
+            `Screen "${screen.name ?? screen.id}" leaves ${Math.round(tail)}px (${Math.round((tail / screenHeight) * 100)}%) empty before its tab bar.`,
+            "Use that space deliberately: enlarge the dominant content, redistribute the layout, or shorten the screen's information architecture."
+          )
+        );
+      }
     }
-    lastVisible(layoutRoot, 0, false);
-    const tail = tab.box.y - lastBottom;
-    if (lastBottom > 0 && tail > screenHeight * 0.15) {
+
+    const isDesktop =
+      screen.metadata?.screenKind === "desktop" || screenWidth >= 1200;
+    if (isDesktop) {
+      for (const { pattern, role } of DESKTOP_FILL_SLOTS) {
+        const slot = layoutNamed(layoutRoot, pattern, ctx.nodes);
+        if (!slot || slot.box.height < EMPTY_COLUMN_MIN_HEIGHT) continue;
+        const lastBottom = contentBottom(slot);
+        if (lastBottom <= 0) continue;
+        const unused = slot.box.height - lastBottom;
+        if (unused < EMPTY_COLUMN_MIN_PX) continue;
+        if (unused <= slot.box.height * EMPTY_COLUMN_FRACTION) continue;
+        if (slotHasSubjectImage(slot, ctx, screenWidth * screenHeight)) continue;
+        findings.push(
+          warning(
+            "empty_column",
+            slot.id,
+            `"${role}" leaves ${Math.round(unused)}px (${Math.round((unused / slot.box.height) * 100)}%) empty at the bottom of a ${Math.round(slot.box.height)}px column.`,
+            "If this is a dense tool, give the last region height: 'fill_container'. If this is a place or a page, leave the field — do not invent widgets to fill it."
+          )
+        );
+      }
+    }
+
+    let largestImageArea = 0;
+    let imageCount = 0;
+    walkEnabled([screen], (node) => {
+      if (!hasImageFill(node)) return;
+      const box = ctx.boxes.get(node.id)?.box;
+      if (!box || (box.width < 80 && box.height < 80)) return;
+      imageCount += 1;
+      largestImageArea = Math.max(largestImageArea, box.width * box.height);
+    });
+    if (imageCount > 0 && largestImageArea < screenWidth * screenHeight * 0.18) {
       findings.push(
         warning(
-          "empty_tail",
+          "undersized_subject",
           screen.id,
-          `Screen "${screen.name ?? screen.id}" leaves ${Math.round(tail)}px (${Math.round((tail / screenHeight) * 100)}%) empty before its tab bar.`,
-          "Use that space deliberately: enlarge the dominant content, redistribute the layout, or shorten the screen's information architecture."
+          `Screen "${screen.name ?? screen.id}" has photography, but the largest image covers ${Math.round((largestImageArea / (screenWidth * screenHeight)) * 100)}% of the viewport.`,
+          "Enlarge the subject photograph to about a third of the screen. A thumbnail strip above a card grid is not a hero."
         )
       );
     }
@@ -481,47 +694,135 @@ export function checkStatTileRow(ctx: AuditContext): AuditFinding[] {
   return findings;
 }
 
+function textCount(node: PenNode): number {
+  let n = 0;
+  walkEnabled([node], (child) => {
+    if (child.type === "text" && (child as TextNode).content?.trim()) n += 1;
+  });
+  return n;
+}
+
+export function checkCatalogCardRow(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  const tallSites: PenNode[] = [];
+  walkEnabled(ctx.doc.children, (node) => {
+    if (!isScreen(node)) return;
+    const height = ctx.boxes.get(node.id)?.box.height ?? 0;
+    if (height > 1400) tallSites.push(node);
+  });
+
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "frame") return;
+    if (SCREEN_CHROME_NAME.test(node.name ?? "")) return;
+    if (tallSites.some((site) => node === site || isDescendant(node, site))) return;
+    if ((node as { layout?: string }).layout !== "horizontal") return;
+    const kids = childrenOf(node).filter((c) => c.enabled !== false && c.type === "frame");
+    if (kids.length < 3) return;
+    const boxes = kids.map((k) => ctx.boxes.get(k.id)?.box).filter((b): b is NonNullable<typeof b> => !!b);
+    if (boxes.length !== kids.length) return;
+    const widths = boxes.map((b) => b.width);
+    const mean = widths.reduce((a, b) => a + b, 0) / widths.length;
+    if (mean < 80) return;
+    if (widths.some((w) => Math.abs(w - mean) / mean > 0.25)) return;
+    if (!kids.every((k) => textCount(k) >= 3)) return;
+    findings.push(
+      warning(
+        "catalog_row",
+        node.id,
+        `"${node.name ?? node.id}" is ${kids.length} equal cards in a row — title, blurb and a number, repeated. That is a catalog strip, not a page.`,
+        "Lead with one featured thing, or turn the set into hairline rows. Three equal cards should not be the layout."
+      )
+    );
+  });
+  return findings;
+}
+
+function isChipLikeChild(node: PenNode): boolean {
+  if (node.type === "icon" || node.type === "text" || node.type === "ellipse") return true;
+  if (node.type !== "frame" && node.type !== "rectangle") return false;
+  if (childrenOf(node).some((c) => c.enabled !== false)) return false;
+  return true;
+}
+
 export function checkUncenteredIconButtons(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
 
   walkEnabled(ctx.doc.children, (node) => {
     if (node.type !== "frame") return;
     const kids = childrenOf(node).filter((c) => c.enabled !== false);
-    if (kids.length !== 1) return;
-    const child = kids[0];
-    if (child.type !== "icon") return;
+    if (kids.length < 1 || kids.length > 3) return;
+    if (!kids.every(isChipLikeChild)) return;
 
-    const frameBox = ctx.boxes.get(node.id)?.box;
-    const childBox = ctx.boxes.get(child.id)?.box;
-    if (!frameBox || !childBox || frameBox.width <= 0 || frameBox.height <= 0) return;
+    const frameLayout = ctx.boxes.get(node.id);
+    const frameBox = frameLayout?.box;
+    if (!frameLayout || !frameBox || frameBox.width <= 0 || frameBox.height <= 0) return;
+    // A fill-width nav row is supposed to start-align. Chips and icon wells
+    // are compact; past this they are rows.
+    if (frameBox.width > 220) return;
 
-    const excessW = frameBox.width - childBox.width;
-    const excessH = frameBox.height - childBox.height;
-    if (excessW < 6 && excessH < 6) return;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const child of frameLayout.children) {
+      minX = Math.min(minX, child.box.x);
+      minY = Math.min(minY, child.box.y);
+      maxX = Math.max(maxX, child.box.x + child.box.width);
+      maxY = Math.max(maxY, child.box.y + child.box.height);
+    }
+    if (!Number.isFinite(minX)) return;
 
-    const relX = childBox.x;
-    const relY = childBox.y;
+    const pad = normalisePadding(node.padding);
+    const leftoverX = frameBox.width - pad.right - maxX;
+    const leftoverY = frameBox.height - pad.bottom - maxY;
+    if (leftoverX < 6 && leftoverY < 6) return;
 
-    const isTopLeftPinned = (relX <= 2 || relY <= 2) && (excessW >= 6 || excessH >= 6);
+    const pinnedX = minX <= pad.left + 1;
+    const pinnedY = minY <= pad.top + 1;
+    if (!pinnedX && !pinnedY) return;
+
     const radius = node.cornerRadius;
     const isPillOrCircle =
       (typeof radius === "number" && radius >= 8) ||
       (Array.isArray(radius) && radius.some((r) => typeof r === "number" && r >= 8));
-    const isSquareOrCircular = Math.abs(frameBox.width - frameBox.height) <= 12 || isPillOrCircle || INTERACTIVE_NAME.test(node.name ?? "");
+    const isSquare =
+      Math.abs(frameBox.width - frameBox.height) <= 12 && frameBox.width <= 80;
+    if (!isSquare && !isPillOrCircle && !INTERACTIVE_NAME.test(node.name ?? "")) return;
 
-    if (isTopLeftPinned && isSquareOrCircular) {
-      findings.push(
-        warning(
-          "icon_alignment",
-          node.id,
-          `Icon button "${node.name ?? node.id}" (${Math.round(frameBox.width)}x${Math.round(frameBox.height)}px) holds an icon pinned to its top-left corner instead of centered.`,
-          "Set justifyContent: 'center', alignItems: 'center' on the button frame to center the icon."
-        )
-      );
-    }
+    findings.push(
+      warning(
+        "icon_alignment",
+        node.id,
+        `Chip "${node.name ?? node.id}" (${Math.round(frameBox.width)}x${Math.round(frameBox.height)}px) holds its contents in a corner instead of centered.`,
+        "Set layout: 'horizontal', justifyContent: 'center', alignItems: 'center', and size the chip with fit_content plus padding rather than a large fixed box."
+      )
+    );
   });
 
   return findings;
+}
+
+/**
+ * A metric, not a heading: "24 / 28", "91.6%", "184", "00:14:32", "412 kW".
+ *
+ * A small label above a big number is a stat tile, which is the correct way to
+ * build a KPI and the shape rule 11 explicitly allows in dashboards. A small
+ * label above a sentence is a marketing eyebrow, which is what the rule is for.
+ * The check could not tell them apart and so fired on every KPI it saw: 31 of
+ * its findings across the logs, four of them on one factory dashboard whose
+ * tiles read ACTIVE UNITS / THROUGHPUT / CELL EFFICIENCY / OPEN EXCEPTIONS.
+ *
+ * That mattered beyond the noise. The critic reading those four warnings
+ * proposed `fontSize: 0` on all four labels — the only way to satisfy a rule
+ * that should never have fired was to delete the content.
+ */
+function readsAsMetric(content: string): boolean {
+  const trimmed = content.trim();
+  if (trimmed.length === 0 || trimmed.length > 16) return false;
+  if (!/\d/.test(trimmed)) return false;
+  // Digits and the punctuation that decorates them, plus a short unit like
+  // %, kW, ms, °C. Anything with real words in it is a heading.
+  return /^[\d\s.,:/+\-–—x×%]*(\d)[\d\s.,:/+\-–—x×%]*([a-zA-Z°µ]{0,3})$/.test(trimmed);
 }
 
 export function checkEyebrowKicker(ctx: AuditContext): AuditFinding[] {
@@ -537,6 +838,7 @@ export function checkEyebrowKicker(ctx: AuditContext): AuditFinding[] {
         const bText = b as TextNode;
         const aSize = aText.fontSize ?? 14;
         const bSize = bText.fontSize ?? 14;
+        if (readsAsMetric(bText.content ?? "")) continue;
         if (aSize <= 12 && bSize >= 20) {
           findings.push(
             warning(

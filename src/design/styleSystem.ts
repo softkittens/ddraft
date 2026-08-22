@@ -13,6 +13,7 @@
 import corePalettes from "./palettes.json";
 import importedPalettes from "./palettes.imported.json";
 import { STYLE_METADATA_KEY, DIRECTION_METADATA_KEY, HARD_SHADOW_ELEVATION } from "./styleKeys";
+import { deriveStatusTokens } from "./statusTokens";
 
 export { STYLE_METADATA_KEY, DIRECTION_METADATA_KEY, HARD_SHADOW_ELEVATION };
 
@@ -270,6 +271,15 @@ export function resolveStyle(input: Partial<StyleChoice>): ResolvedStyle {
   for (const [key, value] of Object.entries(palette!.tokens)) {
     variables[key] = { type: "color", value };
   }
+  /*
+   * Status is derived from the palette rather than stored in it. A palette is
+   * a set of decisions about character; which green means "running" on that
+   * character is arithmetic, and arithmetic that has to clear 4.5:1 against
+   * this particular card is better done than remembered 58 times.
+   */
+  for (const [key, value] of Object.entries(deriveStatusTokens(palette!.tokens, palette!.scheme))) {
+    variables[key] = { type: "color", value };
+  }
   variables["font-heading"] = { type: "string", value: headings! };
   variables["font-body"] = { type: "string", value: body! };
   variables["font-caption"] = { type: "string", value: captions! };
@@ -353,6 +363,7 @@ export function styleCatalog(seed: number, handSize = PALETTE_HAND_SIZE): string
   const lines: string[] = [];
   lines.push("PALETTES (name — world). These are the palettes offered this run.");
   lines.push("  Take light or dark from where the product is used, not from its category.");
+  lines.push("  If the look is guessable from the category, pick again.");
   for (const p of hand) lines.push(`  ${p.name} (${p.scheme}) — ${p.mood}`);
   lines.push("");
   lines.push("ROUNDNESS");
@@ -376,6 +387,7 @@ export function styleCatalog(seed: number, handSize = PALETTE_HAND_SIZE): string
 export function styleGuidelines(style: ResolvedStyle): string {
   const { palette, roundness, elevation, choice } = style;
   const r = roundness.tokens;
+  const status = deriveStatusTokens(palette.tokens, palette.scheme);
 
   return [
     `STYLE: ${choice.palette} · ${choice.roundness} · ${choice.elevation}`,
@@ -395,11 +407,22 @@ export function styleGuidelines(style: ResolvedStyle): string {
     `                       enough that 11px of them is unreadable, so a selected`,
     `                       state takes $foreground-primary at 600 weight and lets`,
     `                       the accent carry the icon or the indicator beside it.`,
-    `  $accent-secondary  ${palette.tokens["accent-secondary"]}   at most 3-4 instances per screen. Status and signal only.`,
+    `  $accent-secondary  ${palette.tokens["accent-secondary"]}   at most 3-4 instances per screen. Signal and emphasis.`,
+    `  $status-ok         ${status["status-ok"]}   running, online, nominal, pass, within threshold.`,
+    `  $status-warn       ${status["status-warn"]}   standby, pending, degraded, awaiting action.`,
+    `  $status-fault      ${status["status-fault"]}   fault, offline, breach, failed, overdue.`,
+    `                       Derived for this palette and legible on ${palette.tokens["surface-secondary"]}.`,
+    `                       Use them for state — dots, tags, values that crossed a`,
+    `                       line — and nothing else. They are not decoration and they`,
+    `                       do not count against the accent budget, because state is`,
+    `                       not emphasis. Never invent a status colour as raw hex;`,
+    `                       twelve unit dots hand-coloured are twelve chances to drift.`,
     "",
-    "  Accent is for interaction and state. Never use an accent as a decorative",
-    "  background for a whole region. Use it in at most two visible roles per",
-    "  screen; one primary action may carry $accent-primary as a solid fill.",
+    "  Accent is for interaction; status tokens are for state. A site may paint a",
+    "  full-width band $surface-secondary or invert it ($foreground-primary fill,",
+    "  $surface-primary type). Do not scatter accent as a tint on every card.",
+    "  Use accent in at most two visible roles per screen; one primary action may",
+    "  carry $accent-primary as a solid fill. Repeating that CTA is one role.",
     "  State is never carried by colour alone — pair it with weight, size or",
     "  position so it survives being read at a glance.",
     "",
@@ -426,7 +449,8 @@ export function styleGuidelines(style: ResolvedStyle): string {
     "  family name directly.",
     "  Scale: 44-64 display · 28-34 screen title · 20-22 section heading ·",
     "  15-17 list title · 13-14 body · 11-12 caption. Never below 11.",
-    "  Use one 44-64 display treatment per composed screen.",
+    "  A tool uses one 44-64 display treatment. A site uses display in the hero,",
+    "  and may use it once more on a ground-shift band.",
     "  Hierarchy comes from weight and scale together: a heading is both larger",
     "  and heavier, never one alone."
   ].join("\n");

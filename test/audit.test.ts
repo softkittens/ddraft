@@ -106,7 +106,7 @@ describe("Layout constraints", () => {
 
     // 3. Tailored fix for fixed mobile screen
     const mobile = makeDoc(frame("s", 390, 844, [frame("c", "fill_container", 1000)], { clip: true, metadata: { screenKind: "mobile" } }));
-    expect(expectFinding(mobile, "clipped").fix).toContain("Keep the fixed mobile screen size");
+    expect(expectFinding(mobile, "clipped").fix).toContain("first viewport");
 
     // 4. Bleed and disabled child exemptions
     const bleed = makeDoc(frame("s", 390, 844, [frame("h", 390, 300, [], { fill: { type: "image", url: "x.jpg" } })], { clip: false }));
@@ -246,19 +246,29 @@ describe("Styling, Colors & Effects", () => {
     expect(rules(noTokens)).not.toContain("token_bypass");
   });
 
-  it("evaluates accent overuse", () => {
-    const four = makeDoc(frame("s", 390, 844, [
-      frame("sb", "fill_container", 62, [], { name: "Status Bar" }),
-      ...[1, 2, 3, 4].map((i) => frame(`a${i}`, 100, 40, [], { fill: "$accent-primary" }))
-    ], { name: "Home", layout: "vertical" }));
-    const one = makeDoc(frame("s", 390, 844, [
-      frame("sb", "fill_container", 62, [], { name: "Status Bar" }),
-      frame("a1", 100, 40, [], { fill: "$accent-primary" })
-    ], { name: "Home", layout: "vertical" }));
+  it("evaluates accent overuse by role, not by element", () => {
+    const role = (id: string) =>
+      frame(id, 120, 40, [frame(`${id}a`, 100, 40, [], { fill: "$accent-primary" })]);
+    const screenOf = (...kids: ReturnType<typeof frame>[]) =>
+      makeDoc(frame("s", 390, 844, [
+        frame("sb", "fill_container", 62, [], { name: "Status Bar" }),
+        ...kids
+      ], { name: "Home", layout: "vertical" }));
+
+    const threeRoles = screenOf(role("r1"), role("r2"), role("r3"));
+    const twoRoles = screenOf(role("r1"), role("r2"));
+    // A data series is one role however many bars it has. Counting bars was
+    // what made every dashboard trip this rule and desaturate its own chart.
+    const series = screenOf(
+      frame("chart", "fill_container", 120,
+        [1, 2, 3, 4, 5, 6, 7, 8].map((i) => frame(`bar${i}`, 20, 10 * i, [], { fill: "$accent-primary" })),
+        { layout: "horizontal", gap: 8 })
+    );
     const accentText = screenWith(frame("r", "fill_container", 44, [txt("l", "P", 15, { fill: "$accent-primary" })]));
 
-    expectFinding(four, "accent_overuse", { severity: "warning", message: "4 elements" });
-    expect(rules(one)).not.toContain("accent_overuse");
+    expectFinding(threeRoles, "accent_overuse", { severity: "warning", message: "3 separate roles" });
+    expect(rules(twoRoles)).not.toContain("accent_overuse");
+    expect(rules(series)).not.toContain("accent_overuse");
     expect(rules(accentText)).not.toContain("accent_overuse");
   });
 
@@ -363,6 +373,97 @@ describe("Composition & Anti-Patterns", () => {
     expectFinding(edgeToEdgeRounded, "radius_scale", { message: "spans edge-to-edge" });
   });
 
+  it("warns when a desktop Main column stops short of the viewport", () => {
+    const leftover = makeDoc(frame("desk", 1440, 900, [
+      frame("top", "fill_container", 56, [txt("brand", "Desk", 16, {})], { name: "Top Bar", layout: "horizontal" }),
+      frame("body", "fill_container", "fill_container", [
+        frame("main", "fill_container", "fill_container", [
+          txt("h", "Overview", 48, {}),
+          frame("kpi", "fill_container", 80, [txt("n", "18", 32, {})], { fill: "$surface-secondary" })
+        ], { name: "Main", layout: "vertical", gap: 12, padding: [0, 8] })
+      ], { name: "Body", layout: "horizontal" })
+    ], { name: "Board", layout: "vertical", metadata: { screenKind: "desktop" } }));
+
+    expectFinding(leftover, "empty_column", { nodeId: "main", severity: "warning", message: "Main" });
+  });
+
+  it("leaves a filled desktop Main alone", () => {
+    const filled = makeDoc(frame("desk", 1440, 900, [
+      frame("top", "fill_container", 56, [txt("brand", "Desk", 16, {})], { name: "Top Bar", layout: "horizontal" }),
+      frame("body", "fill_container", "fill_container", [
+        frame("main", "fill_container", "fill_container", [
+          txt("h", "Overview", 48, {}),
+          frame("plot", "fill_container", "fill_container", [
+            rect("bar", 40, 200, { fill: "$accent-primary" })
+          ], { fill: "$surface-secondary" })
+        ], { name: "Main", layout: "vertical", gap: 12 })
+      ], { name: "Body", layout: "horizontal" })
+    ], { name: "Board", layout: "vertical", metadata: { screenKind: "desktop" } }));
+
+    expect(rules(filled)).not.toContain("empty_column");
+  });
+
+  it("does not treat leftover cream under a subject photograph as an unfinished column", () => {
+    const editorial = makeDoc(frame("desk", 1440, 900, [
+      frame("top", "fill_container", 56, [txt("brand", "House", 16, {})], { name: "Top Bar", layout: "horizontal" }),
+      frame("body", "fill_container", "fill_container", [
+        frame("main", "fill_container", "fill_container", [
+          txt("h", "Stay a while", 52, {}),
+          frame("photo", "fill_container", 520, [], { fill: { type: "image", url: "room.jpg" } })
+        ], { name: "Main", layout: "vertical", gap: 16 })
+      ], { name: "Body", layout: "horizontal" })
+    ], { name: "House", layout: "vertical", metadata: { screenKind: "desktop" } }));
+
+    expect(rules(editorial)).not.toContain("empty_column");
+    expect(rules(editorial)).not.toContain("undersized_subject");
+  });
+
+  it("warns when photography is only a thumbnail strip", () => {
+    const strip = makeDoc(frame("desk", 1440, 900, [
+      frame("top", "fill_container", 56, [txt("brand", "House", 16, {})], { name: "Top Bar" }),
+      frame("main", "fill_container", "fill_container", [
+        txt("h", "Book a desk", 48, {}),
+        frame("thumb", 400, 80, [], { fill: { type: "image", url: "room.jpg" } })
+      ], { name: "Main", layout: "vertical" })
+    ], { name: "House", layout: "vertical", metadata: { screenKind: "desktop" } }));
+
+    expectFinding(strip, "undersized_subject", { severity: "warning", message: "viewport" });
+  });
+
+  it("warns when three equal catalog cards are the page", () => {
+    const card = (id: string, title: string) => frame(id, 220, 120, [
+      txt(`${id}_t`, title, 16),
+      txt(`${id}_b`, "Shared table · quiet", 12),
+      txt(`${id}_p`, "€18", 14)
+    ], { layout: "vertical", gap: 6 });
+    const catalog = makeDoc(frame("s", 800, 400, [
+      frame("row", "fill_container", 140, [card("a", "Sun Room"), card("b", "Library"), card("c", "Terrace")], {
+        name: "Places",
+        layout: "horizontal",
+        gap: 12
+      })
+    ], { layout: "vertical" }));
+
+    expectFinding(catalog, "catalog_row", { nodeId: "row", severity: "warning" });
+  });
+
+  it("does not treat an offer row on a tall site as the whole page", () => {
+    const card = (id: string, title: string) => frame(id, 220, 120, [
+      txt(`${id}_t`, title, 16),
+      txt(`${id}_b`, "Shared table · quiet", 12),
+      txt(`${id}_p`, "€18", 14)
+    ], { layout: "vertical", gap: 6 });
+    const site = makeDoc(frame("s", 1440, 2800, [
+      frame("row", "fill_container", 140, [card("a", "Sun Room"), card("b", "Library"), card("c", "Terrace")], {
+        name: "Offers",
+        layout: "horizontal",
+        gap: 12
+      })
+    ], { layout: "vertical", name: "House", metadata: { screenKind: "desktop" } }));
+
+    expect(rules(site)).not.toContain("catalog_row");
+  });
+
   it("evaluates cloned content and stat tile rows", () => {
     const row = (id: string, name: string, meta: string) => frame(id, "fill_container", "fit_content", [txt(`${id}_n`, name, 16, { fontFamily: "$font-body" }), txt(`${id}_m`, meta, 12, { fontFamily: "$font-caption" })], { name: "Match Row", layout: "horizontal", gap: 12 });
     const cloned = makeDoc(frame("s", 390, "fit_content", [frame("list", "fill_container", "fit_content", [row("r1", "Match", "15:00"), row("r2", "Match", "15:00"), row("r3", "Match", "15:00")], { layout: "vertical" })], { layout: "vertical" }));
@@ -386,6 +487,142 @@ describe("Composition & Anti-Patterns", () => {
 /* ------------------------------------------------------------------ *
  * 5. Scoping, Triage & Tool Integration
  * ------------------------------------------------------------------ */
+
+describe("A design whose data does not render", () => {
+  it("blocks a painted leaf that resolves to nothing, and names the value that did it", () => {
+    const doc = makeDoc(frame("s", 400, 200, [
+      frame("track", "fill_container", 7, [
+        frame("fill", "82%" as any, "fill_container", [], { fill: "$accent-primary" })
+      ], { layout: "horizontal", fill: "$surface-secondary" })
+    ], { name: "Board", layout: "vertical", padding: 16 }));
+
+    const found = expectFinding(doc, "invisible_node", { nodeId: "fill", severity: "blocker" });
+    // The symptom is "0px wide". The cause is the percentage, and a finding
+    // that names the cause is one the model can act on without investigating.
+    expect(found.message).toContain('"82%"');
+    expect(found.message).toContain("0x7px");
+  });
+
+  it("blocks an icon with no size and leaves a sized one alone", () => {
+    const doc = makeDoc(frame("s", 200, 100, [
+      { type: "icon", id: "ghost", name: "Pin", icon: "map-pin", stroke: "#fff", geometry: "M0 0" } as any,
+      { type: "icon", id: "real", name: "Bell", icon: "bell", width: 16, height: 16, stroke: "#fff", geometry: "M0 0" } as any
+    ], { layout: "horizontal", gap: 8 }));
+
+    const found = expectFinding(doc, "invisible_node", { nodeId: "ghost", severity: "blocker" });
+    expect(found.message).toContain("no width is set");
+    expect(audit(doc).filter((f) => f.nodeId === "real")).toHaveLength(0);
+  });
+
+  it("leaves a divider and a real bar alone", () => {
+    const doc = makeDoc(frame("s", 400, 200, [
+      frame("rule", "fill_container", 1, [], { fill: "$border-subtle" }),
+      frame("bar", 164, 7, [], { fill: "$accent-primary" })
+    ], { name: "Board", layout: "vertical", gap: 8 }));
+    expect(rules(doc)).not.toContain("invisible_node");
+  });
+
+  it("warns when a series is painted the colour of the card behind it", () => {
+    const vars = {
+      "$surface-primary": "#070B12",
+      "$surface-secondary": "#101826",
+      "$border-subtle": "#263246",
+      "$accent-primary": "#38BDF8",
+      "$foreground-muted": "#8492A6"
+    };
+    const chart = (id: string, fills: string[]) =>
+      frame(id, "fill_container", 120,
+        fills.map((f, i) => frame(`${id}b${i}`, 40, 40 + i * 8, [], { fill: f })),
+        { name: `${id} Row`, layout: "horizontal", gap: 12, alignItems: "end" });
+    const card = (id: string, fills: string[]) =>
+      frame(`${id}card`, "fill_container", "fit_content", [chart(id, fills)],
+        { layout: "vertical", padding: 14, fill: "$surface-secondary" });
+
+    const dim = { ...makeDoc(frame("s", 800, 600, [
+      card("dim", ["$border-subtle", "$border-subtle", "$border-subtle", "$border-subtle", "$accent-primary"])
+    ], { name: "Board", layout: "vertical", padding: 24, fill: "$surface-primary" })), variables: vars };
+    const lit = { ...makeDoc(frame("s", 800, 600, [
+      card("lit", ["$foreground-muted", "$foreground-muted", "$foreground-muted", "$foreground-muted", "$accent-primary"])
+    ], { name: "Board", layout: "vertical", padding: 24, fill: "$surface-primary" })), variables: vars };
+
+    const found = expectFinding(dim, "undrawn_series", { nodeId: "dim", severity: "warning" });
+    expect(found.message).toContain("$border-subtle");
+    expect(rules(lit)).not.toContain("undrawn_series");
+  });
+
+  it("does not mistake a row of cards for a series", () => {
+    // Cards hold children and vary on both axes; bars are painted leaves of one
+    // width. Only the second is a chart, and only the second is this rule's.
+    const doc = makeDoc(frame("s", 900, 300, [
+      frame("row", "fill_container", "fit_content",
+        [1, 2, 3, 4].map((i) => frame(`k${i}`, 180, 80, [txt(`k${i}t`, "24", 24)], { fill: "$surface-secondary" })),
+        { layout: "horizontal", gap: 10 })
+    ], { name: "Board", layout: "vertical", padding: 24, fill: "$surface-secondary" }));
+    expect(rules(doc)).not.toContain("undrawn_series");
+  });
+
+  it("reads a small label above a metric as a stat tile, not an eyebrow", () => {
+    const tile = (id: string, label: string, value: string) =>
+      frame(id, 200, "fit_content", [
+        txt(`${id}l`, label, 11),
+        txt(`${id}v`, value, 28)
+      ], { layout: "vertical", gap: 8, padding: 14 });
+
+    const kpis = makeDoc(frame("s", 900, 400, [
+      tile("t1", "ACTIVE UNITS", "24 / 28"),
+      tile("t2", "CELL EFFICIENCY", "91.6%"),
+      tile("t3", "CYCLE", "00:14:32"),
+      tile("t4", "POWER DRAW", "412 kW")
+    ], { name: "Board", layout: "horizontal", gap: 12 }));
+    const marketing = makeDoc(frame("s", 390, 844, [
+      tile("m1", "DISCOVER //", "Find your next adventure")
+    ], { name: "Home", layout: "vertical" }));
+
+    expect(rules(kpis)).not.toContain("eyebrow_kicker");
+    expectFinding(marketing, "eyebrow_kicker", { nodeId: "m1l", severity: "warning" });
+  });
+});
+
+describe("State has its own vocabulary", () => {
+  it("names the status token a raw state colour was reaching for", () => {
+    const doc: any = {
+      version: "2.17",
+      variables: { "$surface-primary": { type: "color", value: "#0B0D10" } },
+      children: [{
+        type: "frame", id: "s", name: "Board", width: 300, height: 100, fill: "$surface-primary",
+        children: [
+          { type: "ellipse", id: "ok", name: "H14 State", width: 8, height: 8, fill: "#4ADE80" },
+          { type: "ellipse", id: "wr", name: "H15 State", width: 8, height: 8, fill: "#F59E0B" },
+          { type: "ellipse", id: "ft", name: "H16 State", width: 8, height: 8, fill: "#EF4444" }
+        ]
+      }]
+    };
+    /*
+     * The exact three colours a logged run reached for. Before the status
+     * tokens existed the model was told only that it had bypassed the system,
+     * with no token to bypass it toward — eleven #4ADE80 dots in one document.
+     */
+    const found = audit(doc).filter((f) => f.rule === "token_bypass");
+    expect(found.find((f) => f.nodeId === "ok")!.message).toContain("$status-ok");
+    expect(found.find((f) => f.nodeId === "wr")!.message).toContain("$status-warn");
+    expect(found.find((f) => f.nodeId === "ft")!.message).toContain("$status-fault");
+  });
+
+  it("does not count status fills against the accent budget", () => {
+    const dot = (id: string, fill: string) => frame(id, 8, 8, [], { fill, name: `${id} State` });
+    const doc = makeDoc(frame("s", 390, 844, [
+      frame("sb", "fill_container", 62, [], { name: "Status Bar" }),
+      frame("g1", 40, 20, [dot("a", "$status-ok")]),
+      frame("g2", 40, 20, [dot("b", "$status-warn")]),
+      frame("g3", 40, 20, [dot("c", "$status-fault")]),
+      frame("g4", 40, 20, [dot("d", "$status-ok")])
+    ], { name: "Home", layout: "vertical" }));
+    // Four state indicators in four containers is a fleet grid, not four
+    // competing accents. accent_overuse only ever looked at $accent-primary,
+    // and that is now a deliberate line rather than an accident of the regex.
+    expect(rules(doc)).not.toContain("accent_overuse");
+  });
+});
 
 describe("Scoping, Triage & Tool Integration", () => {
   it("scopes audit findings to subtree roots", () => {
@@ -452,8 +689,63 @@ describe("Scoping, Triage & Tool Integration", () => {
     );
     expectFinding(uncenteredButton, "icon_alignment", {
       severity: "warning",
-      message: "pinned to its top-left corner"
+      message: "holds its contents in a corner"
     });
+  });
+
+  it("flags a status chip whose label sits in the corner of a larger plate", () => {
+    const looseChip = makeDoc(
+      frame("screen", 390, 844, [
+        frame("pill", 96, 36, [
+          rect("dot", 6, 6, { fill: "$status-ok", cornerRadius: 99 }),
+          txt("state", "RUNNING", 11, { fontWeight: "700" })
+        ], {
+          name: "Status Pill",
+          cornerRadius: 99,
+          layout: "horizontal",
+          justifyContent: "start",
+          alignItems: "start"
+        })
+      ])
+    );
+    expectFinding(looseChip, "icon_alignment", { nodeId: "pill", severity: "warning" });
+  });
+
+  it("leaves a hugging chip and a wide start-aligned nav row alone", () => {
+    const hugged = makeDoc(
+      frame("screen", 390, 844, [
+        frame("pill", "fit_content", "fit_content", [
+          rect("dot", 6, 6, { fill: "$status-ok", cornerRadius: 99 }),
+          txt("state", "RUNNING", 11, { fontWeight: "700" })
+        ], {
+          name: "Status Pill",
+          cornerRadius: 99,
+          layout: "horizontal",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: [2, 8],
+          gap: 6
+        })
+      ])
+    );
+    const navRow = makeDoc(
+      frame("screen", 390, 844, [
+        frame("item", 236, 36, [
+          { type: "icon", id: "ico", icon: "house", width: 16, height: 16 } as any,
+          txt("label", "Overview", 13)
+        ], {
+          name: "Nav Item",
+          cornerRadius: 8,
+          layout: "horizontal",
+          justifyContent: "start",
+          alignItems: "center",
+          padding: [0, 12],
+          gap: 8
+        })
+      ])
+    );
+    expect(rules(hugged)).not.toContain("icon_alignment");
+    expect(rules(navRow)).not.toContain("icon_alignment");
   });
 
   it("flags eyebrow kickers above headings", () => {

@@ -101,10 +101,16 @@ describe("screen scaffold", () => {
 
     const withAccents: Document = {
       version: "1.0", variables: {},
+      // Three separate roles, not three siblings: accent_overuse counts the
+      // jobs the accent does, and a row of siblings is one job.
       children: [{ ...node, children: [
         ...(node.children ?? []),
-        { type: "frame", id: "x1", width: 100, height: 40, fill: "$accent-primary", children: [] },
-        { type: "frame", id: "x2", width: 100, height: 40, fill: "$accent-primary", children: [] }
+        { type: "frame", id: "g1", width: 120, height: 40, children: [
+          { type: "frame", id: "x1", width: 100, height: 40, fill: "$accent-primary", children: [] }] },
+        { type: "frame", id: "g2", width: 120, height: 40, children: [
+          { type: "frame", id: "x2", width: 100, height: 40, fill: "$accent-primary", children: [] }] },
+        { type: "frame", id: "g3", width: 120, height: 40, children: [
+          { type: "frame", id: "x3", width: 100, height: 40, fill: "$accent-primary", children: [] }] }
       ] } as any]
     };
     const { auditDocument } = require("../src/design/evaluator");
@@ -223,18 +229,35 @@ describe("create_screen tool", () => {
     expect(content.padding).toEqual([0, 20]);
   });
 
-  it("keeps mobile screen roots at one device size", async () => {
+  it("keeps screen width at the device and height at least one viewport", async () => {
     const session = createDocumentTools(empty());
     await session.execute("create_screen", { name: "Home", kind: "mobile" });
     const screen = session.doc.children[0];
 
     expect(screen.metadata?.screenKind).toBe("mobile");
-    expect(await session.execute("set_property", { id: screen.id, property: "height", value: 1200 })).toContain("fixed");
+    expect(await session.execute("set_property", { id: screen.id, property: "width", value: 430 })).toContain("Width stays");
+    expect(await session.execute("set_property", { id: screen.id, property: "height", value: 400 })).toContain("first viewport");
+    expect(await session.execute("set_property", { id: screen.id, property: "height", value: 1200 })).not.toContain("error:");
+    expect(session.doc.children[0].width).toBe(MOBILE_WIDTH);
+    expect(session.doc.children[0].height).toBe(1200);
+
     expect(await session.execute("batch_set_properties", {
       updates: [{ id: screen.id, property: "width", value: 430 }]
-    })).toContain("fixed");
-    expect(screen.width).toBe(MOBILE_WIDTH);
-    expect(screen.height).toBe(MOBILE_HEIGHT);
+    })).toContain("Width stays");
+  });
+
+  it("builds a scrolling page when create_screen is given a taller height", async () => {
+    const session = createDocumentTools(empty());
+    const out = await session.execute("create_screen", { name: "House", kind: "desktop", height: 2200 });
+    expect(out).not.toContain("error:");
+    expect(session.doc.children[0].height).toBe(2200);
+    expect(session.doc.children[0].width).toBe(1440);
+  });
+
+  it("raises a too-short create_screen height to the viewport", async () => {
+    const session = createDocumentTools(empty());
+    await session.execute("create_screen", { name: "Home", kind: "mobile", height: 400 });
+    expect(session.doc.children[0].height).toBe(MOBILE_HEIGHT);
   });
 
   it("does not mistake a hand-built status bar for a scaffolded mobile screen", async () => {

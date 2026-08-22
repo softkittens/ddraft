@@ -43,10 +43,13 @@ import {
   checkDuplicateRegions,
   checkNestedScreens,
   checkEmptyContainers,
+  checkInvisibleNodes,
+  checkUndrawnSeries,
   checkCompositionExpectations,
   checkClonedContent,
   checkIconGeometry,
   checkStatTileRow,
+  checkCatalogCardRow,
   checkScaffoldOnlyScreens,
   checkUncenteredIconButtons,
   checkEyebrowKicker,
@@ -83,6 +86,8 @@ const AUDIT_RULES: AuditRuleRunner[] = [
   checkTextClipping,
   checkTapTargets,
   checkEmptyContainers,
+  checkInvisibleNodes,
+  checkUndrawnSeries,
   checkNestedScreens,
   checkDuplicateRegions,
   checkAccentOveruse,
@@ -94,6 +99,7 @@ const AUDIT_RULES: AuditRuleRunner[] = [
   checkTracking,
   checkProseMeasure,
   checkStatTileRow,
+  checkCatalogCardRow,
   checkClonedContent,
   checkIconGeometry,
   checkScaleDiscipline,
@@ -170,13 +176,16 @@ export const FINISHING_RULES: ReadonlySet<AuditRule> = new Set<AuditRule>([
   "missing_display",
   "empty_tail",
   "cloned_content",
-  "missed_bleed"
+  "missed_bleed",
+  "undersized_subject",
+  "catalog_row"
 ]);
 
 const IMMEDIATE_RULES: ReadonlySet<AuditRule> = new Set<AuditRule>([
   "clipped",
   "collision",
   "collapsed_container",
+  "invisible_node",
   "off_canvas",
   "text_clipped",
   "text_too_small",

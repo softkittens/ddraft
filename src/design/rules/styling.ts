@@ -11,6 +11,7 @@ import {
   overUnmeasurableBackground,
   contrastRatio,
   extractHexColors,
+  parseHexColor,
   walkEnabled,
   isScreen,
   childrenOf,
@@ -68,6 +69,30 @@ export function checkContrast(ctx: AuditContext): AuditFinding[] {
   return findings;
 }
 
+/**
+ * Name the status token when the literal is obviously reaching for one.
+ *
+ * Almost every raw hex in the logs is a state colour the vocabulary could not
+ * express: one run alone carries eleven `#4ADE80` dots meaning "online". Now
+ * that $status-ok exists, saying so turns a generic scolding into the one
+ * substitution the model was looking for.
+ */
+function statusHint(literal: string): string {
+  const rgb = parseHexColor(literal);
+  if (!rgb) return "";
+  const { r, g, b } = rgb;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  if (max - min < 40) return "";
+  let hue: number;
+  if (max === r) hue = (((g - b) / (max - min)) % 6 + 6) % 6 * 60;
+  else if (max === g) hue = ((b - r) / (max - min) + 2) * 60;
+  else hue = ((r - g) / (max - min) + 4) * 60;
+  if (hue >= 95 && hue <= 175) return " This reads as a success/online colour — $status-ok carries that.";
+  if (hue >= 25 && hue < 70) return " This reads as a warning colour — $status-warn carries that.";
+  if (hue >= 340 || hue < 20) return " This reads as a fault colour — $status-fault carries that.";
+  return "";
+}
+
 export function checkTokenBypass(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
   const variables = ctx.doc.variables;
@@ -84,8 +109,8 @@ export function checkTokenBypass(ctx: AuditContext): AuditFinding[] {
               warning(
                 "token_bypass",
                 node.id,
-                `"${node.name ?? node.id}" sets ${prop}: "${literal}" directly while the document defines colour tokens.`,
-                "Replace with the token that carries this role ($surface-primary, $surface-secondary, $foreground-primary, $foreground-secondary, $foreground-muted, $border-subtle, $accent-primary, $accent-secondary)."
+                `"${node.name ?? node.id}" sets ${prop}: "${literal}" directly while the document defines colour tokens.${statusHint(literal)}`,
+                "Replace with the token that carries this role ($surface-primary, $surface-secondary, $foreground-primary, $foreground-secondary, $foreground-muted, $border-subtle, $accent-primary, $accent-secondary, $status-ok, $status-warn, $status-fault)."
               )
             );
           }
@@ -100,30 +125,55 @@ export function checkTokenBypass(ctx: AuditContext): AuditFinding[] {
   return findings;
 }
 
+/**
+ * How many distinct jobs the accent is doing, not how many nodes wear it.
+ *
+ * Rule 3 asks for the accent in at most two visible roles per screen. This
+ * check counted elements instead, so a chart with eight bars was eight
+ * violations of a two-role budget, and any dashboard tripped it by existing:
+ * 18 of the logged runs carry the warning, most of them for a data series plus
+ * a status dot plus the active nav item — three nodes doing two jobs.
+ *
+ * Counting by parent fixes the unit. Siblings under one parent are one role,
+ * because that is what a role is: a series, a set of dots, a row of tabs. The
+ * cost of the old count was not the noise, it was the direction — it told
+ * every design to remove colour, and a telemetry dashboard whose data carries
+ * no colour is the one thing our screens keep losing on.
+ */
+/** Rule 3's budget: the accent may do two jobs on a screen, not one. */
+const MAX_ACCENT_ROLES = 2;
+
 export function checkAccentOveruse(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
 
-  function countIn(node: PenNode, hits: PenNode[]): void {
+  function countIn(node: PenNode, parentId: string, roles: Map<string, PenNode[]>): void {
     if (node.enabled === false) return;
     if (BACKGROUND_TYPES.has(node.type)) {
       const fill = (node as any).fill;
       const value = typeof fill === "string" ? fill : fill?.color ?? fill?.value;
-      if (typeof value === "string" && /\$accent-primary\b/.test(value)) hits.push(node);
+      if (typeof value === "string" && /\$accent-primary\b/.test(value)) {
+        roles.set(parentId, [...(roles.get(parentId) ?? []), node]);
+      }
     }
-    for (const child of childrenOf(node)) countIn(child, hits);
+    for (const child of childrenOf(node)) countIn(child, node.id, roles);
   }
 
   for (const root of ctx.doc.children) {
     if (!isScreen(root)) continue;
-    const hits: PenNode[] = [];
-    countIn(root, hits);
-    if (hits.length <= 1) continue;
+    const roles = new Map<string, PenNode[]>();
+    countIn(root, root.id, roles);
+    if (roles.size <= MAX_ACCENT_ROLES) continue;
+    const named = [...roles.values()].map((group) =>
+      group.length > 1
+        ? `${group[0].name ?? group[0].id} +${group.length - 1} more`
+        : (group[0].name ?? group[0].id)
+    );
     findings.push(
       warning(
         "accent_overuse",
         root.id,
-        `Screen "${root.name ?? root.id}" has ${hits.length} elements filled with $accent-primary (${hits.slice(0, 4).map((h) => h.name ?? h.id).join(", ")}${hits.length > 4 ? ", ..." : ""}). One element per screen carries it.`,
-        "Keep the accent fill on the primary action only. Everything else takes $surface-secondary, or the accent as a text or icon colour."
+        `Screen "${root.name ?? root.id}" puts $accent-primary in ${roles.size} separate roles (${named.slice(0, 4).join(", ")}${named.length > 4 ? ", ..." : ""}). At most ${MAX_ACCENT_ROLES} carry it.`,
+        `Pick the ${MAX_ACCENT_ROLES} that mean the most — usually the primary action and the live data series — and give the rest $surface-secondary, or the accent as a text or icon colour rather than a fill.`
       )
     );
   }
