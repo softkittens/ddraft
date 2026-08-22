@@ -73,6 +73,9 @@ export function renderScene(
   pruneFinishedAnimations();
   const animPositions = getAnimatedPositions();
 
+  // Active drag/edit node to skip stationary rendering for
+  const skipId = (dragSession && !isAltHeld ? dragSession.nodeId : undefined) || state.editingTextId || undefined;
+
   // World-space viewport frustum culling bounds
   const viewLeft = -camera.x / camera.zoom;
   const viewTop = -camera.y / camera.zoom;
@@ -92,6 +95,7 @@ export function renderScene(
   // Root frame titles (only for visible roots)
   ctx.font = `${11 / camera.zoom}px -apple-system, sans-serif`;
   for (const root of tree) {
+    if (skipId && root.id === skipId) continue;
     if (root.type === "frame" && isVisible(root.box)) {
       const rootDoc = map.get(root.id);
       const name = rootDoc?.name || root.id;
@@ -102,7 +106,6 @@ export function renderScene(
   }
 
   // Paint scene nodes (frustum-culled at the root level and child level)
-  const skipId = (dragSession && !isAltHeld ? dragSession.nodeId : undefined) || state.editingTextId || undefined;
   const viewBounds = {
     left: viewLeft - cullingMargin,
     top: viewTop - cullingMargin,
@@ -148,7 +151,7 @@ export function renderScene(
   // Selection & hover bounding box overlays (frustum-culled at the root level)
   for (const root of tree) {
     if (isVisible(root.box)) {
-      paintSelectionOverlay(ctx, root, selectedIds, hoveredId, camera.zoom, map);
+      paintSelectionOverlay(ctx, root, selectedIds, hoveredId, camera.zoom, map, skipId);
     }
   }
 
@@ -170,9 +173,13 @@ export function renderScene(
       ctx.translate(ghostX - draggedLayout.box.x, ghostY - draggedLayout.box.y);
       paintNode(ctx, draggedLayout, map, variables);
 
-      ctx.strokeStyle = "#0d99ff";
-      ctx.lineWidth = 1.5 / camera.zoom;
-      ctx.strokeRect(draggedLayout.box.x, draggedLayout.box.y, draggedLayout.box.width, draggedLayout.box.height);
+      if (draggedLayout.type === "frame") {
+        const rootDoc = map.get(draggedLayout.id);
+        const name = rootDoc?.name || draggedLayout.id;
+        ctx.font = `${11 / camera.zoom}px -apple-system, sans-serif`;
+        ctx.fillStyle = "#0d99ff";
+        ctx.fillText(name, draggedLayout.box.x, draggedLayout.box.y - 7);
+      }
 
       ctx.restore();
     }
