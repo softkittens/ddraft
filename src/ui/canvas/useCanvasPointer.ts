@@ -1,8 +1,9 @@
 import { createSignal, onMount, onCleanup, type Accessor } from "solid-js";
 import { screenToWorld, panCamera, zoomAtScreenPoint, type Point } from "../../interaction/camera";
-import { hitTestScene, hitTestSceneWorld, findNodesInMarquee } from "../../interaction/hittest";
+import { hitTestScene, hitTestSceneWorld, findNodeWorldBox, findNodesInMarquee } from "../../interaction/hittest";
 import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../../interaction/drag";
 import { duplicateNode, getNextNodeId } from "../../model/edit";
+import { splitInstanceId } from "../../model/instance";
 import { cloneDocument } from "../../model/tree";
 import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
 import { telemetry } from "../../telemetry/logger";
@@ -83,20 +84,28 @@ export function useCanvasPointer(opts: {
 
     if (hitResult) {
       const hit = hitResult.node;
-      const alreadySelected = selectedIds().has(hit.id);
+      const instanceTarget = splitInstanceId(doc(), hit.id);
+      const targetId = instanceTarget?.refId ?? hit.id;
+      const targetHit = instanceTarget
+        ? hitResult.path.find((node) => node.id === targetId) ?? hit
+        : hit;
+      const targetWorld = instanceTarget ? findNodeWorldBox(layoutTree(), targetId) : null;
+      const alreadySelected = selectedIds().has(targetId);
       if (!alreadySelected || isMultiKey) {
-        selectNode(hit.id, isMultiKey);
+        selectNode(targetId, isMultiKey);
       }
 
-      const targetDoc = nodeMap().get(hit.id);
+      const targetDoc = nodeMap().get(targetId);
       pendingPress = {
-        nodeId: hit.id,
+        nodeId: targetId,
         startWorld: world,
         currentWorld: world,
-        initialNodeX: targetDoc?.x ?? hit.box.x,
-        initialNodeY: targetDoc?.y ?? hit.box.y,
-        worldOffset: { x: hitResult.worldX, y: hitResult.worldY },
-        dimensions: { width: hit.box.width, height: hit.box.height }
+        initialNodeX: targetDoc?.x ?? targetHit.box.x,
+        initialNodeY: targetDoc?.y ?? targetHit.box.y,
+        worldOffset: targetWorld
+          ? { x: targetWorld.x, y: targetWorld.y }
+          : { x: hitResult.worldX, y: hitResult.worldY },
+        dimensions: { width: targetHit.box.width, height: targetHit.box.height }
       };
     } else {
       if (!isMultiKey) {

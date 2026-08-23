@@ -1,5 +1,5 @@
 import type { LayoutNode } from "../../layout/types";
-import type { TextNode, PenNode } from "../../model/types";
+import type { IconNode, TextNode, PenNode } from "../../model/types";
 import { resolveVariable } from "../../model/variables";
 import { STYLE_METADATA_KEY, HARD_SHADOW_ELEVATION } from "../styleKeys";
 import {
@@ -88,6 +88,32 @@ export function checkContrast(ctx: AuditContext): AuditFinding[] {
             )
           );
         }
+      }
+    }
+
+    if (data?.type === "icon" && !nowUnmeasurable) {
+      const icon = data as IconNode;
+      const isInteractive = Boolean(
+        parentNode &&
+          (INTERACTIVE_NAME.test(parentNode.name ?? "") ||
+            /(?:^|[ _-])(add|cart|plus|buy|order)(?:[ _-]|$)|icon[_ -]?well/i.test(parentNode.name ?? "") ||
+            (parentNode as any).metadata?.scaffold === "chrome")
+      );
+      const iconFill =
+        (typeof icon.stroke === "string" ? icon.stroke : undefined) ??
+        (typeof icon.fill === "string" ? icon.fill : undefined) ??
+        "$foreground-primary";
+      const effectiveBg = bg ?? "$surface-primary";
+      const ratio = contrastRatio(iconFill, effectiveBg, ctx.doc.variables);
+      if (isInteractive && ratio !== null && ratio < 3) {
+        findings.push(
+          blocker(
+            "low_contrast",
+            node.id,
+            `Icon "${icon.name ?? icon.icon ?? icon.id}" measures ${ratio.toFixed(2)}:1 against its background (${resolveVariable(iconFill, ctx.doc.variables)} on ${resolveVariable(effectiveBg, ctx.doc.variables)}). Interactive and meaningful icons require 3:1.`,
+            "Use a foreground or accent token that reaches 3:1 against the containing surface; keep the icon and its button fill as coordinated colors."
+          )
+        );
       }
     }
 

@@ -1,6 +1,7 @@
 import { Component, createEffect, Show } from "solid-js";
 import { editingTextId, setEditingTextId, doc, camera, layoutTree, nodeMap, updateDoc } from "../store";
 import { setProperty } from "../../model/edit";
+import { setInstanceProperty, splitInstanceId } from "../../model/instance";
 import { resolveVariable } from "../../model/variables";
 import { getLineHeight } from "../../layout/text";
 import { findNodeWorldBox } from "../../interaction/hittest";
@@ -63,7 +64,11 @@ export const InlineTextEditor: Component = () => {
   const handleInput = (e: InputEvent & { currentTarget: HTMLTextAreaElement }) => {
     const id = editingTextId();
     if (!id) return;
-    updateDoc(setProperty(doc(), id, "content", e.currentTarget.value));
+    const current = doc();
+    const target = splitInstanceId(current, id);
+    updateDoc(target
+      ? setInstanceProperty(current, target, "content", e.currentTarget.value)
+      : setProperty(current, id, "content", e.currentTarget.value));
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {

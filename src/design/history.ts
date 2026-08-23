@@ -19,6 +19,9 @@ export interface StyleRun {
   palette: string;
   headings: string;
   elevation: string;
+  roundness?: string;
+  thesis?: string;
+  firstViewport?: string;
 }
 
 /** Enough to see a habit forming, few enough that the model can hold them. */
@@ -36,21 +39,34 @@ const BRIEF_EXCERPT = 40;
  * ban: repeating a palette is right when the brief asks for the same product,
  * and wrong when the model simply did not look at the rest of the hand.
  */
-export function avoidanceNote(history: readonly StyleRun[]): string {
+function sameBrief(a: string, b: string): boolean {
+  return a.trim().replace(/\s+/g, " ").toLowerCase() === b.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+export function avoidanceNote(history: readonly StyleRun[], currentBrief = ""): string {
   if (history.length === 0) return "";
-  const lines = history
+  const repeated = currentBrief ? history.filter((run) => sameBrief(run.brief, currentBrief)) : [];
+  const relevant = repeated.length > 0 ? repeated : history;
+  const lines = relevant
     .slice()
     .reverse()
     .map((run) => {
       const brief = run.brief.length > BRIEF_EXCERPT
         ? `${run.brief.slice(0, BRIEF_EXCERPT).trimEnd()}...`
         : run.brief;
-      return `  "${brief}" — ${run.palette}, ${run.headings}, ${run.elevation}`;
+      const composition = run.firstViewport
+        ? `\n    first viewport: ${run.firstViewport.slice(0, 180)}`
+        : "";
+      return `  "${brief}" — ${run.palette}, ${run.headings}, ${run.elevation}${composition}`;
     });
   return [
-    "ALREADY USED (most recent first)",
+    repeated.length > 0
+      ? "PREVIOUS RESULTS FOR THIS SAME BRIEF (most recent first)"
+      : "ALREADY USED (most recent first)",
     ...lines,
-    "  Reaching for one of these again needs a reason from this brief, not habit."
+    repeated.length > 0
+      ? "  Do not repeat these palette/type choices or the same first-viewport section order. The next result must use a materially different dominant composition and interaction model."
+      : "  Reaching for one of these again needs a reason from this brief, not habit."
   ].join("\n");
 }
 
@@ -80,6 +96,11 @@ export function loadHistory(storage = browserStorage()): StyleRun[] {
           typeof run === "object" &&
           ["at", "brief", "palette", "headings", "elevation"].every(
             (key) => typeof (run as Record<string, unknown>)[key] === "string"
+          ) &&
+          ["roundness", "thesis", "firstViewport"].every(
+            (key) =>
+              (run as Record<string, unknown>)[key] === undefined ||
+              typeof (run as Record<string, unknown>)[key] === "string"
           )
       )
       .slice(-HISTORY_LIMIT);

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "bun:test";
-import { applyReviewMessage, applyReviewFixes, enforceAuditFindings, type DesignReview } from "../src/agent/review";
+import {
+  applyReviewMessage,
+  applyReviewFixes,
+  enforceAuditFindings,
+  enforceRejectedFixes,
+  type DesignReview
+} from "../src/agent/review";
 import { CRITIC_PROMPT, criticMessages, parseDesignReview } from "../src/agent/critic";
 import type { Document } from "../src/model/types";
 
@@ -46,8 +52,9 @@ describe("design review contract", () => {
       digest: "title Home"
     });
     expect(String(foodMessages[0].content)).toContain("E-COMMERCE & FOOD ORDERING APP");
-    expect(String(foodMessages[0].content)).toContain("Scroll Affordance vs Clipping");
-    expect(String(foodMessages[0].content)).toContain("Sibling Card Action Consistency");
+    expect(String(foodMessages[0].content)).toContain("capabilities, not template compliance");
+    expect(String(foodMessages[0].content)).toContain("Product specificity");
+    expect(String(foodMessages[0].content)).toContain("action shape is a design choice");
 
     const swipeMessages = criticMessages({
       brief: "Mobile cat adoption swipe cards app",
@@ -65,6 +72,43 @@ describe("design review contract", () => {
     expect(String(opsMessages[0].content)).toContain("DASHBOARD & OPERATIONS CONSOLE");
   });
 
+  it("judges against the context the builder used, not one re-derived from the brief", () => {
+    // The server has only the brief. Resolving from that string alone gave a
+    // mobile app the dashboard criteria, because "analytics" was enough.
+    const reResolved = criticMessages({
+      brief: "Mobile analytics app",
+      screenshotDataUrl: "data:image/png;base64,xx",
+      digest: "title Home"
+    });
+    expect(String(reResolved[0].content)).not.toContain("DASHBOARD & OPERATIONS CONSOLE");
+
+    const supplied = criticMessages({
+      brief: "make the numbers bigger",
+      screenshotDataUrl: "data:image/png;base64,xx",
+      digest: "title Home",
+      context: {
+        surface: "desktop",
+        archetype: "tool",
+        traits: ["data_visualization"],
+        lifecycle: "revision_edit"
+      }
+    });
+    // The brief alone says nothing about a console; the builder's context does.
+    expect(String(supplied[0].content)).toContain("DASHBOARD & OPERATIONS CONSOLE");
+  });
+
+  it("asks the tool critic for capabilities rather than a sidebar and a queue", () => {
+    const messages = criticMessages({
+      brief: "Fleet operations console",
+      screenshotDataUrl: "data:image/png;base64,xx",
+      digest: "title Home"
+    });
+    const system = String(messages[0].content);
+    // The builder is told an unused rail beats fake telemetry in the same run.
+    expect(system).toContain("Do not require a sidebar");
+    expect(system).toContain("inventing telemetry to fill it is the defect");
+  });
+
   it("gives the critic the recorded direction contract", () => {
     const messages = criticMessages({
       brief: "A reading site",
@@ -78,9 +122,38 @@ describe("design review contract", () => {
       audit: "[warning] empty_tail screen: 180px empty"
     });
     const content = messages[1].content;
-    expect(Array.isArray(content) && content[0].type === "text" && content[0].text).toContain("THESIS: A journal, not a dashboard");
-    expect(Array.isArray(content) && content[0].type === "text" && content[0].text).toContain("Audit whether the screenshot visibly fulfills each claim");
-    expect(Array.isArray(content) && content[0].type === "text" && content[0].text).toContain("Deterministic measurements:");
+    expect(Array.isArray(content)).toBe(true);
+    const parts = content as { type: string; text?: string }[];
+
+    // The brief and the measurements come before the screenshot; the direction
+    // comes after it. The reviewer is usually the model that wrote that thesis,
+    // and reading its own argument first turns the review into a search for
+    // confirmation of the story rather than a look at the picture.
+    expect(parts[0].text).toContain("Deterministic measurements:");
+    expect(parts[0].text).not.toContain("THESIS:");
+
+    const lastImage = parts.map((part) => part.type).lastIndexOf("image_url");
+    const afterImage = parts.slice(lastImage + 1).map((part) => part.text ?? "").join("\n");
+    expect(afterImage).toContain("THESIS: A journal, not a dashboard");
+    expect(afterImage).toContain("intent, not a geometry specification");
+    expect(afterImage).toContain("cannot prove sticky, persistent");
+  });
+
+  it("tells the overview critic that viewport crop edges are not clipping", () => {
+    const messages = criticMessages({
+      brief: "A scrolling shop",
+      screenshots: [{
+        id: "shop_end_viewport",
+        name: "Shop — Final Viewport",
+        dataUrl: "data:image/png;base64,xx",
+        kind: "viewport",
+        parentId: "shop"
+      }],
+      digest: "shop Shop"
+    });
+    const content = messages[1].content;
+    expect(JSON.stringify(content)).toContain("crop boundary is not a canvas boundary");
+    expect(JSON.stringify(content)).toContain("must not be reported as clipping");
   });
 
   it("marks review issues as an internal revision message", () => {
@@ -234,6 +307,39 @@ describe("Fixes the critic applies itself", () => {
     expect(doc.children[0].gap).toBe(4);
   });
 
+  it("applies a coordinated fill and text-colour correction atomically", () => {
+    const doc: any = {
+      version: "2.17",
+      variables: {
+        "surface-secondary": { type: "color", value: "#FFFFFF" },
+        "foreground-primary": { type: "color", value: "#1A1A1A" },
+        "accent-primary": { type: "color", value: "#6D28D9" }
+      },
+      children: [{
+        type: "frame", id: "button", name: "Action Button", width: 160, height: 44,
+        layout: "horizontal", fill: "$accent-primary", children: [{
+          type: "text", id: "label", name: "Action Label", content: "Continue",
+          fontSize: 14, fill: "$surface-secondary"
+        }]
+      }]
+    };
+    const coordinated = parseDesignReview({
+      verdict: "pass",
+      scores: { specificity: 4, hierarchy: 4, usability: 4, craft: 4 },
+      strengths: [], issues: [],
+      fixes: [
+        { nodeId: "button", property: "fill", value: "$surface-secondary" },
+        { nodeId: "label", property: "fill", value: "$foreground-primary" }
+      ]
+    }, "button Action Button\nlabel Action Label");
+
+    const result = applyReviewFixes(doc, coordinated);
+    expect(result.rejected).toEqual([]);
+    expect(result.applied).toEqual(["button.fill", "label.fill"]);
+    expect(result.doc.children[0].fill).toBe("$surface-secondary");
+    expect(result.doc.children[0].children[0].fill).toBe("$foreground-primary");
+  });
+
   it("returns the same document when a review carries no fixes", () => {
     const doc: any = { version: "2.17", children: [] };
     const review = parseDesignReview({
@@ -243,6 +349,44 @@ describe("Fixes the critic applies itself", () => {
       issues: []
     }, digestText);
     expect(applyReviewFixes(doc, review).doc).toBe(doc);
+  });
+
+  it("rejects an auto-fix that makes a product action icon disappear", () => {
+    const doc: any = {
+      version: "2.17",
+      variables: {
+        "surface-primary": { type: "color", value: "#FFFFFF" },
+        "surface-secondary": { type: "color", value: "#F8F7FC" },
+        "accent-primary": { type: "color", value: "#6D28D9" },
+        "foreground-primary": { type: "color", value: "#18111F" }
+      },
+      children: [{
+        type: "frame", id: "screen", name: "Store", width: 390, height: 844,
+        layout: "vertical", fill: "$surface-primary", children: [{
+          type: "frame", id: "add", name: "Add Button", width: 44, height: 44,
+          layout: "horizontal", justifyContent: "center", alignItems: "center",
+          fill: "$accent-primary", cornerRadius: 22, children: [{
+            type: "icon", id: "plus", name: "Plus", icon: "plus", width: 20, height: 20,
+            stroke: "$surface-secondary"
+          }]
+        }]
+      }]
+    };
+    const unsafe = parseDesignReview({
+      verdict: "pass",
+      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 5 },
+      strengths: [], issues: [],
+      fixes: [{ nodeId: "add", property: "fill", value: "$surface-secondary" }]
+    }, "add Add Button\nplus Plus");
+
+    const result = applyReviewFixes(doc, unsafe);
+    expect(result.applied).toEqual([]);
+    expect(result.rejected).toEqual(["add.fill"]);
+    expect((result.doc.children[0] as any).children[0].fill).toBe("$accent-primary");
+
+    const enforced = enforceRejectedFixes(unsafe, result.rejected);
+    expect(enforced.verdict).toBe("refine");
+    expect(enforced.issues[0].title).toBe("Unsafe automatic correction");
   });
 
   it("tells the critic that a single property belongs in fixes", () => {
@@ -261,6 +405,9 @@ describe("Fixes the critic applies itself", () => {
     expect(CRITIC_PROMPT).toContain("only a sliver of the subject survives the crop");
     expect(CRITIC_PROMPT).toContain("Catalog as page");
     expect(CRITIC_PROMPT).toContain("Data That Is Not Drawn");
+    expect(CRITIC_PROMPT).toContain("Pasted-On Overlays");
+    expect(CRITIC_PROMPT).toContain("Cryptic or Placeholder Selection UI");
+    expect(CRITIC_PROMPT).toContain("Do not award 5 merely because");
     expect(CRITIC_PROMPT).not.toContain("SYSTEMS NOMINAL");
     expect(CRITIC_PROMPT).not.toContain("Shift Handoff");
     expect(CRITIC_PROMPT).not.toContain("requires dark/mission-critical");
@@ -285,9 +432,59 @@ describe("Fixes the critic applies itself", () => {
     ]);
 
     expect(enforced.verdict).toBe("refine");
-    expect(enforced.scores.craft).toBeLessThanOrEqual(2);
+    // A warning is worth a refine, not the 2 the rubric reserves for a screen
+    // you cannot use. The score has to stay proportional to the finding,
+    // because the revision the agent writes is scoped to the score.
+    expect(enforced.scores.craft).toBe(3);
     expect(enforced.issues).toHaveLength(1);
     expect(enforced.issues[0].title).toBe("Cropped photograph out of proportion");
     expect(enforced.issues[0].nodeIds).toEqual(["m-hero-photo"]);
+  });
+
+  it("scores an enforced finding at its own severity, not at blocker level", () => {
+    const passing: DesignReview = {
+      verdict: "pass",
+      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 5 },
+      strengths: [], issues: []
+    };
+
+    const warned = enforceAuditFindings(passing, [{
+      rule: "misaligned_buttons",
+      severity: "warning",
+      nodeId: "row",
+      message: "CTA baselines differ by 18px",
+      fix: "Set height fill_container on the sibling cards."
+    }]);
+    expect(warned.scores.craft).toBe(3);
+    // A staggered button baseline is a craft defect. Marking hierarchy down for
+    // it asks for a page rebuild over one row of buttons.
+    expect(warned.scores.hierarchy).toBe(5);
+
+    const blocked = enforceAuditFindings(passing, [{
+      rule: "missing_display",
+      severity: "blocker",
+      nodeId: "title",
+      message: "No display-scale title on the screen",
+      fix: "Raise the primary title to 44px."
+    }]);
+    expect(blocked.scores.craft).toBe(2);
+    expect(blocked.scores.hierarchy).toBe(2);
+  });
+
+  it("does not allow a passing critic to ignore finishing warnings", () => {
+    const passingReview: DesignReview = {
+      verdict: "pass",
+      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 5 },
+      strengths: [], issues: []
+    };
+    const enforced = enforceAuditFindings(passingReview, [{
+      rule: "empty_tail",
+      severity: "warning",
+      nodeId: "screen",
+      message: "120px empty before the tab bar",
+      fix: "Remove the dead tail."
+    }]);
+    expect(enforced.verdict).toBe("refine");
+    expect(enforced.issues[0].nodeIds).toEqual(["screen"]);
   });
 });

@@ -110,7 +110,7 @@ describe("Style system", () => {
     });
     const guidance = styleGuidelines(style);
     expect(guidance).toContain("44-64 display");
-    expect(guidance).toContain("A tool uses one 44-64 display treatment");
+    expect(guidance).toContain("Compact mobile apps may use 32-40 instead");
   });
 
   it("set_style writes tokens and the guidelines restate them on later turns", async () => {

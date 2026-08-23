@@ -20,8 +20,16 @@ import type { Document } from "../../model/types";
 import { decideAgentDocument } from "../agentDocument";
 import { parseChoice, choiceValue } from "../ModelSelector";
 import { captureDocumentPng } from "../../render/capture";
-import { applyReviewFixes, applyReviewMessage, enforceAuditFindings, type ReviewResponse } from "../../agent/review";
+import {
+  applyReviewFixes,
+  applyReviewMessage,
+  enforceAuditFindings,
+  enforceRejectedFixes,
+  type DesignReview,
+  type ReviewResponse
+} from "../../agent/review";
 import { digest } from "../../digest/digest";
+import { resolvePromptContext } from "../../agent/context";
 import { currentDirection } from "../../design/styleSystem";
 import { STYLE_METADATA_KEY } from "../../design/styleKeys";
 import { loadHistory, recordRun, saveHistory } from "../../design/history";
@@ -42,6 +50,7 @@ function isAbortError(err: unknown): boolean {
 }
 
 let hasAutoFitInitial = false;
+const MAX_POST_FIX_REVIEWS = 1;
 
 function applyCanvasUpdate(nextDoc: Document) {
   const oldMap = nodeMap();
@@ -58,18 +67,49 @@ function applyCanvasUpdate(nextDoc: Document) {
   }
 }
 
+/**
+ * Every user turn so far, joined — the same text the server builds the system
+ * prompt from, so the context the critic is handed matches the one the builder
+ * was given rather than being re-derived from the last sentence alone.
+ */
+function sessionTextOf(messages: Message[]): string {
+  const texts: string[] = [];
+  for (const m of messages) {
+    if (m.role !== "user") continue;
+    if (typeof m.content === "string" && m.content.trim()) {
+      texts.push(m.content.trim());
+    } else if (Array.isArray(m.content)) {
+      const text = m.content
+        .filter((part): part is { type: "text"; text: string } => part.type === "text")
+        .map((part) => part.text.trim())
+        .filter(Boolean)
+        .join(" ");
+      if (text) texts.push(text);
+    }
+  }
+  return texts.join(" ");
+}
+
 function rememberStyle(doc: Document, brief: string) {
   const recorded = doc.metadata?.[STYLE_METADATA_KEY] as
-    | { palette?: unknown; headings?: unknown; elevation?: unknown }
+    | { palette?: unknown; headings?: unknown; elevation?: unknown; roundness?: unknown }
     | undefined;
-  const { palette, headings, elevation } = recorded ?? {};
+  const { palette, headings, elevation, roundness } = recorded ?? {};
   if (typeof palette !== "string" || typeof headings !== "string" || typeof elevation !== "string") {
     return;
   }
   const history = loadHistory();
-  const last = history[history.length - 1];
-  if (last?.palette === palette && last?.brief === brief) return;
-  saveHistory(recordRun(history, { at: new Date().toISOString(), brief, palette, headings, elevation }));
+  const direction = currentDirection(doc);
+  saveHistory(recordRun(history, {
+    at: new Date().toISOString(),
+    brief,
+    palette,
+    headings,
+    elevation,
+    roundness: typeof roundness === "string" ? roundness : undefined,
+    thesis: direction?.thesis,
+    firstViewport: direction?.firstViewport
+  }));
 }
 
 export function useChatSession() {
@@ -353,6 +393,10 @@ export function useChatSession() {
           digest: digest(captured),
           direction: currentDirection(captured),
           audit: formatAudit(auditDocument(captured), "Measured design audit"),
+          // The server sees only the brief. Without this the critic re-resolves
+          // from that one string and can judge a mobile app against dashboard
+          // criteria the builder never received.
+          context: resolvePromptContext(lastBrief(), captured, [...selectedIds()], sessionTextOf(agentMessages())),
           sessionId
         },
         signal
@@ -361,7 +405,7 @@ export function useChatSession() {
       const thumbSrc = capture.screens[0]?.dataUrl || capture.dataUrl;
       const sectionThumbnails: { name: string; url: string }[] = [];
       for (const s of capture.screens) {
-        if (s.kind === "section") {
+        if (s.kind === "section" || s.kind === "viewport") {
           const thumb = await createThumbnail(s.dataUrl);
           if (thumb) {
             sectionThumbnails.push({
@@ -396,9 +440,11 @@ export function useChatSession() {
 
     let instruction = text;
     let context = agentMessages();
+    let producedDesign = false;
     const sessionId = crypto.randomUUID();
 
     try {
+      let reviewNumber = 0;
       for (let pass = 0; pass <= AUTO_REVIEW_REVISIONS; pass++) {
         const result = await runAgentPass(instruction, context, sessionId);
         context = result.messages;
@@ -406,42 +452,116 @@ export function useChatSession() {
 
         if (result.failure) break;
         if (!result.finished || !result.edited) break;
+        producedDesign = true;
 
-        const reviewed = await runReview(sessionId);
+        let reviewed = await runReview(sessionId);
         if (reviewed.error) {
           note(`Visual review could not run: ${reviewed.error}`, "error");
           break;
         }
         if (!reviewed.review) break;
-        const review = enforceAuditFindings(reviewed.review, auditDocument(doc()));
 
-        const beforeFixes = doc();
-        const fixed = applyReviewFixes(beforeFixes, review);
-        if (fixed.applied.length > 0 && doc() === beforeFixes) {
-          applyCanvasUpdate(fixed.doc);
+        let finalReview: DesignReview | undefined;
+        let reviewUnavailable = false;
+        /*
+         * True when the loop stopped at its budget with fixes freshly applied.
+         *
+         * At that point the canvas on screen is one the critic never saw: it
+         * reviewed A, its fixes produced B, and the budget ran out before B
+         * could be looked at. Printing A's verdict there is how "pass" came to
+         * mean "an earlier version of this passed".
+         */
+        let fixesAwaitingReview = false;
+        for (let fixReview = 0; fixReview <= MAX_POST_FIX_REVIEWS; fixReview++) {
+          const measuredReview = enforceAuditFindings(reviewed.review, auditDocument(doc()));
+          const beforeFixes = doc();
+          const fixed = applyReviewFixes(beforeFixes, measuredReview);
+          if (fixed.applied.length > 0 && doc() === beforeFixes) {
+            applyCanvasUpdate(fixed.doc);
+          }
+
+          const displayedReview = enforceRejectedFixes(measuredReview, fixed.rejected);
+          finalReview = displayedReview;
+          reviewNumber += 1;
+          setEntries((prev) => [
+            ...prev,
+            {
+              kind: "review",
+              pass: reviewNumber,
+              review: displayedReview,
+              applied: fixed.applied.length,
+              thumbnail: reviewed.thumbnail,
+              sectionThumbnails: reviewed.sectionThumbnails
+            }
+          ]);
+
+          // Rejected fixes need coordinated agent work. Accepted fixes need a
+          // fresh screenshot review; a verdict about the pre-fix canvas is not
+          // evidence that the changed canvas passes.
+          if (
+            fixed.rejected.length > 0 ||
+            fixed.applied.length === 0 ||
+            fixReview === MAX_POST_FIX_REVIEWS
+          ) {
+            fixesAwaitingReview =
+              fixed.applied.length > 0 && fixed.rejected.length === 0 && fixReview === MAX_POST_FIX_REVIEWS;
+            break;
+          }
+
+          reviewed = await runReview(sessionId);
+          if (reviewed.error) {
+            note(`Post-fix visual review could not run: ${reviewed.error}`, "error");
+            reviewUnavailable = true;
+            break;
+          }
+          if (!reviewed.review) {
+            reviewUnavailable = true;
+            break;
+          }
         }
 
-        setEntries((prev) => [
-          ...prev,
-          {
-            kind: "review",
-            pass: pass + 1,
-            review,
-            applied: fixed.applied.length,
-            thumbnail: reviewed.thumbnail,
-            sectionThumbnails: reviewed.sectionThumbnails
-          }
-        ]);
+        if (reviewUnavailable || !finalReview) break;
 
-        if (review.verdict !== "refine" || pass === AUTO_REVIEW_REVISIONS) break;
-        instruction = applyReviewMessage(lastBrief(), review, doc());
+        // One confirming look at the canvas the user is actually left with. Its
+        // fixes are not applied — the fix budget is spent — so what it reports
+        // is what is on screen. If it finds something, the outer pass hands it
+        // to the agent like any other refine.
+        if (fixesAwaitingReview) {
+          const confirmed = await runReview(sessionId);
+          if (confirmed.error) {
+            note(`Final visual review could not run: ${confirmed.error}`, "error");
+            break;
+          }
+          if (!confirmed.review) break;
+          const confirmedReview = enforceAuditFindings(confirmed.review, auditDocument(doc()));
+          finalReview = confirmedReview;
+          reviewNumber += 1;
+          setEntries((prev) => [
+            ...prev,
+            {
+              kind: "review",
+              pass: reviewNumber,
+              review: confirmedReview,
+              applied: 0,
+              thumbnail: confirmed.thumbnail,
+              sectionThumbnails: confirmed.sectionThumbnails
+            }
+          ]);
+        }
+
+        if (finalReview.verdict !== "refine" || pass === AUTO_REVIEW_REVISIONS) break;
+        instruction = applyReviewMessage(lastBrief(), finalReview, doc());
       }
     } finally {
       abort = null;
       setPending(null);
       setRunning(false);
       clearAgentEditTargets();
-      rememberStyle(doc(), text);
+      // Only a turn that actually built something is a design run. Recording
+      // every turn let a conversational reply, a failed run, or a one-property
+      // tweak evict real runs from a five-entry history and attach the existing
+      // style to a brief that never asked for it.
+      if (producedDesign) rememberStyle(doc(), text);
       void flushSession();
     }
   }

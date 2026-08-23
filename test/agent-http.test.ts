@@ -152,7 +152,7 @@ describe("agent review HTTP endpoint & vision handoffs", () => {
     expect(pMsg.url()).toBe("https://opencode.ai/zen/go/v1/messages");
   });
 
-  it("runs focused per-section reviews concurrently when section slices are attached", async () => {
+  it("sends section close-ups through one complete overview review", async () => {
     let calls = 0;
     const pMulti = fakeProvider(() => {
       calls++;
@@ -171,7 +171,65 @@ describe("agent review HTTP endpoint & vision handoffs", () => {
       { env: { OPENCODE_API_KEY: "k" }, fetch: pMulti.fetch }
     );
     expect(res.status).toBe(200);
-    expect(calls).toBe(3);
+    expect(calls).toBe(1);
+    expect(JSON.stringify(pMulti.body())).toContain("Close-up Section");
+    expect(JSON.stringify(pMulti.body())).toContain("Hero Section");
+    expect(JSON.stringify(pMulti.body())).toContain("Pricing Section");
+  });
+
+  it("keeps viewport crops as overview context instead of focused sections", async () => {
+    let calls = 0;
+    const provider = fakeProvider(() => {
+      calls++;
+      return responsesReply(REVIEW);
+    });
+    const res = await reviewPost(
+      {
+        providerId: "opencode-go",
+        model: "gpt-5.6-luna",
+        brief: "Scrollable store",
+        screenshots: [
+          { id: "store", name: "Store", dataUrl: PNG, kind: "screen" },
+          { id: "store_end_viewport", name: "Store — End", dataUrl: PNG, kind: "viewport" }
+        ]
+      },
+      { env: { OPENCODE_API_KEY: "k" }, fetch: provider.fetch }
+    );
+    expect(res.status).toBe(200);
+    expect(calls).toBe(1);
+    expect(JSON.stringify(provider.body())).toContain("crop boundary is not a canvas boundary");
+  });
+
+  it("does not run a second crop-only critic beside the overview", async () => {
+    const overview = {
+      ...validReview,
+      issues: ["One", "Two", "Three", "Four"].map((title) => ({
+        title,
+        reason: `${title} overview issue`,
+        instruction: `Fix ${title}`,
+        nodeIds: ["screen"]
+      }))
+    };
+    let calls = 0;
+    const provider = fakeProvider(() => {
+      calls++;
+      return responsesReply(JSON.stringify(overview));
+    });
+    const res = await reviewPost(
+      {
+        providerId: "opencode-go",
+        model: "gpt-5.6-luna",
+        brief: "Dashboard",
+        screenshots: [{ id: "cards", name: "Card Grid", dataUrl: PNG, kind: "section" }]
+      },
+      { env: { OPENCODE_API_KEY: "k" }, fetch: provider.fetch }
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(calls).toBe(1);
+    expect(body.issues[0].title).toBe("One");
+    expect(body.issues).toHaveLength(4);
   });
 
   it("handles vision handoffs, retries on failure, and informs when unsupported", async () => {

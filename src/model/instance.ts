@@ -1,5 +1,11 @@
 import type { Document, PenNode, RefNode } from "./types";
-import { childrenOf, isParentNode } from "./tree";
+import { setProperty } from "./edit";
+import { childrenOf, findNode, isParentNode } from "./tree";
+
+export interface InstanceDescendantTarget {
+  refId: string;
+  descendantId: string;
+}
 
 export interface ResolveInstancesResult {
   doc: Document;
@@ -111,4 +117,44 @@ export function resolveInstancesWithDiagnostics(doc: Document): ResolveInstances
 
 export function resolveInstances(doc: Document): Document {
   return resolveInstancesWithDiagnostics(doc).doc;
+}
+
+/** Resolve a synthetic resolved-instance ID back to the source ref and component child. */
+export function splitInstanceId(doc: Document, id: string): InstanceDescendantTarget | undefined {
+  const at = id.indexOf(":");
+  if (at <= 0) return undefined;
+  const refId = id.slice(0, at);
+  const descendantId = id.slice(at + 1);
+  const host = findNode(doc.children, refId);
+  if (!host || host.type !== "ref" || !descendantId) return undefined;
+
+  const component = host.ref ? findNode(doc.children, host.ref) : null;
+  if (!component) return undefined;
+
+  let known = false;
+  (function walk(node: PenNode) {
+    if (node.id === descendantId) known = true;
+    for (const child of childrenOf(node)) walk(child);
+  })(component);
+
+  return known ? { refId, descendantId } : undefined;
+}
+
+/** Store a property change as an override on a component instance descendant. */
+export function setInstanceProperty(
+  doc: Document,
+  target: InstanceDescendantTarget,
+  property: string,
+  value: unknown
+): Document {
+  const host = findNode(doc.children, target.refId);
+  if (!host || host.type !== "ref") return doc;
+  const descendants = {
+    ...(host.descendants ?? {}),
+    [target.descendantId]: {
+      ...(host.descendants?.[target.descendantId] ?? {}),
+      [property]: value
+    }
+  };
+  return setProperty(doc, target.refId, "descendants", descendants);
 }

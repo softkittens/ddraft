@@ -196,43 +196,6 @@ export function parentIdOf(doc: Document, id: string): string | undefined {
   return walk(doc.children);
 }
 
-export function splitInstanceId(doc: Document, id: string): { refId: string; descendantId: string } | undefined {
-  const at = id.indexOf(":");
-  if (at <= 0) return undefined;
-  const refId = id.slice(0, at);
-  const descendantId = id.slice(at + 1);
-  const host = findNode(doc.children, refId);
-  if (!host || host.type !== "ref" || !descendantId) return undefined;
-
-  const component = (host as PenNode & { ref?: string }).ref
-    ? findNode(doc.children, (host as PenNode & { ref?: string }).ref!)
-    : null;
-  if (!component) return undefined;
-  let known = false;
-  (function walk(node: PenNode) {
-    if (node.id === descendantId) known = true;
-    for (const child of childrenOf(node)) walk(child);
-  })(component);
-  if (!known) return undefined;
-
-  return { refId, descendantId };
-}
-
-export function setInstanceProperty(
-  doc: Document,
-  target: { refId: string; descendantId: string },
-  property: string,
-  value: unknown
-): Document {
-  const host = findNode(doc.children, target.refId) as (PenNode & { descendants?: Record<string, any> }) | null;
-  if (!host) return doc;
-  const descendants = {
-    ...(host.descendants ?? {}),
-    [target.descendantId]: { ...(host.descendants?.[target.descendantId] ?? {}), [property]: value }
-  };
-  return setProperty(doc, target.refId, "descendants", descendants);
-}
-
 export function screenSizeError(
   doc: Document,
   id: string,

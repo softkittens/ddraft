@@ -1,7 +1,13 @@
 import type { Document, PenNode } from "../model/types";
 import { digest, digestSubtree } from "../digest/digest";
 import { findNode } from "../model/tree";
-import { currentDirection, styleCatalog, styleGuidelines, currentStyle } from "../design/styleSystem";
+import {
+  currentDirection,
+  styleCatalog,
+  styleGuidelines,
+  currentStyle,
+  PALETTE_HAND_SIZE
+} from "../design/styleSystem";
 import type { Message } from "./provider";
 import { avoidanceNote, type StyleRun } from "../design/history";
 import { rules } from "./rules";
@@ -62,14 +68,24 @@ export function composeRuleBlocks(ctx: ResolvedContext): string[] {
     blocks.push(rules("surface-desktop"));
   }
 
-  // 2. Archetype Guidelines
-  if (ctx.archetype === "site") {
-    blocks.push(rules("archetype-site"));
-  } else if (ctx.archetype === "tool") {
-    blocks.push(rules("archetype-tool"));
-  } else if (ctx.archetype === "unspecified" && (ctx.surface === "desktop" || ctx.surface === "unspecified")) {
-    blocks.push(rules("archetype-site"));
-    blocks.push(rules("archetype-tool"));
+  // A revision works inside a composition that already exists. Handing it the
+  // full site, tool and domain blueprints puts "stack 6-8 narrative bands" in
+  // the same prompt as "change the hero colour", and the larger instruction is
+  // the one that wins. The surface blueprint stays, because its ergonomics and
+  // token rules apply to any edit.
+  if (ctx.lifecycle === "revision_edit") return blocks;
+
+  // 2. Archetype Guidelines. Both are 1440-wide compositions, so neither ships
+  //    to a request that asked only for a phone.
+  if (ctx.surface !== "mobile") {
+    if (ctx.archetype === "site") {
+      blocks.push(rules("archetype-site"));
+    } else if (ctx.archetype === "tool") {
+      blocks.push(rules("archetype-tool"));
+    } else if (ctx.archetype === "unspecified" && (ctx.surface === "desktop" || ctx.surface === "unspecified")) {
+      blocks.push(rules("archetype-site"));
+      blocks.push(rules("archetype-tool"));
+    }
   }
 
   // 3. Domain Traits
@@ -97,10 +113,11 @@ function orderOfWork(ctx: ResolvedContext): string[] {
     "ORDER OF WORK — DESIGN REQUESTS ONLY",
     "  1. Decide SITE (persuade) vs TOOL (operate) from the surface, not the product.",
     "     A landing page is still SITE. Write THESIS, OWN-WORLD and FIRST VIEWPORT.",
+    "     FIRST VIEWPORT is an intent contract: name the focal subject, hierarchy and visible first action without locking an exact left/right topology before layout. Describe only what a static canvas can show; do not promise sticky, persistent or animated behavior.",
     "  2. set_style — commit to that contract and pick the visual system that supports it.",
     "  3. Screen creation discipline:",
     "     - SINGLE-SCREEN DEFAULT: Build ONE primary screen per request (Desktop 1440 for websites, web tools, dashboards, and landing pages; Mobile 390 for mobile-only apps). Do NOT build a companion mobile screen unless the user explicitly requests mobile or responsive in their brief.",
-    "     - When mobile is explicitly requested: Build the Desktop screen FIRST. Only after Desktop is complete, create Mobile by reusing the exact image fills (fill: { type: 'image', url: '...' }) and copy from desktop without generating new images.",
+    "     - When mobile alone is explicitly requested, build mobile only. When responsive or both desktop and mobile are requested, build Desktop first and then reuse its image fills and copy for Mobile.",
     "  4. Insert whole subtrees. Site: fill topBar; leave rail and aside empty; stack 6–8 varied narrative bands in main to explore the product's full substance (hero, philosophy, spaces/catalog, specs/amenities, photo story, pricing, deep footer).",
     "     Tool: fill only the slots needed. Empty is better than costume. Mobile: content or bleed.",
     "  5. Finish once the screens hold the product. An unused desktop slot is allowed."
@@ -120,6 +137,12 @@ export function agentSystemPrompt(
   const direction = currentDirection(doc);
   const resolvedCtx = resolvePromptContext(userPrompt, doc, selection, sessionContext);
   const dynamicRules = composeRuleBlocks(resolvedCtx);
+  const normalBrief = userPrompt.trim().replace(/\s+/g, " ").toLowerCase();
+  const repeatedRuns = normalBrief
+    ? recentStyles.filter(
+        (run) => run.brief.trim().replace(/\s+/g, " ").toLowerCase() === normalBrief
+      )
+    : [];
 
   const styleSection = style
     ? [
@@ -135,8 +158,15 @@ export function agentSystemPrompt(
         "brief — a safety-critical tool and a children's app should not land on the",
         "same palette. Read the feel of each option and commit to one.",
         "",
-        styleCatalog(paletteSeed),
-        ...(avoidanceNote(recentStyles) ? ["", avoidanceNote(recentStyles)] : [])
+        styleCatalog(paletteSeed, PALETTE_HAND_SIZE, {
+          palettes: repeatedRuns.map((run) => run.palette),
+          headings: repeatedRuns.map((run) => run.headings),
+          roundness: repeatedRuns.flatMap((run) => run.roundness ? [run.roundness] : []),
+          elevation: repeatedRuns.map((run) => run.elevation)
+        }),
+        ...(avoidanceNote(recentStyles, userPrompt)
+          ? ["", avoidanceNote(recentStyles, userPrompt)]
+          : [])
       ];
 
   return [
@@ -155,7 +185,11 @@ export function agentSystemPrompt(
       `  THESIS: ${direction.thesis}`,
       `  OWN-WORLD: ${direction.ownWorld}`,
       `  FIRST VIEWPORT: ${direction.firstViewport}`,
-      "Build and review against these claims. A claim not visible on the canvas is unfinished."
+      "Build against the intent in these claims — the focal subject, the hierarchy",
+      "and the first action they promise. They are not a geometry specification:",
+      "where the canvas reads stronger than the arrangement first imagined, keep the",
+      "stronger canvas. Ignore any part of the contract that only a running app could",
+      "demonstrate."
     ] : []),
     "",
     // Dynamically composed surface blueprints, archetype guides & domain traits

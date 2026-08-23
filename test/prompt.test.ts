@@ -85,7 +85,12 @@ describe("System prompt carries rules, not a design", () => {
     const styled = agentSystemPrompt(doc, [], "test-model");
     expect(styled).toContain("RECORDED DIRECTION CONTRACT");
     expect(styled).toContain("THESIS: A command surface, not a card dashboard");
-    expect(styled).toContain("A claim not visible on the canvas is unfinished");
+    // The contract is intent, not geometry: set_style, the builder prompt and
+    // the critic all have to say the same thing about it, or the builder and
+    // the reviewer thrash a hero between left and right across passes.
+    expect(styled).toContain("They are not a geometry specification");
+    expect(styled).toContain("keep the");
+    expect(styled).not.toContain("A claim not visible on the canvas is unfinished");
   });
 
   it("costs less than the template it replaced", () => {
@@ -106,7 +111,9 @@ describe("System prompt carries rules, not a design", () => {
     // 1. Mobile Food Ordering request
     const foodPrompt = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Create mobile app for ordering matcha cakes");
     expect(foodPrompt).toContain("MOBILE SCREEN COMPOSITION");
-    expect(foodPrompt).toContain("E-COMMERCE & FOOD / CONSUMER ORDERING APP DENSITY");
+    expect(foodPrompt).toContain("E-COMMERCE & FOOD / CONSUMER ORDERING CAPABILITIES");
+    expect(foodPrompt).toContain("Do not automatically produce header + search + dark hero");
+    expect(foodPrompt).not.toContain("strictly follow this mobile hierarchy");
     expect(foodPrompt).not.toContain("SITE & LANDING PAGE COMPOSITION");
     expect(foodPrompt).not.toContain("OPERATIONAL TOOL & DASHBOARD COMPOSITION");
 
@@ -144,5 +151,26 @@ describe("System prompt carries rules, not a design", () => {
     const editPrompt = agentSystemPrompt(doc, [], "test-model", 0, [], "change the title text to italic and fix padding");
     expect(editPrompt).toContain("ORDER OF WORK — REVISION & INCREMENTAL EDITS");
     expect(editPrompt).not.toContain("ORDER OF WORK — DESIGN REQUESTS ONLY");
+
+    // A focused revision instruction loses to a blueprint telling the model to
+    // stack eight narrative bands, so the blueprints do not ship with it.
+    expect(editPrompt).not.toContain("SITE & LANDING PAGE COMPOSITION");
+    expect(editPrompt).not.toContain("OPERATIONAL TOOL & DASHBOARD COMPOSITION");
+    expect(editPrompt).not.toContain("E-COMMERCE & FOOD");
+    // The surface blueprint stays: its ergonomics and token rules apply to any edit.
+    expect(editPrompt).toContain("MOBILE SCREEN COMPOSITION");
+  });
+
+  it("never sends a 1440 blueprint to a request that asked only for a phone", () => {
+    const mobileTool = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Mobile analytics app");
+    expect(mobileTool).toContain("MOBILE SCREEN COMPOSITION");
+    expect(mobileTool).not.toContain("OPERATIONAL TOOL & DASHBOARD COMPOSITION");
+    expect(mobileTool).not.toContain("SITE & LANDING PAGE COMPOSITION");
+  });
+
+  it("keeps a landing page for a dashboard product on the site blueprint", () => {
+    const p = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Landing page for an analytics dashboard product");
+    expect(p).toContain("SITE & LANDING PAGE COMPOSITION");
+    expect(p).not.toContain("OPERATIONAL TOOL & DASHBOARD COMPOSITION");
   });
 });

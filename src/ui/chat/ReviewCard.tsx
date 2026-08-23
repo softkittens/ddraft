@@ -43,7 +43,7 @@ export const ReviewCard: Component<{
         <Show when={props.entry.sectionThumbnails && props.entry.sectionThumbnails.length > 0}>
           <div class="space-y-1 pt-1">
             <div class="text-[10px] font-medium text-neutral-400 uppercase tracking-wider">
-              {props.entry.sectionThumbnails!.length} close-up section slices evaluated:
+              {props.entry.sectionThumbnails!.length} close-up views evaluated:
             </div>
             <div class="grid grid-cols-2 gap-1.5">
               <For each={props.entry.sectionThumbnails}>

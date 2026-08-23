@@ -2,7 +2,12 @@ import { describe, it, expect } from "bun:test";
 import { parseDocument, parseSizing } from "../src/model/parse";
 import { layoutDocument } from "../src/layout/layout";
 import { setProperty, insertChild, removeNode, moveNode, duplicateNode, reorderChild } from "../src/model/edit";
-import { resolveInstances, resolveInstancesWithDiagnostics } from "../src/model/instance";
+import {
+  resolveInstances,
+  resolveInstancesWithDiagnostics,
+  setInstanceProperty,
+  splitInstanceId
+} from "../src/model/instance";
 import { digest } from "../src/digest/digest";
 import { evaluateLayoutConstraints } from "../src/design/evaluator";
 import { makeDoc, frame, rect, txt } from "./harness";
@@ -173,6 +178,18 @@ describe("Model & Design Subsystem", () => {
     expect(rootInst).toBeDefined();
     expect(JSON.stringify(rootInst)).toContain("rectangle");
   });
+
+  it("stores synthetic instance-descendant edits as overrides", () => {
+    const component = frame("card", 200, 100, [txt("label", "Original", 16)], { reusable: true });
+    const source = makeDoc(component, { id: "card_one", type: "ref", ref: "card" } as any);
+    const target = splitInstanceId(source, "card_one:label");
+
+    expect(target).toEqual({ refId: "card_one", descendantId: "label" });
+    const edited = setInstanceProperty(source, target!, "content", "Override");
+    expect((edited.children[1] as any).descendants.label.content).toBe("Override");
+    expect((component.children?.[0] as any).content).toBe("Original");
+    expect((resolveInstances(edited).children[1] as any).children[0].content).toBe("Override");
+  });
 });
 
 describe("document identity is the change signal", () => {
@@ -189,6 +206,17 @@ describe("document identity is the change signal", () => {
   it("setProperty returns the same document when the value is already equal", () => {
     const original = doc();
     expect(setProperty(original, "r1", "width", 50)).toBe(original);
+  });
+
+  it("setProperty treats structurally equal property values as unchanged", () => {
+    const original = makeDoc(frame("f1", 100, 100, [], {
+      padding: [0, 16],
+      effect: { type: "shadow", blur: 12, color: "#0000001A" }
+    } as any));
+    expect(setProperty(original, "f1", "padding", [0, 16])).toBe(original);
+    expect(setProperty(original, "f1", "effect", {
+      type: "shadow", blur: 12, color: "#0000001A"
+    })).toBe(original);
   });
 
   it("setProperty returns a new document and leaves the original untouched", () => {

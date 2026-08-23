@@ -12,7 +12,7 @@ export interface ScreenCapture {
   name: string;
   dataUrl: string;
   box: Box;
-  kind?: "screen" | "section";
+  kind?: "screen" | "section" | "viewport";
   parentId?: string;
 }
 
@@ -21,6 +21,7 @@ export type CaptureResult =
   | { ok: false; reason: CaptureFailure };
 
 const FULL_SCREEN_SCALE = 0.5;
+const MOBILE_FULL_SCREEN_SCALE = 1;
 const SECTION_SLICE_SCALE = 0.75;
 const JPEG_QUALITY = 0.85;
 const IMAGE_WAIT_MS = 1500;
@@ -92,11 +93,16 @@ function captureBoxSlice(
   variables?: Record<string, any>,
   labelId?: string,
   labelName?: string,
-  kind?: "screen" | "section",
+  kind?: "screen" | "section" | "viewport",
   parentId?: string
 ): ScreenCapture | null {
   if (sliceBox.width <= 0 || sliceBox.height <= 0) return null;
-  const baseScale = kind === "section" ? SECTION_SLICE_SCALE : FULL_SCREEN_SCALE;
+  const baseScale =
+    kind === "section"
+      ? SECTION_SLICE_SCALE
+      : sliceBox.width <= 500
+      ? MOBILE_FULL_SCREEN_SCALE
+      : FULL_SCREEN_SCALE;
   const scale = captureScale(sliceBox, baseScale);
   const canvas = globalThis.document.createElement("canvas");
   const width = Math.max(1, Math.round(sliceBox.width * scale));
@@ -123,7 +129,7 @@ function captureBoxSlice(
       name: labelName || root.id,
       dataUrl: canvas.toDataURL("image/jpeg", JPEG_QUALITY),
       box: sliceBox,
-      kind: kind || "screen",
+    kind: kind || "screen",
       parentId
     };
   } catch {
@@ -170,7 +176,8 @@ function captureSingleRoot(
   if (fullCap) captures.push(fullCap);
 
   // If the screen is scrollable (exceeds the native device viewport), capture the 1:1 First Viewport (Fold) Slice
-  if (box.height > viewportHeight + 40) {
+  const isScrollable = box.height > viewportHeight + 40;
+  if (isScrollable) {
     const foldWorldBox = { x: 0, y: 0, width: box.width, height: viewportHeight };
     const foldCap = captureBoxSlice(
       root,
@@ -179,14 +186,33 @@ function captureSingleRoot(
       variables,
       `${root.id}_first_viewport`,
       `${rootName} — [First Viewport / Above-the-Fold View]`,
-      "section",
+      "viewport",
       root.id
     );
     if (foldCap) captures.push(foldCap);
+
+    const endWorldBox = {
+      x: 0,
+      y: Math.max(0, box.height - viewportHeight),
+      width: box.width,
+      height: Math.min(viewportHeight, box.height)
+    };
+    const endCap = captureBoxSlice(
+      root,
+      endWorldBox,
+      map,
+      variables,
+      `${root.id}_end_viewport`,
+      `${rootName} — [Final Viewport / End-of-Scroll View]`,
+      "viewport",
+      root.id
+    );
+    if (endCap) captures.push(endCap);
   }
 
-  // If the screen is tall (> 1600 on mobile [~2 viewports], > 1400 on desktop), capture key structural landmark sections
-  const threshold = isMobile ? 1600 : 1400;
+  // Scrollable mobile screens need section evidence even when they are shorter
+  // than two complete viewports; that is where product rows and promos live.
+  const threshold = isMobile ? viewportHeight + 40 : 1400;
   if (box.height > threshold) {
     const sections = findSectionSlices(root, isMobile);
     const substantive = sections.filter((s) => s.box.height >= (isMobile ? 260 : 160));

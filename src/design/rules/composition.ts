@@ -31,11 +31,11 @@ import { normalisePadding } from "../../layout/padding";
 
 export function checkTapTargets(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
-  function walk(node: LayoutNode) {
+  function walk(node: LayoutNode, interactiveAncestor = false) {
     const data = ctx.nodes.get(node.id);
     if (data?.enabled === false) return;
     const named = INTERACTIVE_NAME.test(data?.name ?? "");
-    if (named && node.box.width > 0 && node.box.height > 0) {
+    if (named && !interactiveAncestor && node.box.width > 0 && node.box.height > 0) {
       const w = Math.round(node.box.width);
       const h = Math.round(node.box.height);
       if (w < MIN_TAP_TARGET || h < MIN_TAP_TARGET) {
@@ -49,7 +49,7 @@ export function checkTapTargets(ctx: AuditContext): AuditFinding[] {
         );
       }
     }
-    for (const child of node.children) walk(child);
+    for (const child of node.children) walk(child, interactiveAncestor || named);
   }
   for (const root of ctx.tree) walk(root);
   return findings;
@@ -514,13 +514,16 @@ export function checkCompositionExpectations(ctx: AuditContext): AuditFinding[] 
     }
     collectType(screen, false);
     const largest = Math.max(0, ...contentType);
-    if (largest > 0 && largest < 44) {
+    const displayFloor = screenWidth <= 500 ? 32 : 44;
+    if (largest > 0 && largest < displayFloor) {
       findings.push(
         warning(
           "missing_display",
           screen.id,
-          `Screen "${screen.name ?? screen.id}" tops out at ${largest}px; the display step starts at 44px.`,
-          "Give the screen's main idea one 44-64px display treatment."
+          `Screen "${screen.name ?? screen.id}" tops out at ${largest}px; this ${screenWidth <= 500 ? "mobile" : "desktop"} composition needs a ${displayFloor}px hierarchy step.`,
+          screenWidth <= 500
+            ? "Give the screen's main idea one 32–40px title treatment; reserve 44px+ for an intentionally editorial mobile composition."
+            : "Give the screen's main idea one 44–64px display treatment."
         )
       );
     }
@@ -554,7 +557,7 @@ export function checkCompositionExpectations(ctx: AuditContext): AuditFinding[] 
       }
       lastVisible(layoutRoot, 0, false);
       const tail = tab.box.y - lastBottom;
-      if (lastBottom > 0 && tail > screenHeight * 0.15) {
+      if (lastBottom > 0 && tail > Math.max(80, screenHeight * 0.05)) {
         findings.push(
           warning(
             "empty_tail",
@@ -638,7 +641,7 @@ export function checkCompositionExpectations(ctx: AuditContext): AuditFinding[] 
           "undersized_subject",
           screen.id,
           `Screen "${screen.name ?? screen.id}" has photography, but the largest image covers ${Math.round((largestImageArea / viewportArea) * 100)}% of the viewport.`,
-          "Enlarge the subject photograph to about a third of the first viewport. A thumbnail strip above a card grid is not a hero."
+          "Enlarge the subject photograph enough to reach roughly 18–25% of the first viewport, while keeping its enclosing mobile hero within a 220–380px total height. A thumbnail strip above a card grid is not a hero."
         )
       );
     }
@@ -772,7 +775,7 @@ function getContentSections(screen: PenNode, ctx: AuditContext): PenNode[] {
     // If this is a scaffold slot (Inset Content, Bleed Content) or top-level content wrapper
     const isSlotOrWrapper =
       role === "slot" ||
-      /^Inset Content|^Bleed Content|^Home Content|^Main Content|^Page Content|^Feed Content/i.test(node.name ?? "");
+      /^Inset Content|^Bleed Content|^Home Content|^Main Content|^Page Content|^Feed Content|^Storefront Content/i.test(node.name ?? "");
 
     if (isSlotOrWrapper) {
       for (const child of childrenOf(node)) {
@@ -791,7 +794,7 @@ function getContentSections(screen: PenNode, ctx: AuditContext): PenNode[] {
       box &&
       box.width >= screenWidth * 0.7 &&
       kids.length >= 2 &&
-      kids.every((k) => (ctx.boxes.get(k.id)?.box?.height ?? 0) >= 80)
+      kids.filter((k) => (ctx.boxes.get(k.id)?.box?.height ?? 0) >= 70).length >= 2
     ) {
       for (const child of kids) {
         walk(child);
@@ -866,9 +869,19 @@ export function checkSectionHeightBudget(ctx: AuditContext): AuditFinding[] {
       const isCard = child.type === "frame" || child.type === "group";
       if (!isMedia && !isCard) continue;
 
-      // Allow multi-card grid containers, product lists, or catalog sections
-      const subCards = childrenOf(child).filter((c) => (c.type === "frame" || c.type === "rectangle") && c.enabled !== false);
-      const isCollectionSection = subCards.length >= 2 || /(product|catalog|menu|collection|grid|list|cards|items|drops|spaces|amenities)/i.test(child.name ?? "");
+      // Allow actual collections, not every frame that happens to contain two
+      // structural frames. A hero commonly contains a photo well and an action
+      // row; treating those as two "cards" hid the oversized hero entirely.
+      const subCards = childrenOf(child).filter(
+        (c) => (c.type === "frame" || c.type === "rectangle") && c.enabled !== false
+      );
+      const namedCollection = /(product|catalog|menu|collection|grid|list|cards|items|drops|spaces|amenities)/i.test(
+        child.name ?? ""
+      );
+      const repeatedCardChildren =
+        subCards.length >= 2 &&
+        subCards.every((c) => /(card|item|product|tile|row|space|amenity)/i.test(c.name ?? ""));
+      const isCollectionSection = namedCollection || repeatedCardChildren;
       if (isCollectionSection) continue;
 
       const isBlocker = isMobile;
@@ -1009,13 +1022,13 @@ export function checkUncenteredIconButtons(ctx: AuditContext): AuditFinding[] {
     if (!Number.isFinite(minX)) return;
 
     const pad = normalisePadding(node.padding);
-    const leftoverX = frameBox.width - pad.right - maxX;
-    const leftoverY = frameBox.height - pad.bottom - maxY;
-    if (leftoverX < 6 && leftoverY < 6) return;
-
-    const pinnedX = minX <= pad.left + 1;
-    const pinnedY = minY <= pad.top + 1;
-    if (!pinnedX && !pinnedY) return;
+    const leftSpace = minX - pad.left;
+    const rightSpace = frameBox.width - pad.right - maxX;
+    const topSpace = minY - pad.top;
+    const bottomSpace = frameBox.height - pad.bottom - maxY;
+    const horizontalOffset = Math.abs(leftSpace - rightSpace);
+    const verticalOffset = Math.abs(topSpace - bottomSpace);
+    if (horizontalOffset < 4 && verticalOffset < 4) return;
 
     const radius = node.cornerRadius;
     const isPillOrCircle =
@@ -1277,7 +1290,7 @@ export function checkCardRowButtonBaselines(ctx: AuditContext): AuditFinding[] {
         if (sub === card) return;
         const isBtn =
           INTERACTIVE_NAME.test(sub.name ?? "") ||
-          /button|cta|reserve|book|apply|inquire|buy|join/i.test(sub.name ?? "");
+          /button|cta|reserve|book|apply|inquire|join|(?:^|[ _-])(add|cart|buy|order)(?:[ _-]|$)/i.test(sub.name ?? "");
         if (isBtn && (sub.type === "frame" || sub.type === "text")) {
           const btnBox = ctx.absBoxes.get(sub.id);
           if (btnBox && (!deepestBtn || btnBox.y > deepestBtn.y)) {
@@ -1375,6 +1388,21 @@ export function checkSiblingCardActionConsistency(ctx: AuditContext): AuditFindi
       const hasButtonFrame = cardActions.some((ca) => ca.isButtonFrame);
       const hasRawGlyphOrMissing = cardActions.some((ca) => ca.isRawTextGlyph || !ca.actionNode);
 
+      const isCommerceRow = /product|catalog|menu|collection|grid|cards|items|slice/i.test(
+        node.name ?? ""
+      );
+      if (isCommerceRow && cardActions.every((ca) => !ca.actionNode)) {
+        findings.push(
+          blocker(
+            "inconsistent_card_actions",
+            node.id,
+            `Commerce row "${node.name ?? node.id}" has no visible add, buy, cart, or order action on any product card.`,
+            "Give every sibling product card a consistent, visible action control with a clear tap target and contrasting icon or label."
+          )
+        );
+        return;
+      }
+
       if (hasButtonFrame && hasRawGlyphOrMissing) {
         const defective = cardActions.find((ca) => ca.isRawTextGlyph || !ca.actionNode)!;
         findings.push(
@@ -1436,12 +1464,12 @@ export function checkFormInputAlignment(ctx: AuditContext): AuditFinding[] {
     const kids = childrenOf(node).filter((c) => c.type === "frame" && c.enabled !== false);
     const inputRows = kids.filter((k) => {
       const name = k.name ?? "";
-      const isInput = /input|field|date|picker|guest|person|time|select|row/i.test(name) || (k as any).stroke !== undefined;
+      const isInput = /input|field|date|picker|guest|person|time|select|search|email|phone|address|quantity/i.test(name);
       return isInput && (k as any).layout === "horizontal";
     });
 
     if (inputRows.length >= 2) {
-      const aligns = new Set(inputRows.map((r) => (r as any).justifyContent || "flex_start"));
+      const aligns = new Set(inputRows.map((r) => (r as any).justifyContent || "start"));
       if (aligns.size > 1) {
         const misaligned = inputRows.find((r) => (r as any).justifyContent === "center") || inputRows[0];
         findings.push(
@@ -1449,7 +1477,7 @@ export function checkFormInputAlignment(ctx: AuditContext): AuditFinding[] {
             "misaligned_inputs",
             misaligned.id,
             `Form input fields inside "${node.name ?? node.id}" have inconsistent alignment (some centered, some left-aligned).`,
-            "Set justifyContent: 'flex_start' and padding: [0, 16] on all input fields in the stack for consistent left alignment."
+            "Set justifyContent: 'start' and padding: [0, 16] on all input fields in the stack for consistent left alignment."
           )
         );
       }

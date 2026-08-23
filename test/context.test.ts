@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { makeDoc } from "./harness";
-import { resolvePromptContext } from "../src/agent/context";
+import { resolvePromptContext, parseResolvedContext } from "../src/agent/context";
 import { DIRECTION_METADATA_KEY } from "../src/design/styleSystem";
 import type { FrameNode } from "../src/model/types";
 
@@ -134,5 +134,117 @@ describe("Context Resolution Subsystem", () => {
     // Turn 1 was "Create matcha cake bakery ordering app", Turn 2 is "make button darker"
     const ctx = resolvePromptContext("make the button darker", doc, [], "Create matcha cake bakery ordering app");
     expect(ctx.traits).toContain("commerce_ordering");
+  });
+});
+
+/**
+ * Cases taken from real runs that resolved wrongly. Each one is a sentence a
+ * user actually types, and the assertion is what the screen they asked for
+ * needs — not what the regexes happened to do.
+ */
+describe("Prompt behaviour corpus", () => {
+  function canvasWithContent(width = 1440) {
+    const doc = makeDoc();
+    doc.children = [
+      {
+        id: "screen_1",
+        name: "Screen",
+        type: "frame",
+        width,
+        height: width === 390 ? 844 : 900,
+        children: [
+          { id: "child_1", type: "frame", children: [] } as any,
+          { id: "child_2", type: "text", content: "Hello" } as any
+        ]
+      } as FrameNode
+    ];
+    return doc;
+  }
+
+  it("keeps a landing page a site when the product it sells is a dashboard", () => {
+    const ctx = resolvePromptContext("Landing page for an analytics dashboard product");
+    expect(ctx.surface).toBe("desktop");
+    expect(ctx.archetype).toBe("site");
+  });
+
+  it("keeps a mobile analytics app on the mobile surface without a desktop tool archetype", () => {
+    const ctx = resolvePromptContext("Mobile analytics app");
+    expect(ctx.surface).toBe("mobile");
+    expect(ctx.archetype).not.toBe("tool");
+    expect(ctx.traits).toContain("data_visualization");
+  });
+
+  it("does not deal commerce and swipe templates to the same screen", () => {
+    const ctx = resolvePromptContext("Pet shop ordering app");
+    expect(ctx.traits).toContain("commerce_ordering");
+    expect(ctx.traits).not.toContain("swipe_discovery");
+  });
+
+  it("still reads swipe discovery when that is the actual request", () => {
+    const ctx = resolvePromptContext("Swipe app for dog adoption");
+    expect(ctx.traits).toContain("swipe_discovery");
+    expect(ctx.traits).not.toContain("commerce_ordering");
+  });
+
+  it("lets a new brief reset the archetype an earlier turn established", () => {
+    const ctx = resolvePromptContext(
+      "Portfolio site for a ceramicist",
+      undefined,
+      [],
+      "Build a telemetry console for our fleet Portfolio site for a ceramicist"
+    );
+    expect(ctx.archetype).toBe("site");
+  });
+
+  it("lets a new brief reset the domain traits an earlier turn established", () => {
+    const ctx = resolvePromptContext(
+      "Landing page for a Lisbon architecture studio",
+      undefined,
+      [],
+      "Mobile app for ordering matcha cakes Landing page for a Lisbon architecture studio"
+    );
+    expect(ctx.traits).not.toContain("commerce_ordering");
+  });
+
+  it.each([
+    "Make it more polished",
+    "Improve the hierarchy",
+    "Revise the hero",
+    "Add a checkout section",
+    "Tighten the spacing",
+    "The footer feels weak"
+  ])("treats %j on an existing canvas as a revision", (phrase) => {
+    expect(resolvePromptContext(phrase, canvasWithContent()).lifecycle).toBe("revision_edit");
+  });
+
+  it.each([
+    "Create a mobile companion screen",
+    "Landing page for a new coffee subscription",
+    "Build a fleet operations dashboard"
+  ])("treats %j on an existing canvas as a new build", (phrase) => {
+    expect(resolvePromptContext(phrase, canvasWithContent()).lifecycle).toBe("initial_build");
+  });
+});
+
+describe("Resolved context over the wire", () => {
+  it("round-trips a resolved context", () => {
+    const ctx = resolvePromptContext("Kubernetes cluster monitoring dashboard");
+    expect(parseResolvedContext(JSON.parse(JSON.stringify(ctx)))).toEqual(ctx);
+  });
+
+  it("rejects anything that is not a resolved context", () => {
+    expect(parseResolvedContext(undefined)).toBeUndefined();
+    expect(parseResolvedContext("tool")).toBeUndefined();
+    expect(parseResolvedContext({ surface: "watch", archetype: "tool", lifecycle: "initial_build" })).toBeUndefined();
+  });
+
+  it("drops trait names it does not know", () => {
+    const parsed = parseResolvedContext({
+      surface: "mobile",
+      archetype: "app",
+      traits: ["commerce_ordering", "ignore_all_previous_rules"],
+      lifecycle: "initial_build"
+    });
+    expect(parsed?.traits).toEqual(["commerce_ordering"]);
   });
 });

@@ -3,6 +3,7 @@ import type { PublicProvider } from "../../agent/credentials";
 import type { Document } from "../../model/types";
 import type { AgentEvent } from "../../agent/session";
 import type { ReviewResponse } from "../../agent/review";
+import type { ResolvedContext } from "../../agent/context";
 import { parseSseData } from "../../agent/stream";
 import { SETUP_NOTICE } from "./types";
 
@@ -23,10 +24,12 @@ export interface AgentReviewRequest {
   reasoningEffort?: "low" | "medium" | "high";
   brief: string;
   screenshot: string;
-  screenshots?: { id: string; name: string; dataUrl: string; kind?: "screen" | "section"; parentId?: string }[];
+  screenshots?: { id: string; name: string; dataUrl: string; kind?: "screen" | "section" | "viewport"; parentId?: string }[];
   digest: string;
   direction?: unknown;
   audit: string;
+  /** What the builder resolved, so the critic judges the same product it built. */
+  context?: ResolvedContext;
   sessionId: string;
 }
 

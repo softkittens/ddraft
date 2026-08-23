@@ -360,6 +360,14 @@ describe("H4 document tools specification", () => {
     expect(revRes).toContain("reverted \"hero\" and its entire subtree to its initial state");
     expect(session.doc.children[0].children?.[0].height).toBe(200);
     expect((session.doc.children[0].children?.[0].children?.[0] as any).content).toBe("Original Title");
+
+    // Revert also restores a pre-existing subtree after it was deleted.
+    await session.execute("delete_node", { id: "hero" });
+    expect(session.doc.children[0].children).toHaveLength(0);
+    const restoreRes = await session.execute("revert_node", { id: "hero" });
+    expect(restoreRes).toContain("reverted \"hero\"");
+    expect(session.doc.children[0].children?.[0].id).toBe("hero");
+    expect((session.doc.children[0].children?.[0].children?.[0] as any).content).toBe("Original Title");
   });
 
   it("warns about orphaned absolute heights when switching to auto-layout", async () => {

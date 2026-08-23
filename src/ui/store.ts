@@ -3,7 +3,7 @@ import type { Document } from "../model/types";
 import { createHistory, pushDocument, undo as undoDoc, redo as redoDoc, type HistoryState } from "../model/history";
 import { removeNode } from "../model/edit";
 import { layoutResolvedDocument } from "../layout/layout";
-import { resolveInstances } from "../model/instance";
+import { resolveInstances, setInstanceProperty, splitInstanceId } from "../model/instance";
 import { createCamera, zoomAtScreenPoint, calculateFitCamera, type Camera } from "../interaction/camera";
 import { indexDocument } from "../model/tree";
 import { createDefaultDocument } from "../model/defaultDocument";
@@ -260,8 +260,10 @@ export function deleteSelectedNodes() {
   if (ids.size === 0) return;
   let nextDoc = doc();
   for (const rawId of ids) {
-    const targetId = rawId.includes(":") ? rawId.split(":")[0] : rawId;
-    nextDoc = removeNode(nextDoc, targetId);
+    const instanceTarget = splitInstanceId(nextDoc, rawId);
+    nextDoc = instanceTarget
+      ? setInstanceProperty(nextDoc, instanceTarget, "enabled", false)
+      : removeNode(nextDoc, rawId);
   }
   setSelectedIds(new Set<string>());
   if (nextDoc !== doc()) {
@@ -270,8 +272,12 @@ export function deleteSelectedNodes() {
 }
 
 export function deleteNodeById(rawId: string) {
-  const targetId = rawId.includes(":") ? rawId.split(":")[0] : rawId;
-  const nextDoc = removeNode(doc(), targetId);
+  const current = doc();
+  const instanceTarget = splitInstanceId(current, rawId);
+  const targetId = instanceTarget?.refId ?? rawId;
+  const nextDoc = instanceTarget
+    ? setInstanceProperty(current, instanceTarget, "enabled", false)
+    : removeNode(current, targetId);
   setSelectedIds((prev) => {
     const next = new Set(prev);
     next.delete(rawId);

@@ -255,6 +255,27 @@ describe("Styling, Colors & Effects", () => {
     expect(rules(whiteOnGreenBtn)).not.toContain("low_contrast");
   });
 
+  it("blocks icons that disappear into their control surface", () => {
+    const invisibleAction = makeDoc(frame("screen", 390, 844, [
+      frame("add", 44, 44, [{
+        type: "icon", id: "plus", name: "Plus", icon: "plus", width: 20, height: 20,
+        stroke: "$surface-secondary"
+      } as any], {
+        name: "Add Button", fill: "$surface-secondary", cornerRadius: 22,
+        layout: "horizontal", justifyContent: "center", alignItems: "center"
+      })
+    ], { fill: "$surface-primary" }));
+    invisibleAction.variables = {
+      "surface-primary": { type: "color", value: "#FFFFFF" },
+      "surface-secondary": { type: "color", value: "#F8F7FC" }
+    };
+    expectFinding(invisibleAction, "low_contrast", {
+      nodeId: "plus",
+      severity: "blocker",
+      message: /Icon.*3:1/
+    });
+  });
+
   it("evaluates token bypass across literals, multi-fills and gradient stops", () => {
     const withTokens = makeDoc(frame("s", 200, 200, [rect("r", 50, 50, { fill: "#334155" })]));
     withTokens.variables = { "surface-primary": { type: "color", value: "#FFFFFF" } };
@@ -351,6 +372,15 @@ describe("Composition & Anti-Patterns", () => {
     expect(rules(okBtn)).not.toContain("tap_target");
     expectFinding(collapsed, "collapsed_container", { severity: "blocker" });
     expectFinding(emptyFrame, "empty_container", { message: "390x300" });
+  });
+
+  it("does not measure a label separately from its valid interactive parent", () => {
+    const doc = makeDoc(frame("screen", 390, 844, [
+      frame("action", 320, 44, [
+        txt("label", "View cake details", 13, { name: "Photo action label" })
+      ], { name: "Photo action", layout: "horizontal" })
+    ], { layout: "vertical" }));
+    expect(rules(doc)).not.toContain("tap_target");
   });
 
   it("evaluates nested screens and duplicate regions", () => {
@@ -834,6 +864,19 @@ describe("Scoping, Triage & Tool Integration", () => {
     expect(rules(navRow)).not.toContain("icon_alignment");
   });
 
+  it("leaves a centered multi-child cart pill alone", () => {
+    const cart = makeDoc(frame("screen", 390, 844, [
+      frame("cart", 58, 44, [
+        { type: "icon", id: "bag", name: "Bag", icon: "shopping-bag", width: 18, height: 18 } as any,
+        txt("count", "2", 13)
+      ], {
+        name: "Cart Button", layout: "horizontal", justifyContent: "center",
+        alignItems: "center", padding: [0, 10], gap: 6, cornerRadius: 22
+      })
+    ]));
+    expect(rules(cart)).not.toContain("icon_alignment");
+  });
+
   it("flags eyebrow kickers above headings", () => {
     const kickerDoc = makeDoc(
       frame("screen", 390, 844, [
@@ -977,6 +1020,22 @@ describe("Scoping, Triage & Tool Integration", () => {
     });
   });
 
+  it("does not classify ordinary content and action rows as form inputs", () => {
+    const builder = makeDoc(
+      screen("mobile", [
+        frame("box", 350, "fit_content", [
+          frame("item", "fill_container", 56, [txt("name", "Matcha slice", 15)], {
+            name: "Builder row", layout: "horizontal", justifyContent: "space_between", stroke: "$border-subtle"
+          } as any),
+          frame("add", "fill_container", 44, [txt("add-label", "+ Add another flavor", 14)], {
+            name: "Builder add row", layout: "horizontal", justifyContent: "center", stroke: "$border-subtle"
+          } as any)
+        ], { name: "Box builder", layout: "vertical", gap: 12 })
+      ], { width: 390, height: 900 })
+    );
+    expect(rules(builder)).not.toContain("misaligned_inputs");
+  });
+
   it("flags mobile tab bar swipe screens that expand beyond the 844px device viewport", () => {
     const tallMobileDoc = makeDoc(
       frame("screen", 390, 1100, [
@@ -1068,6 +1127,54 @@ describe("Scoping, Triage & Tool Integration", () => {
     expectFinding(scaffoldedDoc, "oversized_section_height", { severity: "blocker" });
   });
 
+  it("finds an oversized hero inside a Storefront Content wrapper with short utility rows", () => {
+    const storefrontDoc = makeDoc(frame("screen", 390, 1448, [
+      frame("storefront", "fill_container", "fit_content", [
+        frame("header", "fill_container", 44, [txt("brand", "Mori & Moss", 20)], { name: "Header" }),
+        frame("search", "fill_container", 48, [txt("query", "What are you craving?", 14)], { name: "Search" }),
+        frame("hero", "fill_container", 574, [
+          txt("headline", "A little matcha magic, made to order.", 44),
+          frame("photo", "fill_container", 250, [], { fill: { type: "image", url: "cake.png" } })
+        ], { name: "Featured Hero", layout: "vertical" }),
+        frame("products", "fill_container", 300, [
+          frame("card-a", 170, 280, [txt("a", "Yuzu Cloud", 16)]),
+          frame("card-b", 170, 280, [txt("b", "Black Sesame", 16)])
+        ], { name: "Product Grid", layout: "horizontal" })
+      ], { name: "Storefront Content", layout: "vertical", gap: 16 })
+    ], { name: "Matcha Cakes", layout: "vertical", metadata: { screenKind: "mobile" } } as any));
+
+    expectFinding(storefrontDoc, "oversized_section_height", {
+      nodeId: "hero",
+      severity: "blocker"
+    });
+  });
+
+  it("does not exempt a tall hero merely because it has photo and action frames", () => {
+    const heroWithStructuralFrames = makeDoc(frame("screen", 390, 1300, [
+      frame("stack", "fill_container", "fit_content", [
+        frame("hero", "fill_container", 520, [
+          txt("hero-title", "A quieter kind of cake", 36),
+          frame("photo", "fill_container", 260, [], {
+            name: "Hero Photo Well",
+            fill: { type: "image", url: "cake.png" }
+          }),
+          frame("action-row", "fill_container", 48, [txt("price", "€18", 16)], {
+            name: "Hero Action Row",
+            layout: "horizontal"
+          })
+        ], { name: "Seasonal Hero", layout: "vertical" }),
+        frame("catalog", "fill_container", 320, [
+          frame("product-a", 170, 280, [], { name: "Product Card A" }),
+          frame("product-b", 170, 280, [], { name: "Product Card B" })
+        ], { name: "Product Grid", layout: "horizontal" })
+      ], { name: "Storefront Stack", layout: "vertical" })
+    ], { metadata: { screenKind: "mobile" }, layout: "vertical" } as any));
+    expectFinding(heroWithStructuralFrames, "oversized_section_height", {
+      nodeId: "hero",
+      severity: "blocker"
+    });
+  });
+
   it("blocks inconsistent action styles across sibling cards in a row", () => {
     const asymmetricCardsDoc = makeDoc(
       screen("mobile", [
@@ -1086,6 +1193,20 @@ describe("Scoping, Triage & Tool Integration", () => {
     expectFinding(asymmetricCardsDoc, "inconsistent_card_actions", {
       severity: "blocker",
       message: /inconsistent action style/
+    });
+  });
+
+  it("blocks commerce rows where every product card is missing an action", () => {
+    const noActions = makeDoc(screen("mobile", [
+      frame("grid", "fill_container", "fit_content", [
+        frame("card1", 170, 240, [txt("t1", "Yuzu Cloud", 16)], { name: "Product Card 1" }),
+        frame("card2", 170, 240, [txt("t2", "Black Sesame", 16)], { name: "Product Card 2" })
+      ], { name: "Product Grid", layout: "horizontal", gap: 12 })
+    ], { width: 390, height: 844 }));
+    expectFinding(noActions, "inconsistent_card_actions", {
+      nodeId: "grid",
+      severity: "blocker",
+      message: /no visible add, buy, cart, or order action/
     });
   });
 });

@@ -21,10 +21,31 @@ function removeFromList(list: PenNode[], id: string): PenNode | null {
   return null;
 }
 
+function propertyValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => propertyValuesEqual(value, right[index]));
+  }
+  if (left && right && typeof left === "object" && typeof right === "object") {
+    const leftRecord = left as Record<string, unknown>;
+    const rightRecord = right as Record<string, unknown>;
+    const leftKeys = Object.keys(leftRecord);
+    const rightKeys = Object.keys(rightRecord);
+    return leftKeys.length === rightKeys.length &&
+      leftKeys.every((name) =>
+        Object.prototype.hasOwnProperty.call(rightRecord, name) &&
+        propertyValuesEqual(leftRecord[name], rightRecord[name])
+      );
+  }
+  return false;
+}
+
 export function setProperty(doc: Document, id: string, key: string, value: unknown): Document {
   const target = findNode(doc.children, id);
   if (!target) return doc;
-  if (Object.is((target as Record<string, unknown>)[key], value)) return doc;
+  if (propertyValuesEqual((target as Record<string, unknown>)[key], value)) return doc;
 
   const newDoc = cloneDocument(doc);
   const cloned = findNode(newDoc.children, id);

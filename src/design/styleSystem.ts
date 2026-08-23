@@ -183,16 +183,26 @@ const MONO_GROUP = "Mono";
 const MONO_SHARE = 0.25;
 
 /** The dealt hand, grouped, so the catalog can print each face beside its job. */
-export function dealTypefaceGroups(seed: number): { label: string; job: string; faces: FontFamily[] }[] {
+export function dealTypefaceGroups(
+  seed: number,
+  avoidedFaces: readonly string[] = []
+): { label: string; job: string; faces: FontFamily[] }[] {
   // Its own stream, so the typefaces a brief is offered do not move with the
   // number of palettes dealt before them.
   const next = dealer((seed ^ 0x27d4eb2d) | 0);
   // Drawn before the loop so the other three groups deal identically whether or
   // not this hand includes mono.
   const monoDraw = next();
+  const avoided = new Set(avoidedFaces.map((face) => face.toLowerCase()));
   return TYPEFACE_GROUPS.flatMap((group) => {
     if (group.label === MONO_GROUP && monoDraw >= MONO_SHARE) return [];
-    return [{ label: group.label, job: group.job, faces: deal([...group.faces], group.deal, next) }];
+    const fresh = group.faces.filter((face) => !avoided.has(face.toLowerCase()));
+    const pool = fresh.length > 0 ? fresh : group.faces;
+    return [{
+      label: group.label,
+      job: group.job,
+      faces: deal([...pool], Math.min(group.deal, pool.length), next)
+    }];
   });
 }
 
@@ -345,10 +355,24 @@ export const PALETTE_HAND_SIZE = 8;
  * about where it is used, and a hand drawn from the whole list would be light
  * almost every time.
  */
-export function styleCatalog(seed: number, handSize = PALETTE_HAND_SIZE): string {
+export interface StyleAvoidance {
+  palettes?: readonly string[];
+  headings?: readonly string[];
+  roundness?: readonly string[];
+  elevation?: readonly string[];
+}
+
+export function styleCatalog(
+  seed: number,
+  handSize = PALETTE_HAND_SIZE,
+  avoidance: StyleAvoidance = {}
+): string {
   const next = dealer(seed);
-  const dark = PALETTES.filter((p) => p.scheme === "dark");
-  const light = PALETTES.filter((p) => p.scheme === "light");
+  const avoidedPalettes = new Set((avoidance.palettes ?? []).map((name) => name.toLowerCase()));
+  const freshPalettes = PALETTES.filter((p) => !avoidedPalettes.has(p.name.toLowerCase()));
+  const palettePool = freshPalettes.length >= handSize ? freshPalettes : PALETTES;
+  const dark = palettePool.filter((p) => p.scheme === "dark");
+  const light = palettePool.filter((p) => p.scheme === "light");
   // Proportional to the catalog, with a floor of two so neither scheme can be
   // absent. An even split would deal dark far above its share and trade one
   // monoculture for another.
@@ -367,13 +391,21 @@ export function styleCatalog(seed: number, handSize = PALETTE_HAND_SIZE): string
   for (const p of hand) lines.push(`  ${p.name} (${p.scheme}) — ${p.mood}`);
   lines.push("");
   lines.push("ROUNDNESS");
-  for (const r of ROUNDNESS) lines.push(`  ${r.name} — ${r.mood}`);
+  const avoidedRoundness = new Set((avoidance.roundness ?? []).map((name) => name.toLowerCase()));
+  const freshRoundness = ROUNDNESS.filter((r) => !avoidedRoundness.has(r.name.toLowerCase()));
+  for (const r of freshRoundness.length >= 2 ? freshRoundness : ROUNDNESS) {
+    lines.push(`  ${r.name} — ${r.mood}`);
+  }
   lines.push("");
   lines.push("ELEVATION");
-  for (const e of ELEVATION) lines.push(`  ${e.name} — ${e.mood}`);
+  const avoidedElevation = new Set((avoidance.elevation ?? []).map((name) => name.toLowerCase()));
+  const freshElevation = ELEVATION.filter((e) => !avoidedElevation.has(e.name.toLowerCase()));
+  for (const e of freshElevation.length >= 2 ? freshElevation : ELEVATION) {
+    lines.push(`  ${e.name} — ${e.mood}`);
+  }
   lines.push("");
   lines.push(`TYPEFACES (choose one each for headings, body, captions)`);
-  for (const group of dealTypefaceGroups(seed)) {
+  for (const group of dealTypefaceGroups(seed, avoidance.headings)) {
     lines.push(`  ${group.label.padEnd(8)}${group.faces.join(", ").padEnd(25)}${group.job}`);
   }
   return lines.join("\n");
@@ -447,10 +479,10 @@ export function styleGuidelines(style: ResolvedStyle): string {
     `  $font-caption  ${choice.captions}   labels, tab labels, metadata, badges`,
     "  Set fontFamily on every text node using these three tokens. Never write a",
     "  family name directly.",
-    "  Scale: 44-64 display · 28-34 screen title · 20-22 section heading ·",
+    "  Scale: 44-64 display · 32-40 compact mobile title · 28-34 screen title · 20-22 section heading ·",
     "  15-17 list title · 13-14 body · 11-12 caption. Never below 11.",
-    "  A tool uses one 44-64 display treatment. A site uses display in the hero,",
-    "  and may use it once more on a ground-shift band.",
+    "  Desktop tools and editorial surfaces use one 44-64 display treatment.",
+    "  Compact mobile apps may use 32-40 instead. A site may use display once more on a ground-shift band.",
     "  Hierarchy comes from weight and scale together: a heading is both larger",
     "  and heavier, never one alone."
   ].join("\n");

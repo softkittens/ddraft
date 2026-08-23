@@ -399,7 +399,24 @@ export const revertNodeTool: DocumentToolDefinition = {
     const initialNode = findNode(ctx.initialDoc.children, targetId);
 
     if (initialNode) {
-      const nextDoc = replaceNode(ctx.doc, targetId, initialNode);
+      let nextDoc: typeof ctx.doc;
+      if (findNode(ctx.doc.children, targetId)) {
+        nextDoc = replaceNode(ctx.doc, targetId, initialNode);
+      } else {
+        const initialParentId = parentIdOf(ctx.initialDoc, targetId);
+        const initialParent = initialParentId
+          ? findNode(ctx.initialDoc.children, initialParentId)
+          : undefined;
+        const initialSiblings = initialParent ? childrenOf(initialParent) : ctx.initialDoc.children;
+        const initialIndex = initialSiblings.findIndex((node) => node.id === targetId);
+        if (initialParentId && !findNode(ctx.doc.children, initialParentId)) {
+          return `error: cannot restore "${targetId}" because its initial parent "${initialParentId}" is missing`;
+        }
+        nextDoc = insertChild(ctx.doc, initialParentId, initialNode, initialIndex);
+      }
+      if (!findNode(nextDoc.children, targetId)) {
+        return `error: could not restore "${targetId}" to its initial state`;
+      }
       ctx.setDoc(nextDoc);
       return `ok: reverted "${targetId}" and its entire subtree to its initial state before this pass.\n${digestSubtree(nextDoc, targetId)}`;
     }

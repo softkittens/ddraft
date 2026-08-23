@@ -3,7 +3,7 @@ import { insertChild, setProperty } from "../../model/edit";
 import { findNode } from "../../model/tree";
 import { digestSubtree } from "../../digest/digest";
 import { layoutResolvedDocument, flattenLayoutTree } from "../../layout/layout";
-import { resolveInstances } from "../../model/instance";
+import { resolveInstances, setInstanceProperty, splitInstanceId } from "../../model/instance";
 import { searchLucideIcons, getLucideIconPath } from "../../model/icons";
 import { generateDesignImage, ImageGenUnavailableError } from "../image_gen";
 import {
@@ -14,9 +14,7 @@ import {
 } from "../../design/photography";
 import {
   type DocumentToolDefinition,
-  digestId,
-  splitInstanceId,
-  setInstanceProperty
+  digestId
 } from "./types";
 
 export const searchIconsTool: DocumentToolDefinition = {

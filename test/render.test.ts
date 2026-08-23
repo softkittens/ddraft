@@ -109,16 +109,21 @@ describe("browser capture", () => {
 
   it("captures dedicated First Viewport fold slice for scrollable mobile screens", async () => {
     const { ctx } = createMockCanvas();
+    const canvases: { width: number; height: number }[] = [];
     Object.defineProperty(globalThis, "document", {
       configurable: true,
       writable: true,
       value: {
-        createElement: () => ({
+        createElement: () => {
+          const canvas = {
           width: 0,
           height: 0,
           getContext: () => ctx,
           toDataURL: () => "data:image/jpeg;base64,xx"
-        }),
+          };
+          canvases.push(canvas);
+          return canvas;
+        },
         fonts: { ready: Promise.resolve() }
       }
     });
@@ -137,6 +142,11 @@ describe("browser capture", () => {
       const foldCap = result.screens.find((s) => s.name.includes("Above-the-Fold View"));
       expect(foldCap).toBeDefined();
       expect(foldCap?.box.height).toBe(844);
+      expect(foldCap?.kind).toBe("viewport");
+      const endCap = result.screens.find((s) => s.name.includes("End-of-Scroll View"));
+      expect(endCap?.kind).toBe("viewport");
+      expect(result.screens.map((s) => s.name)).toContain("Matcha Store — Product Grid");
+      expect(canvases[0].width).toBe(390);
     }
   });
 

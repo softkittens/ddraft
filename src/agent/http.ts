@@ -6,7 +6,8 @@ import {
 } from "./credentials";
 import { isAbortError, runSession, type AgentEvent } from "./session";
 import { complete, type FetchFn, type ReasoningEffort } from "./provider";
-import { criticMessages, parseDesignReview, sectionCriticMessages } from "./critic";
+import { criticMessages, parseDesignReview } from "./critic";
+import { parseResolvedContext } from "./context";
 import type { ReviewResponse } from "./review";
 import type { StyleRun } from "../design/history";
 import { createSessionLog } from "./sessionLog";
@@ -20,6 +21,8 @@ function isStyleRun(value: unknown): value is StyleRun {
   const run = value as Record<string, unknown>;
   return ["at", "brief", "palette", "headings", "elevation"].every(
     (key) => typeof run[key] === "string"
+  ) && ["roundness", "thesis", "firstViewport"].every(
+    (key) => run[key] === undefined || typeof run[key] === "string"
   );
 }
 
@@ -114,6 +117,7 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
       digest?: unknown;
       direction?: unknown;
       audit?: unknown;
+      context?: unknown;
       sessionId?: unknown;
     };
     try {
@@ -131,7 +135,7 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
 
     const screenshots = Array.isArray(body.screenshots)
       ? body.screenshots.filter(
-          (s): s is { id?: string; name?: string; dataUrl: string; kind?: "screen" | "section"; parentId?: string } =>
+          (s): s is { id?: string; name?: string; dataUrl: string; kind?: "screen" | "section" | "viewport"; parentId?: string } =>
             Boolean(s && typeof s === "object" && typeof (s as any).dataUrl === "string" && IMAGE_DATA_URL.test((s as any).dataUrl))
         )
       : undefined;
@@ -152,7 +156,8 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
       screenshots: screenshots && screenshots.length > 0 ? screenshots : undefined,
       digest: body.digest,
       direction: designDirection(body.direction),
-      audit: typeof body.audit === "string" ? body.audit : undefined
+      audit: typeof body.audit === "string" ? body.audit : undefined,
+      context: parseResolvedContext(body.context)
     });
     const log = deps.logDir ? createSessionLog(deps.logDir, body.sessionId) : null;
     const designModel = provider.model;
@@ -194,74 +199,17 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
           messages
         });
         try {
-          const sectionSlices = (screenshots || []).filter((s) => s.kind === "section");
-          let review: ReviewResponse;
-
-          if (sectionSlices.length > 0) {
-            const sectionPromises = sectionSlices.map(async (sec) => {
-              const secMessages = sectionCriticMessages({
-                brief: typeof body.brief === "string" ? body.brief : String(body.brief || ""),
-                section: sec,
-                digest: typeof body.digest === "string" ? body.digest : String(body.digest || "")
-              });
-              try {
-                const secReply = await complete(provider!, secMessages, { fetch: deps.fetch, signal: req.signal });
-                const secParsed = extractJson(typeof secReply.content === "string" ? secReply.content : "");
-                return { sec, review: parseDesignReview(secParsed, typeof body.digest === "string" ? body.digest : String(body.digest || "")) };
-              } catch {
-                return null;
-              }
-            });
-
-            const overviewPromise = complete(provider, messages, { fetch: deps.fetch, signal: req.signal });
-            const [overviewReply, ...sectionResults] = await Promise.all([overviewPromise, ...sectionPromises]);
-
-            log?.write({ type: "review_response", model: provider.model, response: overviewReply });
-            const parsed = extractJson(typeof overviewReply.content === "string" ? overviewReply.content : "");
-            const overviewReview = parseDesignReview(parsed, body.digest);
-
-            const allIssues = [...overviewReview.issues];
-            const allFixes = [...(overviewReview.fixes || [])];
-            let hasRefine = overviewReview.verdict === "refine";
-
-            for (const item of sectionResults) {
-              if (!item) continue;
-              const { sec, review: sr } = item;
-              const secName = sec.name || `Section #${sec.id}`;
-              if (sr.verdict === "refine") {
-                hasRefine = true;
-                for (const issue of sr.issues) {
-                  const title = issue.title.startsWith("[") ? issue.title : `[${secName}] ${issue.title}`;
-                  allIssues.push({ ...issue, title });
-                }
-              }
-              if (sr.fixes) allFixes.push(...sr.fixes);
-            }
-
-            const finalScores = { ...overviewReview.scores };
-            if (hasRefine) {
-              finalScores.craft = Math.min(finalScores.craft || 5, 2);
-              finalScores.usability = Math.min(finalScores.usability || 5, 2);
-              finalScores.hierarchy = Math.min(finalScores.hierarchy || 5, 3);
-              finalScores.specificity = Math.min(finalScores.specificity || 5, 3);
-            }
-
-            review = {
-              ...overviewReview,
-              verdict: hasRefine ? "refine" : "pass",
-              scores: finalScores,
-              issues: allIssues.slice(0, 4),
-              fixes: allFixes.slice(0, 12)
-            };
-          } else {
-            const reply = await complete(provider, messages, {
-              fetch: deps.fetch,
-              signal: req.signal
-            });
-            log?.write({ type: "review_response", model: provider.model, response: reply });
-            const parsed = extractJson(typeof reply.content === "string" ? reply.content : "");
-            review = parseDesignReview(parsed, body.digest);
-          }
+          // The overview request already receives the full screen and every
+          // high-resolution section close-up. A second model call per section
+          // duplicated the same evidence, doubled review cost, and could drag
+          // a sound overview verdict down with a narrow crop-only opinion.
+          const reply = await complete(provider, messages, {
+            fetch: deps.fetch,
+            signal: req.signal
+          });
+          log?.write({ type: "review_response", model: provider.model, response: reply });
+          const parsed = extractJson(typeof reply.content === "string" ? reply.content : "");
+          const review: ReviewResponse = parseDesignReview(parsed, body.digest);
 
           const response: ReviewResponse = {
             ...review,

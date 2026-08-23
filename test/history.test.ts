@@ -37,6 +37,34 @@ describe("Style history", () => {
     expect(note).toContain("not habit");
   });
 
+  it("records same-brief composition and requires a materially different rerun", () => {
+    const basePrompt = agentSystemPrompt(
+      makeDoc(), [], "m", 0, [], "Playful ordering app for matcha cakes"
+    );
+    const previouslyOffered = basePrompt.match(/PALETTES[\s\S]*?\n  ([^(\n]+) \((?:light|dark)\)/)?.[1]?.trim();
+    expect(previouslyOffered).toBeDefined();
+    const previous: StyleRun = {
+      ...run("Playful ordering app for matcha cakes", previouslyOffered!),
+      roundness: "Rounded",
+      firstViewport: "Header, search, dark hero, two cards, promo, bottom tabs."
+    };
+    const prompt = agentSystemPrompt(
+      makeDoc(),
+      [],
+      "m",
+      0,
+      [previous],
+      "Playful ordering app for matcha cakes"
+    );
+    expect(prompt).toContain("PREVIOUS RESULTS FOR THIS SAME BRIEF");
+    expect(prompt).toContain("Header, search, dark hero");
+    expect(prompt).toContain("materially different dominant composition");
+    const offeredPalettes = prompt.split("ROUNDNESS")[0];
+    expect(offeredPalettes).not.toMatch(new RegExp(`  ${previouslyOffered} \\((light|dark)\\)`));
+    const roundnessBlock = prompt.split("ROUNDNESS")[1]?.split("ELEVATION")[0] ?? "";
+    expect(roundnessBlock).not.toContain("  Rounded —");
+  });
+
   it("reaches the prompt only when the model is about to choose", () => {
     const history = [run("a cat app", "Spring Meadow")];
     const fresh = makeDoc();

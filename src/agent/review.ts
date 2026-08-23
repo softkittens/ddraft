@@ -3,8 +3,39 @@ import type { Document } from "../model/types";
 import { findNode } from "../model/tree";
 import { setProperty } from "../model/edit";
 import { digestSubtree } from "../digest/digest";
-import { HARD_MIN_FONT_SIZE } from "../design/evaluator";
-import type { AuditFinding } from "../design/helpers";
+import { auditDocument, HARD_MIN_FONT_SIZE } from "../design/evaluator";
+import type { AuditFinding, AuditSeverity } from "../design/helpers";
+
+/**
+ * How far down a deterministic finding is allowed to push the critic's scores.
+ *
+ * The rubric reserves 2 for a material hierarchy, legibility or interaction
+ * failure and puts a localized craft issue at 3-4. Enforcement used to clamp
+ * every finding to 2 regardless of severity, so a single localized accent
+ * warning came back as hierarchy 2 / craft 2 — and the revision the agent then
+ * wrote was scoped to match the score, not the finding. A finding now lowers a
+ * score to its own severity's floor and no further.
+ */
+const SEVERITY_SCORE_FLOOR: Record<AuditSeverity, number> = {
+  blocker: 2,
+  warning: 3,
+  info: 4
+};
+
+/**
+ * The findings that actually speak to hierarchy. Everything else in the
+ * enforced set is craft — an alignment, a baseline, a margin — and marking
+ * hierarchy down for a staggered button baseline asks for a rebuild of the
+ * page when the defect is one row of buttons.
+ */
+const HIERARCHY_RULES = new Set<AuditFinding["rule"]>([
+  "missing_display",
+  "undersized_subject",
+  "false_floor",
+  "empty_tail",
+  "oversized_section_height",
+  "accent_overuse"
+]);
 
 /* ------------------------------------------------------------------ *
  * Fixes the critic can apply itself.
@@ -170,6 +201,31 @@ export interface AppliedFixes {
   rejected: string[];
 }
 
+const AUDIT_RISK: Record<AuditFinding["severity"], number> = {
+  info: 0,
+  warning: 1,
+  blocker: 2
+};
+
+/**
+ * A direct property correction is only safe if it does not introduce a new
+ * measured warning/blocker. Apply fixes independently so one bad suggestion
+ * cannot discard the useful fixes beside it.
+ */
+function introducesAuditRegression(before: AuditFinding[], after: AuditFinding[]): boolean {
+  const previousRisk = new Map<string, number>();
+  for (const finding of before) {
+    const key = `${finding.rule}:${finding.nodeId}`;
+    previousRisk.set(key, Math.max(previousRisk.get(key) ?? -1, AUDIT_RISK[finding.severity]));
+  }
+
+  return after.some((finding) => {
+    if (finding.severity === "info") return false;
+    const key = `${finding.rule}:${finding.nodeId}`;
+    return AUDIT_RISK[finding.severity] > (previousRisk.get(key) ?? -1);
+  });
+}
+
 /**
  * Apply the critic's property fixes straight to the document. Returns the
  * document unchanged when nothing survives, so the caller can tell whether a
@@ -178,6 +234,7 @@ export interface AppliedFixes {
 export function applyReviewFixes(doc: Document, review: DesignReview): AppliedFixes {
   const applied: string[] = [];
   const rejected: string[] = [];
+  const coordinated: NonNullable<DesignReview["fixes"]> = [];
   let next = doc;
 
   for (const fix of review.fixes ?? []) {
@@ -189,16 +246,82 @@ export function applyReviewFixes(doc: Document, review: DesignReview): AppliedFi
       rejected.push(`${fix.nodeId}.${fix.property}`);
       continue;
     }
+    const beforeAudit = auditDocument(next);
     const updated = setProperty(next, fix.nodeId, fix.property, fix.value);
     if (updated === next) {
       // Already at that value. Not a failure, but not progress either.
+      continue;
+    }
+    if (introducesAuditRegression(beforeAudit, auditDocument(updated))) {
+      coordinated.push(fix);
       continue;
     }
     next = updated;
     applied.push(`${fix.nodeId}.${fix.property}`);
   }
 
+  // Some visually safe corrections are only safe as a pair. Changing a
+  // button fill before its label colour (or vice versa) creates a temporary
+  // contrast warning even though the completed pair removes it. Retry only
+  // the individually unsafe suggestions as one transaction, and accept the
+  // group only when the completed canvas introduces no measured regression.
+  if (coordinated.length > 0) {
+    const beforeAudit = auditDocument(next);
+    let candidate = next;
+    const changed: string[] = [];
+    for (const fix of coordinated) {
+      const updated = setProperty(candidate, fix.nodeId, fix.property, fix.value);
+      if (updated !== candidate) {
+        candidate = updated;
+        changed.push(`${fix.nodeId}.${fix.property}`);
+      }
+    }
+    if (changed.length > 0 && !introducesAuditRegression(beforeAudit, auditDocument(candidate))) {
+      next = candidate;
+      applied.push(...changed);
+    } else {
+      rejected.push(...coordinated.map((fix) => `${fix.nodeId}.${fix.property}`));
+    }
+  }
+
   return { doc: next, applied, rejected };
+}
+
+/** Turn a failed deterministic correction back into an agent-owned revision. */
+export function enforceRejectedFixes(
+  review: DesignReview,
+  rejected: string[]
+): DesignReview {
+  if (rejected.length === 0) return review;
+
+  const rejectedSet = new Set(rejected);
+  const rejectedFixes = (review.fixes ?? []).filter((fix) =>
+    rejectedSet.has(`${fix.nodeId}.${fix.property}`)
+  );
+  const nodeIds = [...new Set(rejectedFixes.map((fix) => fix.nodeId))];
+  const properties = rejectedFixes.map((fix) => `${fix.nodeId}.${fix.property}`).join(", ");
+
+  // A rejected fix means a measured regression was caught before it landed —
+  // nothing changed on the canvas. That is worth a refine and one issue, not
+  // the blocker-level 2 the rubric reserves for a screen you cannot use.
+  return {
+    ...review,
+    verdict: "refine",
+    scores: {
+      ...review.scores,
+      usability: Math.min(review.scores.usability, SEVERITY_SCORE_FLOOR.warning),
+      craft: Math.min(review.scores.craft, SEVERITY_SCORE_FLOOR.warning)
+    },
+    issues: [
+      ...review.issues,
+      {
+        title: "Unsafe automatic correction",
+        reason: `The proposed direct correction (${properties}) introduced a measured design regression and was not applied.`,
+        instruction: "Correct the cited element with coordinated canvas changes, then verify its contrast, alignment, and surrounding layout.",
+        nodeIds
+      }
+    ]
+  };
 }
 
 /**
@@ -266,11 +389,24 @@ export function enforceAuditFindings(
   review: DesignReview,
   findings: AuditFinding[]
 ): DesignReview {
+  const reviewBlockingRules = new Set<AuditFinding["rule"]>([
+    "cropped_photography",
+    "oversized_section_height",
+    "empty_tail",
+    "icon_alignment",
+    "uneven_card_heights",
+    "misaligned_buttons",
+    "inconsistent_card_actions",
+    "accent_overuse",
+    "false_floor",
+    "missing_product_image",
+    "undersized_subject",
+    "missing_display"
+  ]);
   const severeFindings = findings.filter(
     (f) =>
       f.severity === "blocker" ||
-      f.rule === "cropped_photography" ||
-      f.rule === "oversized_section_height"
+      reviewBlockingRules.has(f.rule)
   );
   if (severeFindings.length === 0) return review;
 
@@ -298,13 +434,18 @@ export function enforceAuditFindings(
     }
   }
 
+  const floor = Math.min(...severeFindings.map((f) => SEVERITY_SCORE_FLOOR[f.severity]));
+  const hierarchyFloor = severeFindings.some((f) => HIERARCHY_RULES.has(f.rule))
+    ? floor
+    : review.scores.hierarchy;
+
   return {
     ...review,
     verdict: "refine",
     scores: {
       ...review.scores,
-      craft: Math.min(review.scores.craft, 2),
-      hierarchy: Math.min(review.scores.hierarchy, 2)
+      craft: Math.min(review.scores.craft, floor),
+      hierarchy: Math.min(review.scores.hierarchy, hierarchyFloor)
     },
     issues: nextIssues
   };

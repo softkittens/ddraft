@@ -3,14 +3,12 @@ import { setProperty } from "../../model/edit";
 import { childrenOf, findNode, findParent } from "../../model/tree";
 import { digestSubtree } from "../../digest/digest";
 import { layoutResolvedDocument, flattenLayoutTree } from "../../layout/layout";
-import { resolveInstances } from "../../model/instance";
+import { resolveInstances, setInstanceProperty, splitInstanceId } from "../../model/instance";
 import {
   type DocumentToolDefinition,
   ALLOWED_PROPERTIES,
   GEOMETRY_PROPERTIES,
   digestId,
-  splitInstanceId,
-  setInstanceProperty,
   applyIconRename,
   screenSizeError,
   measuredNote,

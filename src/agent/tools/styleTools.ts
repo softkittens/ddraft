@@ -50,7 +50,15 @@ export const setStyleTool: DocumentToolDefinition = {
       },
       firstViewport: {
         type: "string",
-        description: "Exact first-screen composition, including dominant element and scale"
+        /*
+         * Intent, not geometry. This used to ask for the "exact first-screen
+         * composition", which the builder then treated as a specification and
+         * the critic as a rough sketch — the two of them pushed a hero between
+         * left and right across passes because they were reading the same
+         * sentence under different contracts.
+         */
+        description:
+          "The first screen's intent: the focal subject, the hierarchy around it, and the first action a visitor can see. Do not lock an exact left/right topology before layout, and describe only what a static canvas can show — not sticky, persistent or animated behaviour."
       }
     },
     required: [
@@ -92,7 +100,9 @@ export const setStyleTool: DocumentToolDefinition = {
       `DIRECTION — ${direction.thesis}`,
       `OWN WORLD — ${direction.ownWorld}`,
       `FIRST VIEWPORT — ${direction.firstViewport}`,
-      "Build and review against this contract. If the canvas contradicts it, revise the canvas.",
+      "Build and review against this contract as intent, not geometry. Where the",
+      "canvas reads stronger than the arrangement you first imagined, keep the",
+      "stronger canvas.",
       "",
       styleGuidelines(style)
     ].join("\n");
