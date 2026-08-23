@@ -10,9 +10,57 @@ import type { DesignDirection } from "../design/styleSystem";
 import { designReviewSchema, isValidFixValue, SAFE_FIX_PROPERTIES, type DesignReview } from "./review";
 import { rules } from "./rules";
 
-export const CRITIC_PROMPT = rules("critic", {
+import { resolvePromptContext } from "./context";
+
+export const BASE_CRITIC_PROMPT = rules("critic", {
   fixableProperties: Object.keys(SAFE_FIX_PROPERTIES).join(", ")
 });
+
+export const CRITIC_PROMPT = BASE_CRITIC_PROMPT;
+
+export function buildCriticSystemPrompt(brief: string): string {
+  const ctx = resolvePromptContext(brief, undefined, undefined, undefined);
+  const sections = [BASE_CRITIC_PROMPT];
+  const domainAdditions: string[] = [];
+
+  if (ctx.traits.includes("commerce_ordering")) {
+    domainAdditions.push(
+      `DOMAIN-SPECIFIC CRITERIA — E-COMMERCE & FOOD ORDERING APP:`,
+      `- Scroll Affordance vs Clipping: Multi-section commerce & food ordering feeds are SCROLLABLE feeds (1100–1600px tall). On scrollable feeds, having product cards or the catalog heading peek across the first 844px fold is INTENDED scroll affordance, NOT clipped content! Do NOT ask the agent to squish the catalog or shrink product cards into a single 844px screen.`,
+      `- Sibling Card Action Consistency: Every product card offering an item must have matching circular quick-add (+) button containers and bold itemized prices (e.g. "€8.50"). Never accept one card with a styled circular button and a sibling card with a naked text "+" glyph!`,
+      `- Real Photography: Every product card MUST show real generated food photography (no blank tinted placeholder boxes).`,
+      `- Compact Hero: The hero card must be compact (220px–340px) so the catalog preview starts above the 844px fold.`
+    );
+  }
+
+  if (ctx.traits.includes("swipe_discovery")) {
+    domainAdditions.push(
+      `DOMAIN-SPECIFIC CRITERIA — CARD SWIPE / SOCIAL DISCOVERY:`,
+      `- Single-Viewport Ceiling: All elements (header, photo card, bio/tags, thumb dock, and tab bar) MUST fit within the 844px viewport without vertical scrolling.`,
+      `- Thumb Dock Reach: Centered horizontal action bar with distinct circular buttons (Pass, Star, Like in solid accent).`
+    );
+  }
+
+  if (ctx.archetype === "site") {
+    domainAdditions.push(
+      `DOMAIN-SPECIFIC CRITERIA — MARKETING SITE & LANDING PAGE:`,
+      `- Information Architecture Depth: The site must have substance and rhythm across 6–8 distinct narrative sections (First Viewport, Spaces/Showcase, Amenities/Specs, Stories, Pricing comparison, Multi-column footer). Do not pass an under-generated site stub with only 2–3 sections.`
+    );
+  }
+
+  if (ctx.archetype === "tool") {
+    domainAdditions.push(
+      `DOMAIN-SPECIFIC CRITERIA — DASHBOARD & OPERATIONS CONSOLE:`,
+      `- Density & Complete Columns: Multi-column layout with sidebar navigation, metric tiles visibly encoding numbers, operational tables/queues, and columns reaching the bottom of the viewport.`
+    );
+  }
+
+  if (domainAdditions.length > 0) {
+    sections.push("\n\n" + domainAdditions.join("\n"));
+  }
+
+  return sections.join("\n");
+}
 
 export function criticMessages(input: {
   brief: string;
@@ -54,7 +102,7 @@ export function criticMessages(input: {
   }
 
   return [
-    { role: "system", content: CRITIC_PROMPT },
+    { role: "system", content: buildCriticSystemPrompt(input.brief) },
     {
       role: "user",
       content: contentParts

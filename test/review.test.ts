@@ -39,6 +39,32 @@ describe("design review contract", () => {
     expect(Array.isArray(messages[1].content)).toBe(true);
   });
 
+  it("injects domain-specific review criteria based on the design brief", () => {
+    const foodMessages = criticMessages({
+      brief: "Playful ordering app for matcha cakes",
+      screenshotDataUrl: "data:image/png;base64,xx",
+      digest: "title Home"
+    });
+    expect(String(foodMessages[0].content)).toContain("E-COMMERCE & FOOD ORDERING APP");
+    expect(String(foodMessages[0].content)).toContain("Scroll Affordance vs Clipping");
+    expect(String(foodMessages[0].content)).toContain("Sibling Card Action Consistency");
+
+    const swipeMessages = criticMessages({
+      brief: "Mobile cat adoption swipe cards app",
+      screenshotDataUrl: "data:image/png;base64,xx",
+      digest: "title Home"
+    });
+    expect(String(swipeMessages[0].content)).toContain("CARD SWIPE / SOCIAL DISCOVERY");
+    expect(String(swipeMessages[0].content)).toContain("Single-Viewport Ceiling");
+
+    const opsMessages = criticMessages({
+      brief: "Telemetry ops dashboard for server clusters",
+      screenshotDataUrl: "data:image/png;base64,xx",
+      digest: "title Home"
+    });
+    expect(String(opsMessages[0].content)).toContain("DASHBOARD & OPERATIONS CONSOLE");
+  });
+
   it("gives the critic the recorded direction contract", () => {
     const messages = criticMessages({
       brief: "A reading site",

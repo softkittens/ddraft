@@ -60,6 +60,7 @@ import {
   checkTextOnTextCollisions,
   checkCardRowButtonBaselines,
   checkCardRowHeights,
+  checkSiblingCardActionConsistency,
   checkStrayOrphanCharacters,
   checkTextOverlappingFrames,
   checkFormInputAlignment,
@@ -123,6 +124,7 @@ const AUDIT_RULES: AuditRuleRunner[] = [
   checkTextOverlappingFrames,
   checkCardRowButtonBaselines,
   checkCardRowHeights,
+  checkSiblingCardActionConsistency,
   checkFormInputAlignment,
   checkStrayOrphanCharacters,
   checkSegmentedPillDistribution

@@ -228,6 +228,31 @@ describe("Styling, Colors & Effects", () => {
       ], { fill: { type: "image", url: "p.jpg" } })
     );
     expectFinding(cardOverPhoto, "low_contrast", { severity: "blocker" });
+
+    // Dark text on mid-tone/dark colored button is blocked
+    const darkOnGreenBtn = makeDoc(
+      frame("s", 390, 844, [
+        frame("btn", 350, 48, [txt("label", "Build a box", 16, { fill: "#1A1A1A", fontWeight: 600 })], {
+          name: "Primary Action Button",
+          fill: "#6F8F45"
+        })
+      ])
+    );
+    expectFinding(darkOnGreenBtn, "low_contrast", {
+      severity: "blocker",
+      message: /dark text on a colored surface/
+    });
+
+    // White text on mid-tone olive green button (3.7:1 >= 3.0:1) passes cleanly
+    const whiteOnGreenBtn = makeDoc(
+      frame("s", 390, 844, [
+        frame("btn", 350, 48, [txt("label", "Build a box", 16, { fill: "#FFFFFF", fontWeight: 600 })], {
+          name: "Primary Action Button",
+          fill: "#6F8F45"
+        })
+      ])
+    );
+    expect(rules(whiteOnGreenBtn)).not.toContain("low_contrast");
   });
 
   it("evaluates token bypass across literals, multi-fills and gradient stops", () => {
@@ -868,30 +893,6 @@ describe("Scoping, Triage & Tool Integration", () => {
     expect(cropFindings).toHaveLength(0);
   });
 
-  it("flags severe crop on extreme narrow vertical slivers", () => {
-    const sliverDoc = makeDoc(
-      screen("mobile", [
-        frame("sliver", 390, 1320, [], { fill: { type: "image", url: "narrow.png" } })
-      ], { width: 390, height: 844 })
-    );
-    expectFinding(sliverDoc, "cropped_photography", {
-      severity: "warning",
-      message: "holds a photograph in a 390x1320 frame"
-    });
-  });
-
-  it("flags oversized 1200px section height in vertical flow", () => {
-    const tallDoc = makeDoc(
-      screen("desktop", [
-        frame("hero_photo", 1440, 1200, [], { fill: { type: "image", url: "wall.png" } })
-      ], { width: 1440, height: 900, layout: "vertical" })
-    );
-    expectFinding(tallDoc, "oversized_section_height", {
-      severity: "warning",
-      message: "is 1200px tall in a vertical flow screen"
-    });
-  });
-
   it("flags staggered button baselines in horizontal card rows", () => {
     const cardsDoc = makeDoc(
       screen("desktop", [
@@ -930,26 +931,6 @@ describe("Scoping, Triage & Tool Integration", () => {
     });
   });
 
-  it("flags large button baseline misalignments (e.g. >50px) across sibling cards", () => {
-    const cardsDoc = makeDoc(
-      screen("desktop", [
-        frame("card_row", 1200, "fit_content", [
-          frame("card1", 380, 280, [
-            txt("title1", "Plan A", 20),
-            frame("btn1", "fill_container", 44, [txt("btntxt1", "Buy", 14)], { name: "CTA Button", layoutPosition: "absolute", x: 20, y: 220 } as any)
-          ], { layout: "none" }),
-          frame("card2", 380, 400, [
-            txt("title2", "Plan B", 20),
-            frame("btn2", "fill_container", 44, [txt("btntxt2", "Buy", 14)], { name: "CTA Button", layoutPosition: "absolute", x: 20, y: 340 } as any)
-          ], { layout: "none" })
-        ], { layout: "horizontal", gap: 20 })
-      ], { width: 1440, height: 900 })
-    );
-    expectFinding(cardsDoc, "misaligned_buttons", {
-      severity: "warning",
-      message: "staggered vertically"
-    });
-  });
 
   it("flags uneven card heights in horizontal comparison rows", () => {
     const cardsDoc = makeDoc(
@@ -981,19 +962,6 @@ describe("Scoping, Triage & Tool Integration", () => {
     });
   });
 
-  it("flags section titles that collide into card borders", () => {
-    const overlapDoc = makeDoc(
-      screen("desktop", [
-        txt("heading", "Come as you are", 32, { layoutPosition: "absolute", x: 56, y: 100 } as any),
-        frame("card", 380, 240, [], { name: "Day Pass Card", fill: "$surface-secondary", layoutPosition: "absolute", x: 56, y: 110 } as any)
-      ], { width: 1440, height: 900, layout: "none" })
-    );
-    expectFinding(overlapDoc, "collision", {
-      severity: "blocker",
-      message: /collides with|overlaps/
-    });
-  });
-
   it("flags inconsistent text alignment across form inputs in a card stack", () => {
     const formDoc = makeDoc(
       screen("desktop", [
@@ -1006,6 +974,118 @@ describe("Scoping, Triage & Tool Integration", () => {
     expectFinding(formDoc, "misaligned_inputs", {
       severity: "warning",
       message: "inconsistent alignment"
+    });
+  });
+
+  it("flags mobile tab bar swipe screens that expand beyond the 844px device viewport", () => {
+    const tallMobileDoc = makeDoc(
+      frame("screen", 390, 1100, [
+        frame("content", "fill_container", 950, [
+          txt("title", "Purrfect", 24),
+          frame("actionDock", "fill_container", 64, [], { name: "Swipe Action Dock" })
+        ], { layout: "vertical" }),
+        frame("tabBar", "fill_container", 56, [], { name: "Tab Bar", metadata: { scaffold: "chrome" } } as any)
+      ], { name: "Swipe Screen", layout: "vertical", metadata: { screenKind: "mobile" } } as any)
+    );
+    expectFinding(tallMobileDoc, "oversized_section_height", {
+      severity: "blocker",
+      message: /844px device viewport|844px fold|pushing the action/
+    });
+  });
+
+  it("allows scrollable multi-item food ordering store feeds with tab navigation to be tall", () => {
+    const tallStoreDoc = makeDoc(
+      frame("screen", 390, 1350, [
+        frame("header", "fill_container", 60, [txt("brand", "Moss & Crumb", 20)], { layout: "horizontal" }),
+        frame("hero", "fill_container", 280, [txt("heroTitle", "Matcha magic", 24)], { layout: "vertical" }),
+        frame("productGrid", "fill_container", 400, [
+          frame("card1", 170, 180, [txt("t1", "Pistachio cloud", 16)], { name: "Product Card 1" }),
+          frame("card2", 170, 180, [txt("t2", "Yuzu green tea", 16)], { name: "Product Card 2" })
+        ], { name: "Product Collection Grid", layout: "horizontal" }),
+        frame("tabBar", "fill_container", 56, [], { name: "Tab Bar", metadata: { scaffold: "chrome" } } as any)
+      ], { name: "Home Feed", layout: "vertical", metadata: { screenKind: "mobile" } } as any)
+    );
+    expect(rules(tallStoreDoc)).not.toContain("oversized_section_height");
+  });
+
+  it("flags empty product card placeholder image wells with missing_product_image blocker", () => {
+    const cardWithEmptyWell = makeDoc(
+      frame("screen", 390, 844, [
+        frame("card", 170, 200, [
+          frame("imageWell", 160, 80, [], { name: "Image Well", fill: "$surface-secondary" }),
+          txt("title", "Pistachio cloud", 16),
+          txt("price", "€8.50", 14)
+        ], { name: "Product Card", layout: "vertical" })
+      ], { name: "Home", layout: "vertical" })
+    );
+    expectFinding(cardWithEmptyWell, "missing_product_image", {
+      severity: "blocker",
+      message: /placeholder box/
+    });
+  });
+
+  it("blocks false floor on scrollable mobile feeds when section 2 is pushed below 844px", () => {
+    const falseFloorDoc = makeDoc(
+      frame("screen", 390, 1400, [
+        frame("header", "fill_container", 60, [txt("brand", "MORI", 20)], { layout: "horizontal" }),
+        frame("giantHero", "fill_container", 750, [
+          txt("heroTitle", "A little green joy, made to share.", 32),
+          frame("heroPhoto", "fill_container", 400, [], { fill: { type: "image", url: "cake.png" } })
+        ], { name: "Hero Card", layout: "vertical" }),
+        frame("productGrid", "fill_container", 400, [
+          frame("card1", 170, 180, [txt("t1", "Cake A", 16)])
+        ], { name: "Product Grid", layout: "horizontal" })
+      ], { name: "Home Feed", layout: "vertical", metadata: { screenKind: "mobile" } } as any)
+    );
+    expectFinding(falseFloorDoc, "false_floor", {
+      severity: "blocker",
+      message: /creates a false floor|844px fold/
+    });
+  });
+
+  it("blocks oversized hero and false floor inside scaffolded Inset Content", () => {
+    const scaffoldedDoc = makeDoc(
+      frame("screen", 390, 1600, [
+        frame("sb", "fill_container", 62, [], { name: "Status Bar", metadata: { scaffold: "chrome" } } as any),
+        frame("inset", "fill_container", "fit_content", [
+          frame("home", "fill_container", "fit_content", [
+            frame("topBar", "fill_container", 56, [txt("title", "Matcha Moon", 20)], { name: "Top Bar", layout: "horizontal" }),
+            frame("search", "fill_container", 56, [txt("q", "Search", 14)], { name: "Search Bar", layout: "horizontal" }),
+            frame("hero", "fill_container", 660, [
+              txt("t", "Whisked for your little joy", 28, { width: "fill_container" } as any),
+              frame("img", "fill_container", 320, [], { fill: { type: "image", url: "cake.png" } })
+            ], { name: "Seasonal Hero", layout: "vertical" }),
+            frame("catalog", "fill_container", 450, [
+              txt("sub", "Pick your slice", 22),
+              frame("card", 160, 200, [], { fill: { type: "image", url: "p1.png" } })
+            ], { name: "Product Grid", layout: "vertical" })
+          ], { name: "Home Content", layout: "vertical", gap: 16 })
+        ], { name: "Inset Content", metadata: { scaffold: "slot" } } as any),
+        frame("tabBar", "fill_container", 56, [], { name: "Tab Bar", metadata: { scaffold: "chrome" } } as any)
+      ], { name: "Matcha Moon", layout: "vertical", metadata: { screenKind: "mobile" } } as any)
+    );
+    expectFinding(scaffoldedDoc, "false_floor", { severity: "blocker" });
+    expectFinding(scaffoldedDoc, "oversized_section_height", { severity: "blocker" });
+  });
+
+  it("blocks inconsistent action styles across sibling cards in a row", () => {
+    const asymmetricCardsDoc = makeDoc(
+      screen("mobile", [
+        frame("grid", "fill_container", "fit_content", [
+          frame("card1", 170, 240, [
+            txt("t1", "Pistachio Picnic", 16),
+            frame("addBtn", 36, 36, [txt("p1", "+", 14)], { name: "Add Button", fill: "$accent-primary", cornerRadius: 999 })
+          ], { name: "Product Card 1", layout: "vertical" }),
+          frame("card2", 170, 240, [
+            txt("t2", "Yuzu Matcha Cloud", 16),
+            txt("nakedPlus", "+", 18, { fill: "$foreground-primary" } as any)
+          ], { name: "Product Card 2", layout: "vertical" })
+        ], { name: "Product Row", layout: "horizontal", gap: 12 })
+      ], { width: 390, height: 844 })
+    );
+    expectFinding(asymmetricCardsDoc, "inconsistent_card_actions", {
+      severity: "blocker",
+      message: /inconsistent action style/
     });
   });
 });

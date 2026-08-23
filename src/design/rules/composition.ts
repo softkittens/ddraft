@@ -169,7 +169,7 @@ export function checkNestedScreens(ctx: AuditContext): AuditFinding[] {
           "nested_screen",
           node.id,
           `"${node.name ?? node.id}" is a screen built inside the screen "${outerScreen.name ?? outerScreen.id}". The outer frame grows to hold both.`,
-          "Each screen is its own top-level frame on the canvas. Delete this node and insert it again with insert_node and no parentId."
+          "Each screen is its own top-level frame on the canvas. Move this screen to the canvas with move_node(id, newParentId: 'canvas'), or delete the inner duplicate status bar."
         )
       );
     }
@@ -252,7 +252,22 @@ export function checkEmptyContainers(ctx: AuditContext): AuditFinding[] {
       const w = resolved?.width ?? (typeof node.width === "number" ? node.width : 0);
       const h = resolved?.height ?? (typeof node.height === "number" ? node.height : 0);
       const decorative = /(spacer|divider|indicator|rule|line|dot|track|bar)/i.test(node.name ?? "");
-      if (kids.length === 0 && !hasImageFill(node) && w > 80 && h > 80 && !decorative) {
+
+      // Check if this is an empty image placeholder well inside a card / item container
+      const parent = ctx.parents.get(node.id);
+      const isInsideCardWithText = parent && parent.type === "frame" && textCount(parent) >= 1;
+      const isCardImageWell = isInsideCardWithText && kids.length === 0 && !hasImageFill(node) && w >= 40 && h >= 40 && !decorative;
+
+      if (isCardImageWell) {
+        findings.push(
+          blocker(
+            "missing_product_image",
+            node.id,
+            `Card "${parent.name ?? parent.id}" contains a blank ${Math.round(w)}x${Math.round(h)}px placeholder box "${node.name ?? node.id}" with no image fill.`,
+            "Apply a generated product photograph or visual illustration fill using generate_image."
+          )
+        );
+      } else if (kids.length === 0 && !hasImageFill(node) && w > 60 && h > 60 && !decorative) {
         findings.push(
           warning(
             "empty_container",
@@ -746,6 +761,55 @@ export function checkPhotographCrop(ctx: AuditContext): AuditFinding[] {
   return findings;
 }
 
+function getContentSections(screen: PenNode, ctx: AuditContext): PenNode[] {
+  const sections: PenNode[] = [];
+
+  function walk(node: PenNode) {
+    if (node.enabled === false) return;
+    const role = scaffoldRole(node);
+    if (role === "chrome") return;
+
+    // If this is a scaffold slot (Inset Content, Bleed Content) or top-level content wrapper
+    const isSlotOrWrapper =
+      role === "slot" ||
+      /^Inset Content|^Bleed Content|^Home Content|^Main Content|^Page Content|^Feed Content/i.test(node.name ?? "");
+
+    if (isSlotOrWrapper) {
+      for (const child of childrenOf(node)) {
+        walk(child);
+      }
+      return;
+    }
+
+    const box = ctx.boxes.get(node.id)?.box;
+    const screenBox = ctx.boxes.get(screen.id)?.box;
+    const screenWidth = screenBox ? screenBox.width : 390;
+
+    // Check if node is a wrapper around multiple major full-width sub-sections
+    const kids = childrenOf(node).filter((c) => c.enabled !== false && scaffoldRole(c) !== "chrome");
+    if (
+      box &&
+      box.width >= screenWidth * 0.7 &&
+      kids.length >= 2 &&
+      kids.every((k) => (ctx.boxes.get(k.id)?.box?.height ?? 0) >= 80)
+    ) {
+      for (const child of kids) {
+        walk(child);
+      }
+      return;
+    }
+
+    if (box && box.height >= 40) {
+      sections.push(node);
+    }
+  }
+
+  for (const child of childrenOf(screen)) {
+    walk(child);
+  }
+  return sections;
+}
+
 export function checkSectionHeightBudget(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
   for (const screen of ctx.doc.children) {
@@ -753,12 +817,48 @@ export function checkSectionHeightBudget(ctx: AuditContext): AuditFinding[] {
     const screenBox = ctx.boxes.get(screen.id)?.box;
     if (!screenBox) continue;
     const isMobile = screenBox.width <= 500;
-    const maxHeightBudget = isMobile ? 540 : 680;
-    const recommended = isMobile ? "240px–420px" : "380px–520px";
+    const viewportFloor = isMobile ? 844 : 900;
+    const isScrollable = screenBox.height > viewportFloor + 40;
 
-    for (const child of childrenOf(screen)) {
-      if (child.enabled === false) continue;
-      if (scaffoldRole(child) !== undefined) continue;
+    const screenKids = getContentSections(screen, ctx);
+
+    // 1. Check for False Floor / Missing Scroll Affordance on multi-section scrollable pages
+    if (isScrollable) {
+      // Find substantive top-level content sections (exclude narrow status/search header bars < 70px)
+      const substantiveSections = screenKids.filter((c) => {
+        const b = ctx.boxes.get(c.id)?.box;
+        return b && b.height >= 70;
+      });
+
+      if (substantiveSections.length >= 2) {
+        const firstSec = substantiveSections[0];
+        const secondSec = substantiveSections[1];
+        const firstBox = ctx.boxes.get(firstSec.id)?.box;
+        const secondAbsBox = ctx.absBoxes.get(secondSec.id);
+        const screenAbsBox = ctx.absBoxes.get(screen.id);
+
+        if (firstBox && secondAbsBox && screenAbsBox) {
+          const secondYRelative = secondAbsBox.y - screenAbsBox.y;
+          // If the second section starts after (viewportFloor - 40px), it is completely hidden below the fold
+          if (secondYRelative >= viewportFloor - 40) {
+            findings.push(
+              blocker(
+                "false_floor",
+                firstSec.id,
+                `Section "${firstSec.name ?? firstSec.id}" is ${Math.round(firstBox.height)}px tall and pushes "${secondSec.name ?? secondSec.id}" completely below the ${viewportFloor}px fold (starts at y: ${Math.round(secondYRelative)}px). This creates a false floor (illusion of completeness) concealing the rest of the page.`,
+                `Make "${firstSec.name ?? firstSec.id}" compact (${isMobile ? "220px–340px" : "380px–520px"}) so the top of "${secondSec.name ?? secondSec.id}" peeks above the ${viewportFloor}px fold, providing scroll affordance.`
+              )
+            );
+          }
+        }
+      }
+    }
+
+    // 2. Check for monolithic single-card height bloat in vertical flow
+    const maxHeightBudget = isMobile ? 380 : 600;
+    const recommended = isMobile ? "220px–340px" : "380px–520px";
+
+    for (const child of screenKids) {
       const box = ctx.boxes.get(child.id)?.box;
       if (!box || box.height <= maxHeightBudget) continue;
 
@@ -766,18 +866,22 @@ export function checkSectionHeightBudget(ctx: AuditContext): AuditFinding[] {
       const isCard = child.type === "frame" || child.type === "group";
       if (!isMedia && !isCard) continue;
 
-      const textKids = (childrenOf(child) as any[]).filter((c) => c.type === "text" && c.content?.trim());
-      if (textKids.length > 2) continue;
+      // Allow multi-card grid containers, product lists, or catalog sections
+      const subCards = childrenOf(child).filter((c) => (c.type === "frame" || c.type === "rectangle") && c.enabled !== false);
+      const isCollectionSection = subCards.length >= 2 || /(product|catalog|menu|collection|grid|list|cards|items|drops|spaces|amenities)/i.test(child.name ?? "");
+      if (isCollectionSection) continue;
+
+      const isBlocker = isMobile;
+      const message = isMobile
+        ? `Hero/Feature card "${child.name ?? child.id}" is ${Math.round(box.height)}px tall in a mobile screen (${Math.round((box.height / 844) * 100)}% of the 844px fold), monopolizing the initial viewport.`
+        : `"${child.name ?? child.id}" is ${Math.round(box.height)}px tall in a vertical flow screen, consuming ${Math.round((box.height / 900) * 100)}% of the initial viewport and pushing page content off-screen.`;
+
+      const fix = `Make the card compact (${recommended}) by sizing its image well appropriately so the page maintains breathable rhythm.`;
 
       findings.push(
-        warning(
-          "oversized_section_height",
-          child.id,
-          `"${child.name ?? child.id}" is ${Math.round(box.height)}px tall in a vertical flow screen, consuming ${Math.round(
-            (box.height / (isMobile ? 844 : 900)) * 100
-          )}% of the initial viewport and pushing page content off-screen.`,
-          `Resize to standard section proportions (${recommended}), or use fit_content / fill_container if it holds content.`
-        )
+        isBlocker
+          ? blocker("oversized_section_height", child.id, message, fix)
+          : warning("oversized_section_height", child.id, message, fix)
       );
     }
   }
@@ -1040,6 +1144,26 @@ export function checkTextBoundaryCollisions(ctx: AuditContext): AuditFinding[] {
   return findings;
 }
 
+function isSingleViewportDeck(screen: PenNode): boolean {
+  const name = (screen.name ?? "").toLowerCase();
+  if (/(tinder|swipe|dating|deck|camera|call|player|shutter)/i.test(name)) return true;
+
+  let hasSwipeActionDock = false;
+  let hasMultiItemFeed = false;
+
+  walkEnabled(childrenOf(screen), (n) => {
+    const nodeName = (n.name ?? "").toLowerCase();
+    if (/(swipe|pass|like|heart|thumb action|action dock)/i.test(nodeName)) {
+      hasSwipeActionDock = true;
+    }
+    if (/(product|catalog|menu|drop|collection|feed|article|grid|cards|offers)/i.test(nodeName) && n.type === "frame") {
+      hasMultiItemFeed = true;
+    }
+  });
+
+  return hasSwipeActionDock && !hasMultiItemFeed;
+}
+
 export function checkChromeCollisions(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
   const BOTTOM_NAV_NAME = /(tab|bottom|nav) ?bar|navigation/i;
@@ -1055,9 +1179,25 @@ export function checkChromeCollisions(ctx: AuditContext): AuditFinding[] {
       }
     });
 
+    const screenBox = ctx.absBoxes.get(screen.id);
+    const isMobile = (screen as any).metadata?.screenKind === "mobile" || (screenBox && screenBox.width <= 430);
+    const isDeck = isSingleViewportDeck(screen);
+
     for (const chrome of chromeFrames) {
       const chromeBox = ctx.absBoxes.get(chrome.id);
       if (!chromeBox || chromeBox.width <= 0 || chromeBox.height <= 0) continue;
+
+      const isBottomNav = BOTTOM_NAV_NAME.test(chrome.name ?? "") || (chrome as any).metadata?.scaffold === "chrome";
+      if (isMobile && isBottomNav && isDeck && (chromeBox.y + chromeBox.height > 890 || (screenBox && screenBox.height > 890))) {
+        findings.push(
+          blocker(
+            "oversized_section_height",
+            screen.id,
+            `Single-viewport mobile app "${screen.name ?? screen.id}" has expanded to ${Math.round(screenBox?.height ?? chromeBox.y + chromeBox.height)}px, pushing the action controls/tabs off-screen. A single-viewport swipe/card deck must fit within the 844px device viewport.`,
+            "Keep all content contained within the 844px mobile viewport."
+          )
+        );
+      }
 
       walkEnabled(childrenOf(screen), (contentNode) => {
         if (contentNode.id === chrome.id || isDescendant(contentNode, chrome)) return;
@@ -1169,6 +1309,80 @@ export function checkCardRowButtonBaselines(ctx: AuditContext): AuditFinding[] {
             worst.cardId,
             `Action buttons across sibling cards in "${node.name ?? node.id}" are staggered vertically by ${Math.round(delta)}px.`,
             "Set height: 'fill_container' and justifyContent: 'space_between' on all sibling cards in the row so buttons lock to a uniform horizontal baseline."
+          )
+        );
+      }
+    }
+  });
+
+  return findings;
+}
+
+export function checkSiblingCardActionConsistency(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "frame" || (node as any).layout !== "horizontal") return;
+    const cards = childrenOf(node).filter((c) => c.type === "frame" && c.enabled !== false);
+    if (cards.length < 2) return;
+
+    interface CardAction {
+      cardId: string;
+      cardName: string;
+      actionNode?: PenNode;
+      isButtonFrame: boolean;
+      isRawTextGlyph: boolean;
+    }
+
+    const cardActions: CardAction[] = [];
+    for (const card of cards) {
+      const cardBox = ctx.boxes.get(card.id)?.box;
+      if (!cardBox || cardBox.width < 100 || cardBox.height < 80) continue;
+
+      let foundAction: PenNode | undefined;
+      let isButtonFrame = false;
+      let isRawTextGlyph = false;
+
+      walkEnabled([card], (sub) => {
+        if (sub === card) return;
+        // Check for raw text plus/add glyph
+        if (sub.type === "text") {
+          const content = ((sub as TextNode).content ?? "").trim();
+          if (content === "+" || content === "＋" || content === "add" || content === "→" || content === "↗") {
+            foundAction = sub;
+            isRawTextGlyph = true;
+          }
+        }
+        // Check for button/icon well frame
+        const isActionName = /btn|button|cta|add|cart|plus|action|icon_well/i.test(sub.name ?? "");
+        if (sub.type === "frame" && (isActionName || (sub.cornerRadius && ((sub.width === sub.height && typeof sub.width === "number" && sub.width <= 48) || sub.fill !== undefined)))) {
+          foundAction = sub;
+          isButtonFrame = true;
+          isRawTextGlyph = false;
+        }
+      });
+
+      cardActions.push({
+        cardId: card.id,
+        cardName: card.name ?? card.id,
+        actionNode: foundAction,
+        isButtonFrame,
+        isRawTextGlyph
+      });
+    }
+
+    if (cardActions.length >= 2) {
+      const hasButtonFrame = cardActions.some((ca) => ca.isButtonFrame);
+      const hasRawGlyphOrMissing = cardActions.some((ca) => ca.isRawTextGlyph || !ca.actionNode);
+
+      if (hasButtonFrame && hasRawGlyphOrMissing) {
+        const defective = cardActions.find((ca) => ca.isRawTextGlyph || !ca.actionNode)!;
+        findings.push(
+          blocker(
+            "inconsistent_card_actions",
+            defective.cardId,
+            `Card "${defective.cardName}" has an inconsistent action style compared to sibling cards (sibling has a styled button container, while this card has a raw glyph or missing button).`,
+            "Give all sibling cards in the row identical action button structures and styling."
           )
         );
       }

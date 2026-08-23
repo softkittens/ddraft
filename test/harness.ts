@@ -40,17 +40,20 @@ export const screen = (
   id: string,
   children: PenNode[] = [],
   props: Partial<FrameNode> = {}
-): FrameNode => ({
-  type: "frame",
-  id,
-  width: 390,
-  height: 844,
-  clip: true,
-  layout: "vertical",
-  metadata: { screenKind: "mobile" },
-  children,
-  ...props
-});
+): FrameNode => {
+  const isDesktop = props.width === 1440 || id.toLowerCase().includes("desktop");
+  return {
+    type: "frame",
+    id,
+    width: isDesktop ? 1440 : 390,
+    height: isDesktop ? 900 : 844,
+    clip: true,
+    layout: "vertical",
+    metadata: { screenKind: isDesktop ? "desktop" : "mobile" },
+    children,
+    ...props
+  };
+};
 
 export const rect = (
   id: string,

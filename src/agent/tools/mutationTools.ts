@@ -318,9 +318,16 @@ export const deleteNodeTool: DocumentToolDefinition = {
   execute: (ctx, a) => {
     let doc = ctx.doc;
     if (typeof a.id !== "string") return "error: id is required";
-    if (!findNode(doc.children, a.id)) return `error: node ${a.id} not found`;
-    const parentId = parentIdOf(doc, a.id);
-    doc = removeNode(doc, a.id);
+    const targetId = a.id.trim();
+    if (!findNode(doc.children, targetId)) return `error: node ${targetId} not found`;
+
+    // Guard against accidentally wiping out the sole root screen on canvas
+    if (doc.children.length === 1 && targetId === doc.children[0].id) {
+      return `error: cannot delete "${targetId}" because it is the only root screen on the canvas. To change its contents, edit or delete its child nodes instead.`;
+    }
+
+    const parentId = parentIdOf(doc, targetId);
+    doc = removeNode(doc, targetId);
     ctx.setDoc(doc);
     return parentId ? digestSubtree(doc, parentId) : digest(doc);
   }
@@ -328,7 +335,8 @@ export const deleteNodeTool: DocumentToolDefinition = {
 
 export const moveNodeTool: DocumentToolDefinition = {
   name: "move_node",
-  description: "Move a node to a new parent and/or new index among its siblings.",
+  description:
+    "Move a node to a new parent and/or new index among its siblings. Omit newParentId or pass 'canvas'/'root' to un-nest a node and place it directly on the top-level canvas.",
   parameters: {
     type: "object",
     properties: {
@@ -338,30 +346,33 @@ export const moveNodeTool: DocumentToolDefinition = {
       },
       newParentId: {
         type: "string",
-        description: "Target parent frame ID"
+        description: "Target parent frame ID, or 'canvas'/'root' to move to the top-level canvas."
       },
       index: {
         type: "number",
         description: "Zero-based index in the new parent's children. Omit to append at the end."
       }
     },
-    required: ["id", "newParentId"]
+    required: ["id"]
   },
   execute: (ctx, a) => {
     let doc = ctx.doc;
-    if (typeof a.id !== "string" || typeof a.newParentId !== "string") {
-      return "error: id and newParentId are required";
-    }
-    if (!findNode(doc.children, a.id)) return `error: could not move ${a.id}`;
-    const oldParent = parentIdOf(doc, a.id);
+    if (typeof a.id !== "string") return "error: id is required";
+    const targetId = a.id.trim();
+    if (!findNode(doc.children, targetId)) return `error: could not find node ${targetId}`;
+
+    const rawParentId = typeof a.newParentId === "string" ? a.newParentId.trim() : undefined;
+    const isRootMove = !rawParentId || rawParentId === "canvas" || rawParentId === "root" || rawParentId === "document";
+    const oldParent = parentIdOf(doc, targetId);
+
     const before = digest(doc);
-    doc = moveNode(doc, a.id, a.newParentId, typeof a.index === "number" ? a.index : undefined);
-    if (digest(doc) === before) return `error: could not move ${a.id}`;
+    doc = moveNode(doc, targetId, isRootMove ? undefined : rawParentId, typeof a.index === "number" ? a.index : undefined);
+    if (digest(doc) === before) return `error: could not move ${targetId}`;
     ctx.setDoc(doc);
 
-    const parts = [digestSubtree(doc, a.newParentId)];
-    if (oldParent && oldParent !== a.newParentId) parts.unshift(digestSubtree(doc, oldParent));
-    const loop = ctx.recordWrite(a.id, "parent", a.newParentId);
+    const parts = [isRootMove ? digest(doc) : digestSubtree(doc, rawParentId!)];
+    if (oldParent && oldParent !== rawParentId && !isRootMove) parts.unshift(digestSubtree(doc, oldParent));
+    const loop = ctx.recordWrite(targetId, "parent", rawParentId ?? "canvas");
     return [parts.join("\n---\n"), loop].filter(Boolean).join("\n");
   }
 };

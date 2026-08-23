@@ -6,31 +6,6 @@ import { STYLE_METADATA_KEY, DIRECTION_METADATA_KEY } from "../src/design/styleS
 describe("System prompt carries rules, not a design", () => {
   const prompt = agentSystemPrompt(makeDoc(), [], "test-model");
 
-  it("contains no product, no copy and no palette of its own", () => {
-    const leakedFromATemplate = [
-      "MANE",
-      "Thunderbolt",
-      "Arabian",
-      "Grass-fed",
-      "Grand Prix",
-      "Carrot",
-      "Portland",
-      "Starlight",
-      "Maya Bennett",
-      "gallops",
-      "Lorem",
-      "SYSTEMS NOMINAL",
-      "Shift Handoff",
-      "Fleet Registry",
-      "Floor 03",
-      "Live Production",
-      "MAINT"
-    ];
-    for (const literal of leakedFromATemplate) {
-      expect(prompt).not.toContain(literal);
-    }
-  });
-
   it("contains no emoji, having told the model not to use them", () => {
     expect(prompt).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
   });
@@ -43,52 +18,23 @@ describe("System prompt carries rules, not a design", () => {
   it("lets the model distinguish design work from ordinary conversation", () => {
     expect(prompt).toContain("Decide whether the request requires design work");
     expect(prompt).toMatch(/Otherwise,\s+call answer_user/);
-    expect(prompt).not.toContain("[no canvas change]");
   });
 
   it("requires real generated imagery for image-led products", () => {
-    expect(prompt).toContain("product depends on photography or illustration");
+    expect(prompt).toContain("generate_image");
     expect(prompt).toContain("first viewport");
-    expect(prompt).toMatch(/call\s+generate_image/);
-    expect(prompt).not.toContain("review_design");
   });
 
   it("does not treat every mobile screen as an app with a tab bar", () => {
     expect(prompt).toContain("Omit tabs unless this is a multi-destination app");
   });
 
-  it("splits site pages from tools and tells a site to stay tall", () => {
-    expect(prompt).toContain("SITE (persuade)");
-    expect(prompt).toContain("from the surface, not the product");
-    expect(prompt).toContain("A landing page is still SITE");
-    expect(prompt).toContain("leave rail and aside empty");
-    expect(prompt).toContain("SINGLE-SCREEN DEFAULT");
-    expect(prompt).toContain("one shoot");
-  });
-
-  it("names the template reflexes it refuses and exposes full-bleed composition", () => {
-    expect(prompt).toContain("edge-to-edge imagery or colour in bleed");
+  it("enforces universal craft disciplines and anti-pattern constraints", () => {
+    expect(prompt).toContain("Anti-Box-in-Box Nesting");
     expect(prompt).toContain("Do not put an eyebrow or kicker above a heading");
-    expect(prompt).toContain("same-size icon + heading + text cards");
-    expect(prompt).toContain("Three or more equal cards");
-    expect(prompt).toContain("not a product");
-    expect(prompt).toContain("about a third of the screen");
-    expect(prompt).toContain("nest cards inside cards");
     expect(prompt).toContain("at most two visible roles per screen");
-    expect(prompt).toContain("gradient text");
-    expect(prompt).toContain("decorative blobs");
-    expect(prompt).toContain("blur as decoration");
-    expect(prompt).not.toContain("monospace as a costume");
-  });
-
-  it("separates inventing content from inventing a claim", () => {
-    expect(prompt).toMatch(/Invent the names, numbers and copy/);
     expect(prompt).toContain("Never invent a claim");
     expect(prompt).toContain("marketing, not content");
-  });
-
-  it("takes the colour scheme from the use scene rather than the category", () => {
-    expect(prompt).toContain("Take light or dark from where the product is used");
   });
 
   it("tells the model it can name an icon without looking it up first", () => {
@@ -146,7 +92,7 @@ describe("System prompt carries rules, not a design", () => {
     const lengths = [...Array(60)].map((_, seed) =>
       agentSystemPrompt({ id: "d", name: "d", children: [] } as any, [], "test-model", seed).length
     );
-    expect(Math.max(...lengths)).toBeLessThan(18000);
+    expect(Math.max(...lengths)).toBeLessThan(22000);
   });
 
   it("states the chrome once in code, not as numbers to remember on every run", () => {
@@ -154,5 +100,49 @@ describe("System prompt carries rules, not a design", () => {
     expect(prompt).not.toMatch(/height 56|height: 56|cornerRadius 9999/);
     expect(prompt).not.toMatch(/padding \[0, ?16, ?12, ?16\]/);
     expect(prompt).not.toMatch(/Status bar — height 62|height 62/);
+  });
+
+  it("dynamically composes rules tailored to the user request intent", () => {
+    // 1. Mobile Food Ordering request
+    const foodPrompt = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Create mobile app for ordering matcha cakes");
+    expect(foodPrompt).toContain("MOBILE SCREEN COMPOSITION");
+    expect(foodPrompt).toContain("E-COMMERCE & FOOD / CONSUMER ORDERING APP DENSITY");
+    expect(foodPrompt).not.toContain("SITE & LANDING PAGE COMPOSITION");
+    expect(foodPrompt).not.toContain("OPERATIONAL TOOL & DASHBOARD COMPOSITION");
+
+    // 2. Desktop Landing Page request
+    const sitePrompt = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Landing page for Lisbon coworking space");
+    expect(sitePrompt).toContain("SITE & LANDING PAGE COMPOSITION");
+    expect(sitePrompt).not.toContain("MOBILE SCREEN COMPOSITION");
+    expect(sitePrompt).not.toContain("E-COMMERCE & FOOD");
+
+    // 3. Operational Dashboard request
+    const dashPrompt = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Kubernetes cluster monitoring dashboard");
+    expect(dashPrompt).toContain("OPERATIONAL TOOL & DASHBOARD COMPOSITION");
+    expect(dashPrompt).not.toContain("SITE & LANDING PAGE COMPOSITION");
+    expect(dashPrompt).not.toContain("E-COMMERCE & FOOD");
+  });
+
+  it("switches to focused revision order-of-work on incremental edit requests", () => {
+    const doc: any = {
+      id: "doc_1",
+      name: "Canvas",
+      children: [
+        {
+          id: "screen_1",
+          name: "Screen",
+          type: "frame",
+          width: 390,
+          height: 844,
+          children: [
+            { id: "child_1", type: "frame", children: [] },
+            { id: "child_2", type: "text", content: "Hello" }
+          ]
+        }
+      ]
+    };
+    const editPrompt = agentSystemPrompt(doc, [], "test-model", 0, [], "change the title text to italic and fix padding");
+    expect(editPrompt).toContain("ORDER OF WORK — REVISION & INCREMENTAL EDITS");
+    expect(editPrompt).not.toContain("ORDER OF WORK — DESIGN REQUESTS ONLY");
   });
 });

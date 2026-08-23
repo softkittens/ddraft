@@ -49,6 +49,9 @@ export type AuditRule =
   | "uneven_card_heights"
   | "stray_character"
   | "overflow"
+  | "missing_product_image"
+  | "false_floor"
+  | "inconsistent_card_actions"
   | "catalog_row";
 
 export type AuditSeverity = "blocker" | "warning" | "info";
@@ -65,6 +68,7 @@ export interface AuditContext {
   doc: Document;
   tree: LayoutNode[];
   nodes: Map<string, PenNode>;
+  parents: Map<string, PenNode>;
   boxes: Map<string, LayoutNode>;
   absBoxes: Map<string, Box>;
 }
@@ -85,11 +89,26 @@ export function computeAbsoluteBoxes(tree: LayoutNode[]): Map<string, Box> {
   return map;
 }
 
+export function computeParentMap(doc: Document): Map<string, PenNode> {
+  const map = new Map<string, PenNode>();
+  function walk(node: PenNode) {
+    for (const child of childrenOf(node)) {
+      map.set(child.id, node);
+      walk(child);
+    }
+  }
+  for (const root of doc.children) {
+    walk(root);
+  }
+  return map;
+}
+
 export function createAuditContext(tree: LayoutNode[], doc: Document): AuditContext {
   return {
     doc,
     tree,
     nodes: indexDocument(doc),
+    parents: computeParentMap(doc),
     boxes: flattenLayoutTree(tree),
     absBoxes: computeAbsoluteBoxes(tree)
   };
@@ -310,8 +329,9 @@ export function isScreen(node: PenNode): boolean {
   if (scaffold === "chrome" || scaffold === "slot") return false;
   if ((node as any).metadata?.screenKind) return true;
   if (SCREEN_CHROME_NAME.test(node.name ?? "")) return false;
+  // A frame is a full device screen if it contains its own system Status Bar
   return childrenOf(node).some(
-    (c) => (c as any).metadata?.scaffold === "chrome" || SCREEN_CHROME_NAME.test(c.name ?? "")
+    (c) => (c as any).metadata?.scaffold === "status_bar" || /status ?bar/i.test(c.name ?? "")
   );
 }
 

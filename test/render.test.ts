@@ -107,6 +107,39 @@ describe("browser capture", () => {
     }
   });
 
+  it("captures dedicated First Viewport fold slice for scrollable mobile screens", async () => {
+    const { ctx } = createMockCanvas();
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      writable: true,
+      value: {
+        createElement: () => ({
+          width: 0,
+          height: 0,
+          getContext: () => ctx,
+          toDataURL: () => "data:image/jpeg;base64,xx"
+        }),
+        fonts: { ready: Promise.resolve() }
+      }
+    });
+
+    const mobileFeedDoc = makeDoc(
+      frame("mobileScreen", 390, 1350, [
+        frame("header", "fill_container", 60, [], { name: "Header" }),
+        frame("hero", "fill_container", 280, [], { name: "Hero Card" }),
+        frame("grid", "fill_container", 450, [], { name: "Product Grid" })
+      ], { name: "Matcha Store", layout: "vertical" })
+    );
+
+    const result = await captureDocumentPng(mobileFeedDoc);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const foldCap = result.screens.find((s) => s.name.includes("Above-the-Fold View"));
+      expect(foldCap).toBeDefined();
+      expect(foldCap?.box.height).toBe(844);
+    }
+  });
+
   it("waits for document images before painting", async () => {
     let waited = false;
     class FakeImage {

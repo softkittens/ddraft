@@ -131,12 +131,14 @@ function captureBoxSlice(
   }
 }
 
-function findSectionSlices(root: LayoutNode): LayoutNode[] {
+function findSectionSlices(root: LayoutNode, isMobile: boolean): LayoutNode[] {
   const sections: LayoutNode[] = [];
+  const minHeight = isMobile ? 260 : 160;
+  const maxHeight = isMobile ? 844 : 1000;
   
   function walk(node: LayoutNode, depth: number) {
     if (depth > 0) {
-      if (node.box.width >= root.box.width * 0.7 && node.box.height >= 120 && node.box.height <= 1000) {
+      if (node.box.width >= root.box.width * 0.7 && node.box.height >= minHeight && node.box.height <= maxHeight) {
         sections.push(node);
         return;
       }
@@ -159,16 +161,35 @@ function captureSingleRoot(
   if (box.width <= 0 || box.height <= 0) return [];
   const rootNode = map.get(root.id);
   const rootName = rootNode?.name || root.id;
+  const isMobile = box.width <= 500 || (rootNode as any)?.metadata?.screenKind === "mobile";
+  const viewportHeight = isMobile ? 844 : 900;
 
   const captures: ScreenCapture[] = [];
   const rootWorldBox = { x: 0, y: 0, width: box.width, height: box.height };
   const fullCap = captureBoxSlice(root, rootWorldBox, map, variables, root.id, rootName, "screen");
   if (fullCap) captures.push(fullCap);
 
-  // If the screen is tall, capture key structural landmark sections for precision review
-  if (box.height > 1400) {
-    const sections = findSectionSlices(root);
-    const substantive = sections.filter((s) => s.box.height >= 140);
+  // If the screen is scrollable (exceeds the native device viewport), capture the 1:1 First Viewport (Fold) Slice
+  if (box.height > viewportHeight + 40) {
+    const foldWorldBox = { x: 0, y: 0, width: box.width, height: viewportHeight };
+    const foldCap = captureBoxSlice(
+      root,
+      foldWorldBox,
+      map,
+      variables,
+      `${root.id}_first_viewport`,
+      `${rootName} — [First Viewport / Above-the-Fold View]`,
+      "section",
+      root.id
+    );
+    if (foldCap) captures.push(foldCap);
+  }
+
+  // If the screen is tall (> 1600 on mobile [~2 viewports], > 1400 on desktop), capture key structural landmark sections
+  const threshold = isMobile ? 1600 : 1400;
+  if (box.height > threshold) {
+    const sections = findSectionSlices(root, isMobile);
+    const substantive = sections.filter((s) => s.box.height >= (isMobile ? 260 : 160));
     let chosen: LayoutNode[] = [];
     if (substantive.length <= 4) {
       chosen = substantive;
@@ -176,19 +197,19 @@ function captureSingleRoot(
       // 1. Always include top section (Hero)
       chosen.push(substantive[0]);
 
-      // 2. Look for explicit pricing/membership section
-      const pricing = substantive.find((s) => {
+      // 2. Look for explicit pricing/membership or product grid section
+      const keySection = substantive.find((s) => {
         const name = map.get(s.id)?.name ?? "";
-        return /price|pricing|rate|rates|membership|tier|plan/i.test(name);
+        return /price|pricing|rate|rates|membership|tier|plan|product|collection|slice|catalog/i.test(name);
       });
 
       // 3. Middle sections (Spaces, Inclusions, Features)
-      const middle = substantive.filter((s) => s !== substantive[0] && s !== pricing);
+      const middle = substantive.filter((s) => s !== substantive[0] && s !== keySection);
       if (middle.length > 0) chosen.push(middle[0]);
       if (middle.length > 1) chosen.push(middle[Math.floor(middle.length / 2)]);
 
-      if (pricing && !chosen.includes(pricing)) {
-        chosen.push(pricing);
+      if (keySection && !chosen.includes(keySection)) {
+        chosen.push(keySection);
       } else if (substantive.length > chosen.length) {
         chosen.push(substantive[substantive.length - 1]);
       }

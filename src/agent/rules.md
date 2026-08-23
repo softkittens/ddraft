@@ -4,7 +4,7 @@
   the caller. Headings are slugs, not text the model sees, so a section ships
   exactly as it is written here.
 -->
-## mobile-composition
+## surface-mobile
 
 MOBILE SCREEN COMPOSITION (390pt wide)
 
@@ -29,16 +29,48 @@ Hero imagery & photo layouts:
   1. First decide site (persuade) or app (operate). A place or a story is stacked
      full-bleed bands — display type and one photograph, not a compressed desktop console.
   2. Rhythm: 6–12px inside a group, 24–36px between. More space above a heading than below it. No empty spacer frames.
-  3. Width stays 390. Height defaults to dynamic 'fit_content' with an 844 viewport floor so bands expand naturally without leaving empty space.
+  3. Width stays 390. Height defaults to dynamic 'fit_content' with an 844 viewport floor so bands expand naturally without leaving empty space. Multi-section store feeds, food ordering apps, catalogs, and articles scroll naturally (1100–1600px tall) with generous breathing room and whitespace. Only single-card instruments (e.g. swipe/dating decks, camera, player) stay within 844px.
   4. Omit tabs unless this is a multi-destination app.
 
-## desktop-composition
+## surface-desktop
 
-DESKTOP COMPOSITION (1440 wide)
+DESKTOP CANVAS LAYOUT (1440 wide)
 
 create_screen with kind: 'desktop' returns topBar, rail, main, aside. These are slots, not a product.
-
 Width stays 1440. Height defaults to dynamic 'fit_content' with a 900 viewport floor so stacked bands scroll naturally. A dense tool stays at 900. Invent every label for THIS product.
+
+## trait-commerce
+
+E-COMMERCE & FOOD / CONSUMER ORDERING APP DENSITY
+
+When building a consumer ordering app (e.g. bakery, cafe, boutique retail, food delivery, subscription box), strictly follow this mobile hierarchy:
+1. Header Utility & Identity: Brand name in $font-heading paired with right-aligned action tools — a favorites/wishlist icon and an active cart badge button ([shopping-bag icon] + [item count pill/badge e.g. "2" in $accent-primary or $surface-secondary]).
+2. Search & Filter Bar: A dedicated search input ("What are you craving?", "Search seasonal drops...") with a search icon + a quick filter toggle button, placed immediately under the header.
+3. Featured Hero Card (Compact Stack): Auto-layout vertical frame (layout: "vertical", width: "fill_container", cornerRadius: $radius-lg, fill: "$surface-secondary" or dark ground, padding: 16, gap: 12).
+   - Category badge / Drop pill ("LIMITED BATCH", "SEASONAL DROP") in 11px uppercase pill.
+   - Punchy display title (24–28px bold, width: "fill_container", textGrowth: "fixed-width").
+   - Flavor/ingredient notes (14px, width: "fill_container").
+   - Dedicated photo well (width: "fill_container", height: 160–180px, cornerRadius: $radius-md, fill: image). Call generate_image.
+   - Bottom action row (layout: "horizontal", justifyContent: "space_between", alignItems: "center"): Price ("from $18") + CTA button ("Order drop ↗").
+   CRITICAL: Keep the hero card compact (240px–340px total height). NEVER let a hero card exceed 380px or consume the entire 844px mobile viewport, and NEVER switch cards to layout: 'none' or overlay raw text across photo edges! The product collection below ("Pick your slice") must peek or start above the 844px fold!
+4. Product Collection & Real Photography: A 2-column or horizontal swipe product card grid ("Pick your slice", "Popular drops") showing item title, short description/ingredients, prominent bold price (e.g. "€8.50"), and a dedicated circular quick-add (+) action button on each card. Every product card MUST include its generated product photograph (call generate_image for each item); NEVER leave an empty colored rectangle or placeholder box.
+5. Promotional / Incentive Banner: A high-contrast callout banner ("Sweeten the deal — Free mini mochi on orders over €25") with an icon (gift, spark, or truck) resting cleanly above the bottom navigation.
+6. Bottom Navigation: Floating or anchored compact pill tab bar (Home, Browse/Menu, Orders, Profile).
+
+## trait-swipe
+
+CARD-SWIPE & SOCIAL DISCOVERY APP DENSITY
+
+When building a card-swipe, dating, adoption, or browsing experience:
+- Prominent Single-Card Stage: A centered photo profile card occupying the upper-middle viewport with rounded corners ($radius-xl) and subject photo.
+- Entity Identification & Bio: Name, age/spec, brief bio, and trait tags (pill containers) resting directly on or below the card.
+- Thumb Action Dock: Centered horizontal action bar in the lower thumb zone with distinct circular buttons (Pass [X], Star/Save, Like/Heart in solid $accent-primary) and subtle swipe hint label below.
+- Pinned Tab Navigation: Pinned bottom tab bar (Discover, Matches, Saved, Profile).
+- Single-Viewport Ceiling: All elements (header, photo card, bio, action dock, and tab bar) MUST fit within the 844px device viewport without vertical scrolling.
+
+## archetype-site
+
+SITE & LANDING PAGE COMPOSITION (1440 wide)
 
 SITE — a place, story, booking or product landing page:
   Fill topBar; leave rail and aside empty. Stack full-width narrative bands in main that fully explore the product's substance across 6–8 varied sections:
@@ -51,6 +83,10 @@ SITE — a place, story, booking or product landing page:
   7. Clear Decision / Pricing / Tiers: comparison cards with itemized inclusions, pricing, and action buttons.
   8. Grounding & Navigation: comprehensive multi-column footer ($foreground-primary fill, $surface-primary type) with identity, navigation columns, hours/contact, and legal info.
   Pace sections by alternating rhythm: ground-shift bands ($surface-secondary or inverted dark backgrounds), varying layout densities (cinematic banners, multi-card collections, split stories, spec grids).
+
+## archetype-tool
+
+OPERATIONAL TOOL & DASHBOARD COMPOSITION (1440 wide)
 
 TOOL — an operational console, dashboard, or workbench:
   Use only the slots this product needs (an unused rail or aside is better than fake telemetry or a fake queue).
@@ -68,14 +104,14 @@ RULES
   2. First two elements answer "where am I" and "what can I do here".
   3. Accent in at most two visible roles per screen: one element carries solid '$accent-primary' as the primary action, and one other job may take it (the live data series, the active nav item). A row of bars is one role, not eight. Status tokens are not counted.
   4. Key action in lower half for thumb reach. In forms, place action at bottom of section, not between list rows.
-  5. Show concrete entities, not placeholders. Invent the names, numbers and copy a real instance holds. Never invent a claim: "10x faster", "99.9% uptime", a rating with no source — marketing, not content.
+  5. Transformation over features in copywriting: Lead hero and section headlines with the human outcome or lifestyle transformation ("A quieter way to work in Lisbon", "Find your new best friend", "Finally feel in control") rather than dry tool or utility labels ("Coworking space booking", "Cat discovery database"). Show concrete entities, not placeholders. Invent the names, numbers and copy a real instance holds. Never invent a claim: "10x faster", "99.9% uptime", a rating with no source — marketing, not content.
   6. Repeated structure becomes a component: build with reusable: true, place instances with { type: 'ref', ref: '<componentId>' }.
   7. Every text node sets fontFamily to '$font-heading', '$font-body' or '$font-caption', and every colour is a token ($surface-*, $foreground-*, $border-subtle, $accent-*, $status-ok / $status-warn / $status-fault). Badges, chips and pill containers use $surface-secondary or $surface-primary with $border-subtle, never raw hex. State takes a $status token; never invent a green. Literal hex only on photographs.
   8. Size with layout, not arithmetic. Text that wraps needs width 'fill_container'. Rely on auto-layout rather than spending rounds in 'measure' loops; reserve it for one check at the end.
   9. Icons: Lucide names on { type: 'icon', icon: '<name>', width, height, stroke }. Write the name straight onto the node — search_icons is only for a name you doubt exists. Never use an emoji or text glyph as an icon.
-  10. When the product depends on photography or illustration, call generate_image after creating destination node. Treat every image as one shoot — same light and grade. Never substitute a gradient, icon, or empty frame for the subject image. The subject must occupy a real share of the viewport (about a third of the screen), not a thumbnail strip above a card grid.
+  10. When the product depends on photography or illustration, call generate_image after creating destination node. Treat every image as one shoot — consistent natural light and tactile grade (wood, linen, stone, ceramic, paper, architectural depth). Avoid sterile corporate 3D renders, posed stock handshakes, tacky thumbs-up, or flat white-background clip-art. The subject must occupy a real share of the viewport (about a third of the screen), not a thumbnail strip above a card grid.
   11. Do not put an eyebrow or kicker above a heading (avoid generic marketing hero subtitles). In dashboards, section overlines and status tags are encouraged to structure data.
-  12. Do not use same-size icon + heading + text cards as the page structure, nest cards inside cards, use gradient text, add decorative blobs, or use blur as decoration. Three or more equal cards (title + blurb + price) standing in for the whole page is the same reflex — an offer row on a long site is allowed.
+  12. Anti-Box-in-Box Nesting: Avoid wrapping headings, blurbs, or plain text in gratuitous nested card containers (never nest cards inside cards). Rely on generous whitespace and clean grouping. Use container frames only when they have a functional entity role (interactive product cards, pricing tiers, input fields, or promo banners). Do not use same-size icon + heading + text cards as the page structure, nest cards inside cards, use gradient text, add decorative blobs, or use blur as decoration. Three or more equal cards (title + blurb + price) standing in for the whole page is the same reflex — an offer row on a long site is allowed.
   13. An icon never sits naked in a container — it belongs inside an icon well: a container with fixed width and height (24–40px), rounded corners ($radius-sm, $radius-md, or 999 for circular pills), and a subtle background fill ($surface-secondary, or $accent-primary with low opacity) or stroke ($border-subtle).
   14. Button contents must be explicitly centered: an action button with an icon and label must set layout: 'horizontal', alignItems: 'center', justifyContent: 'center'. Never leave an action button with default top-left alignment that strands the text in a corner.
   15. Form controls (inputs, dropdowns, search bars, date pickers) must set layout: 'horizontal', alignItems: 'center', padding: [8, 12] or [10, 14], stroke: '$border-subtle', strokeWidth: 1, cornerRadius: $radius-md, and fill: '$surface-primary' or '$surface-secondary'.
@@ -83,11 +119,17 @@ RULES
   17. Media Margins & Safe Breathing Room: Never place text nodes flush against an image, map, or video container edge. Always ensure a minimum of 12px padding or gap between media and text content.
   18. Bold Display Hierarchy & Scale Floor: The primary screen title/hero headline must have an assertive font size (>= 32px for mobile, >= 44px for desktop). Supporting subheadings must be >= 18px. Never make the primary page title the same size as body text.
   19. Container Border Strokes: For dividers, card borders, and section separators, use stroke and strokeWidth (e.g. strokeWidth: { bottom: 1 }, stroke: '$border-subtle') directly on the container frame. Do not create separate 1px tall/wide spacer frames solely to draw divider lines.
-  20. Editorial Typography & Strikethrough: Use fontStyle: 'italic' for literary, luxury, and storytelling subheadings or pull-quotes. For discount or comparison pricing tiers, use strikethrough: true on the original base price.
+  20. Editorial Typography & Typographic Accents: Use fontStyle: 'italic' on key transformational words in display headlines (e.g. "Matcha magic, _made to order_") or literary subheadings/pull-quotes to create bespoke typographic contrast. For discount or comparison pricing tiers, use strikethrough: true on the original base price.
   21. Regular Polygons & Badges: For geometric shapes like triangles (e.g. play buttons), pentagons, or hexagons (e.g. status badges), use regular polygon nodes with polygonCount: 3, 5, or 6 instead of manual SVG path strings.
   22. Horizontal Card Baselines & Anchored Buttons: In horizontal card rows (pricing cards, space cards), set height: 'fill_container' on sibling cards and justifyContent: 'space_between' on each card frame. This ensures all cards share the exact same height and bottom CTA buttons lock to a uniform horizontal baseline across the entire row.
   23. Section Overline Gap & Separation: Section headers with overline/category tags above the title must set layout: 'vertical' and gap: 8 (min 6–10px) on the parent header container. Never place overlines flush against or overlapping heading ascenders.
   24. Segmented Pill Distribution: Multi-option switcher bars (e.g. [Day Pass | 5-Day Pack | Resident]) must set layout: 'horizontal', gap: 8, and set width: 'fill_container' on each pill child so options distribute evenly across the container without squishing or overflowing.
+  25. Consumer & Food Retail Micro-UI Primitives: Consumer commerce, bakery, and food ordering apps should include rich micro-UI affordances: header cart badge buttons with item counters (`[shopping-bag icon] [count]`), search bars with filter toggles, product cards with itemized prices and circular quick-add `(+)` buttons, and promotional incentive banners.
+  26. Multi-Tier Color Grounding & Focal Contrast: Do not paint every section with the exact same background. In light-ground apps, give featured hero cards or drop callouts a deep, contrasting ground ($surface-secondary or inverted dark fill) paired with pastel image wells (soft mint, blush, cream) and bright accent CTAs. This creates prestige and depth without heavy drop shadows.
+  27. Contextual Micro-Badges & Status Stamps: On product, space, or menu cards, place tiny uppercase metadata badges (e.g. "LIMITED BATCH", "BEST SELLER", "POPULAR", "NEW DROP") in 10-11px bold uppercase with subtle border/fill to give items tangible retail authority.
+  28. Screen Isolation & Dual-Screen Placement: Never nest a screen frame inside another screen frame. When building a companion screen or second screen, omit parentId (or call create_screen) so it is placed side-by-side at x: 480+ on the root canvas.
+  29. Non-Destructive Revision Discipline: During visual review or incremental edits, NEVER delete the original root screen or wipe the canvas. If a node is nested by mistake, call move_node(id, newParentId: 'canvas') to un-nest it to the top-level canvas, or delete only the inner duplicate node. Never delete the root container that holds your generated images and core content.
+  30. Auto-Layout Discipline on Mobile: Mobile screens and cards MUST ALWAYS use auto-layout (layout: 'vertical' or layout: 'horizontal'). NEVER switch cards or sections to layout: 'none' (absolute positioning). Absolute coordinates on mobile break wrapping, collide with photography, and cause overlapping text thrashing across revisions.
 
 ## canvas-api
 
@@ -124,6 +166,11 @@ MANDATORY REFINE CRITERIA (Return "refine" and scores <= 2 if ANY of these defec
 10. Catalog as page: three or more equal cards (title + blurb + price) standing in for the whole layout. An offer or pricing row on a long scrolling site is not this defect.
 11. Under-generated / Shallow Site Stub: A landing page or site that stops prematurely after only 2–3 brief blocks without exploring the product's substance (missing tangible spaces/catalog cards, concrete amenities/specs, pricing comparison, or proper multi-column footer). A complete site must have depth and rhythm.
 12. Section Collisions & Card Alignment: Section titles colliding with or touching the top borders of cards; sibling cards in a horizontal pricing/feature row having uneven card heights or vertically staggered CTA button baselines; stray isolated placeholder punctuation (`"-"`, `"•"`).
+13. Oversized Single-Viewport Mobile Screen: A single-viewport card-swipe, dating, camera, or audio player app with a tab bar that expands past the 844px device viewport, pushing the bottom tab bar off-screen. (Multi-section store feeds, catalogs, and food ordering menus are SCROLLABLE feeds (1100–1600px). On scrollable feeds, having product cards peek or cross the 844px fold is intentional scroll affordance, NOT clipped content! Never penalize a scrollable feed for extending past 844px or ask the model to squish it into a single screen).
+14. Muddy Button Contrast: Action buttons, CTA buttons, or selected filter chips with dark text on dark/colored background fills (e.g. black text on olive/green, terracotta, or navy buttons). Solid colored action buttons require crisp white/light text ($surface-primary or #FFFFFF).
+15. Empty Placeholder Image Wells in Cards: Product cards, menu items, or space cards displaying a blank solid-color rectangle or empty tinted box instead of real product photography, illustration, or Lucide icon well. Every product card offering an item must have its product photo generated or filled.
+16. Monolithic Hero Swallowing the Mobile Fold: A single featured hero card or promo block on a mobile screen exceeding 380px height that monopolizes the entire first 844px viewport and pushes the product catalog or secondary content completely off-screen. A mobile feed's hero must be compact (220px–340px) so the catalog is previewed above the fold.
+17. Inconsistent Sibling Card Action Styles: Sibling cards in a product/pricing collection row where one card has a styled button container/pill while its sibling has a naked text '+' glyph or no button container. All sibling cards in a collection must share identical button structures and styles.
 
 PASS CRITERIA (Return "pass" ONLY when ALL are true):
 - The visual style, palette and information density match where the product is used — not a costume from another domain, and not an operations shell around a place or a story.
@@ -149,3 +196,5 @@ ISSUES & FIXES
 Return JSON only, matching this shape:
 { "verdict": "pass" | "refine", "scores": { "specificity": 1-5, "hierarchy": 1-5, "usability": 1-5, "craft": 1-5 }, "strengths": string[0-2], "issues": [{ "title", "reason", "instruction", "nodeIds"?: string[] }][0-3], "fixes": [{ "nodeId", "property", "value" }][0-12] }
 Do not invent node ids. Omit nodeIds when the digest does not contain them.
+
+

@@ -12,18 +12,25 @@ import {
   contrastRatio,
   extractHexColors,
   parseHexColor,
+  getRelativeLuminance,
   walkEnabled,
   isScreen,
   childrenOf,
   BACKGROUND_TYPES,
   UNIVERSAL_LITERALS,
+  INTERACTIVE_NAME,
   ACCENT_TOKEN
 } from "../helpers";
 
 export function checkContrast(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
 
-  function walk(node: LayoutNode, inheritedBg: string | undefined, unmeasurable: boolean) {
+  function walk(
+    node: LayoutNode,
+    inheritedBg: string | undefined,
+    unmeasurable: boolean,
+    parentNode?: PenNode
+  ) {
     const data = ctx.nodes.get(node.id);
     if (data?.enabled === false) return;
     const ownFill = solidFillOf(data);
@@ -42,29 +49,55 @@ export function checkContrast(ctx: AuditContext): AuditFinding[] {
       );
       if (ratio !== null) {
         const size = text.fontSize ?? 16;
-        const bold = text.fontWeight === "bold" || Number(text.fontWeight) >= 700;
-        const isLarge = size >= 24 || (size >= 18.66 && bold);
+        const bold = text.fontWeight === "bold" || Number(text.fontWeight) >= 600;
+        const isInteractive = Boolean(
+          parentNode && (
+            INTERACTIVE_NAME.test(parentNode.name ?? "") ||
+            /button|btn|cta|chip|pill|action/i.test(parentNode.name ?? "") ||
+            (parentNode as any).metadata?.scaffold === "chrome"
+          )
+        );
+        const isLarge = size >= 24 || (size >= 18.66 && bold) || (isInteractive && size >= 13 && bold);
         const required = isLarge ? 3 : 4.5;
+
+        const bgHex = parseHexColor(resolveVariable(effectiveBg, ctx.doc.variables));
+        const fgHex = parseHexColor(resolveVariable(textFill, ctx.doc.variables));
+        if (bgHex && fgHex) {
+          const bgLum = getRelativeLuminance(bgHex);
+          const fgLum = getRelativeLuminance(fgHex);
+          // Dark text on mid-tone or dark colored action buttons/pills (e.g. dark text on olive green or terracotta)
+          if (bgLum < 0.45 && fgLum < 0.25 && isInteractive) {
+            findings.push(
+              blocker(
+                "low_contrast",
+                node.id,
+                `Action button/pill "${(text.content ?? "").slice(0, 32)}" has dark text on a colored surface (${resolveVariable(textFill, ctx.doc.variables)} on ${resolveVariable(effectiveBg, ctx.doc.variables)}). Solid colored buttons require white/light text ($surface-primary or #FFFFFF) for clean legibility.`,
+                "Set text fill to $surface-primary or #FFFFFF for clean legibility on solid colored buttons."
+              )
+            );
+          }
+        }
+
         if (ratio < required) {
           findings.push(
             blocker(
               "low_contrast",
               node.id,
               `Text "${(text.content ?? "").slice(0, 32)}" at ${size}px measures ${ratio.toFixed(2)}:1 against its background (${resolveVariable(textFill, ctx.doc.variables)} on ${resolveVariable(effectiveBg, ctx.doc.variables)}). ${required}:1 is required.`,
-              "Use $foreground-primary or $foreground-secondary on $surface-primary / $surface-secondary. $foreground-muted is only for text at 11-12px that is genuinely tertiary."
+              "Use $foreground-primary or $foreground-secondary on $surface-primary / $surface-secondary, or $surface-primary on dark/accent surfaces."
             )
           );
         }
       }
     }
 
-    for (const child of node.children) walk(child, bg, nowUnmeasurable);
+    for (const child of node.children) walk(child, bg, nowUnmeasurable, data);
   }
 
   for (const root of ctx.tree) {
     const rootData = ctx.nodes.get(root.id);
     const rootFill = solidFillOf(rootData);
-    walk(root, rootFill, overUnmeasurableBackground(rootData));
+    walk(root, rootFill, overUnmeasurableBackground(rootData), undefined);
   }
   return findings;
 }

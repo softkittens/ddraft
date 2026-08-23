@@ -4,7 +4,7 @@ import type { FetchFn } from "./provider";
 
 export interface ImageGenResult {
   url: string;
-  provider: "gemini" | "xai" | "qwen";
+  provider: "vercel" | "gemini" | "xai" | "qwen";
 }
 
 /** Thrown when no image provider is configured or every provider failed. */
@@ -29,7 +29,7 @@ function getEnvKey(key: string, env?: Record<string, string | undefined>): strin
   return undefined;
 }
 
-/** Generate with the selected provider, or use the configured Qwen/OpenAI fallback. */
+/** Generate with the selected provider, or use the configured fallback. */
 export async function generateDesignImage(
   prompt: string,
   options: {
@@ -44,6 +44,62 @@ export async function generateDesignImage(
 ): Promise<ImageGenResult> {
   const env = options.env;
   const fetchImpl = options.fetch ?? fetch;
+
+  if (options.providerId === "vercel") {
+    const vercelKey = options.apiKey || getEnvKey("VERCEL_API_KEY", env) || getEnvKey("AI_GATEWAY_API_KEY", env) || getEnvKey("VERCEL_AI_GATEWAY_API_KEY", env);
+    if (!vercelKey) {
+      throw new ImageGenUnavailableError(
+        "Vercel AI Gateway image generation is not configured. Set VERCEL_API_KEY or AI_GATEWAY_API_KEY to enable FLUX.1 [schnell]."
+      );
+    }
+
+    const vercelBase = getEnvKey("VERCEL_BASE_URL", env) || getEnvKey("AI_GATEWAY_BASE_URL", env) || "https://ai-gateway.vercel.sh/v1";
+    const endpoint = `${vercelBase.replace(/\/+$/, "")}/images/generations`;
+    const model = options.model || "prodia/flux-fast-schnell";
+    const sizeMap: Record<string, string> = {
+      square: "1024x1024",
+      portrait: "768x1024",
+      landscape: "1024x768"
+    };
+    const size = sizeMap[options.aspectRatio || "portrait"] || options.size || "1024x1024";
+
+    try {
+      const response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${vercelKey}`
+        },
+        body: JSON.stringify({
+          model,
+          prompt,
+          n: 1,
+          size,
+          response_format: "b64_json"
+        })
+      });
+
+      const data = (await response.json()) as {
+        error?: { message?: string };
+        data?: { url?: string; b64_json?: string }[];
+      };
+
+      if (!response.ok) {
+        throw new Error(`Vercel AI Gateway ${response.status}: ${data.error?.message || "request failed"}`);
+      }
+
+      const image = data.data?.[0];
+      if (image?.b64_json) {
+        return { url: `data:image/jpeg;base64,${image.b64_json}`, provider: "vercel" };
+      }
+      if (image?.url) return { url: image.url, provider: "vercel" };
+      throw new Error("Vercel AI Gateway returned no image");
+    } catch (err) {
+      throw new ImageGenUnavailableError(
+        `Image generation failed. ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
 
   if (options.providerId === "gemini") {
     const geminiKey = options.apiKey || getEnvKey("GEMINI_API_KEY", env);
@@ -146,6 +202,57 @@ export async function generateDesignImage(
   }
 
   const failures: string[] = [];
+
+  // 1. Try Vercel AI Gateway FLUX.1 [schnell] (cheapest primary provider)
+  const vercelKey = getEnvKey("VERCEL_API_KEY", env) || getEnvKey("AI_GATEWAY_API_KEY", env) || getEnvKey("VERCEL_AI_GATEWAY_API_KEY", env);
+  if (vercelKey) {
+    const vercelBase = getEnvKey("VERCEL_BASE_URL", env) || getEnvKey("AI_GATEWAY_BASE_URL", env) || "https://ai-gateway.vercel.sh/v1";
+    const endpoint = `${vercelBase.replace(/\/+$/, "")}/images/generations`;
+    const model = options.model || "prodia/flux-fast-schnell";
+    const sizeMap: Record<string, string> = {
+      square: "1024x1024",
+      portrait: "768x1024",
+      landscape: "1024x768"
+    };
+    const size = sizeMap[options.aspectRatio || "portrait"] || options.size || "1024x1024";
+
+    try {
+      const response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${vercelKey}`
+        },
+        body: JSON.stringify({
+          model,
+          prompt,
+          n: 1,
+          size,
+          response_format: "b64_json"
+        })
+      });
+
+      const data = (await response.json()) as {
+        error?: { message?: string };
+        data?: { url?: string; b64_json?: string }[];
+      };
+
+      if (!response.ok) {
+        failures.push(`Vercel AI Gateway ${response.status}: ${data.error?.message || "request failed"}`);
+      } else {
+        const image = data.data?.[0];
+        if (image?.b64_json) {
+          return { url: `data:image/jpeg;base64,${image.b64_json}`, provider: "vercel" };
+        }
+        if (image?.url) return { url: image.url, provider: "vercel" };
+        failures.push("Vercel AI Gateway returned no image");
+      }
+    } catch (err) {
+      failures.push(`Vercel AI Gateway request failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // 2. Try Qwen Image 3.0 through its synchronous multimodal endpoint.
   const qwenKey = getEnvKey("QWEN_API_KEY", env) || getEnvKey("DASHSCOPE_API_KEY", env);
   const qwenBase = getEnvKey("QWEN_BASE_URL", env) || getEnvKey("DASHSCOPE_BASE_URL", env) ||
     catalogById("qwen-studio")?.baseUrl || "";
@@ -160,7 +267,6 @@ export async function generateDesignImage(
   // Qwen chat and image endpoints share an origin, but not an API path.
   const qwenOrigin = qwenBase.replace(/\/(?:compatible-mode|api)\/v1\/?$/, "");
 
-  // 1. Try Qwen Image 3.0 through its synchronous multimodal endpoint.
   if (qwenKey && qwenKey.length > 5 && qwenOrigin) {
     try {
       const endpoint = `${qwenOrigin}/api/v1/services/aigc/multimodal-generation/generation`;
@@ -203,6 +309,6 @@ export async function generateDesignImage(
     throw new ImageGenUnavailableError(`Image generation failed. ${failures.join(" ")}`);
   }
   throw new ImageGenUnavailableError(
-    "Image generation is not configured. Set QWEN_API_KEY (or DASHSCOPE_API_KEY), GEMINI_API_KEY, or XAI_API_KEY to enable it."
+    "Image generation is not configured. Set VERCEL_API_KEY, GEMINI_API_KEY, XAI_API_KEY, or QWEN_API_KEY (or DASHSCOPE_API_KEY) to enable it."
   );
 }

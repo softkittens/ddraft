@@ -280,7 +280,23 @@ describe("H4 document tools specification", () => {
     expect(getLucideIconPath("verified")).toBe(badgeCheckPath);
   });
 
-  it("resolves image generation across providers (Qwen, Gemini, xAI)", async () => {
+  it("resolves image generation across providers (Vercel FLUX.1, Qwen, Gemini, xAI)", async () => {
+    // Vercel AI Gateway FLUX.1 [schnell]
+    let vercelPosted: any;
+    const vercelSession = createDocumentTools(makeDoc(frame("hero", 320, 180)), {
+      providerId: "vercel",
+      apiKey: "v-key",
+      fetch: async (_i, init) => {
+        vercelPosted = JSON.parse(String(init?.body));
+        return jsonResponse({ data: [{ b64_json: "aW1hZ2U=" }] });
+      }
+    });
+    const vercelRes = await vercelSession.execute("generate_image", { prompt: "Lisbon sunny workspace", nodeId: "hero" });
+    expect(vercelRes).toContain("generated image (vercel)");
+    expect(vercelPosted.model).toBe("prodia/flux-fast-schnell");
+    expect(vercelPosted.size).toBe("1024x768");
+    expect(vercelSession.doc.children[0].fill).toEqual({ type: "image", url: "data:image/jpeg;base64,aW1hZ2U=" });
+
     // Qwen Image Generation
     let qwenPosted: any;
     const qwenImg = await generateDesignImage("Stallion sunset", {
@@ -357,6 +373,32 @@ describe("H4 document tools specification", () => {
     const res = await session.execute("set_property", { id: "hero", property: "layout", value: "vertical" });
     expect(res).toContain("Switched \"hero\" from absolute to vertical layout");
     expect(res).toContain("Child \"photo\" (1200px) still has a large fixed height from absolute layout");
+  });
+
+  it("un-nests nested frames to top-level canvas with move_node", async () => {
+    const doc = makeDoc(
+      frame("screen1", 390, 844, [
+        frame("nested_screen", 390, 844, [txt("t", "Companion Screen", 16)])
+      ])
+    );
+    const session = createDocumentTools(doc);
+    const res = await session.execute("move_node", { id: "nested_screen", newParentId: "canvas" });
+    expect(res).not.toContain("error");
+    expect(session.doc.children).toHaveLength(2);
+    expect(session.doc.children[1].id).toBe("nested_screen");
+    expect(session.doc.children[1].x).toBeGreaterThan(0);
+  });
+
+  it("prevents delete_node from wiping the sole root screen on canvas", async () => {
+    const doc = makeDoc(
+      frame("screen1", 390, 844, [
+        txt("t", "Content", 16)
+      ])
+    );
+    const session = createDocumentTools(doc);
+    const res = await session.execute("delete_node", { id: "screen1" });
+    expect(res).toContain("error: cannot delete \"screen1\" because it is the only root screen");
+    expect(session.doc.children).toHaveLength(1);
   });
 });
 

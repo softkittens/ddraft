@@ -100,14 +100,30 @@ export function replaceNode(doc: Document, id: string, replacement: PenNode): Do
   return doc;
 }
 
-export function moveNode(doc: Document, id: string, newParentId: string, at?: number): Document {
+export function moveNode(doc: Document, id: string, newParentId?: string, at?: number): Document {
   if (id === newParentId) return doc;
   const target = findNode(doc.children, id);
-  if (!target || isDescendant(target, newParentId)) return doc;
+  if (!target || (newParentId && isDescendant(target, newParentId))) return doc;
 
   const newDoc = cloneDocument(doc);
   const moved = removeFromList(newDoc.children, id);
   if (!moved) return doc;
+
+  const isRootMove = !newParentId || newParentId === "canvas" || newParentId === "root" || newParentId === "document";
+  if (isRootMove) {
+    let maxX = 0;
+    for (const root of newDoc.children) {
+      const rightEdge = (root.x ?? 0) + (typeof root.width === "number" ? root.width : 1200);
+      if (rightEdge > maxX) maxX = rightEdge;
+    }
+    if (moved.x === undefined || moved.x === 0) {
+      moved.x = newDoc.children.length > 0 ? maxX + 80 : 0;
+    }
+    if (moved.y === undefined) moved.y = newDoc.children[0]?.y ?? 0;
+    const idx = at !== undefined ? Math.max(0, Math.min(at, newDoc.children.length)) : newDoc.children.length;
+    newDoc.children.splice(idx, 0, moved);
+    return newDoc;
+  }
 
   const parent = findNode(newDoc.children, newParentId);
   if (!parent || !isParentNode(parent)) return doc;
