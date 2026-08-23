@@ -106,6 +106,8 @@ export const insertIconTool: DocumentToolDefinition = {
       fill: typeof a.fill === "string" ? a.fill : undefined
     };
 
+    const offParent = ctx.offPage(typeof a.parentId === "string" ? a.parentId.trim() : undefined);
+    if (offParent) return offParent;
     const targetParent = digestId(doc, a.parentId);
     doc = insertChild(doc, targetParent, iconNode as PenNode, typeof a.index === "number" ? a.index : undefined);
     ctx.setDoc(doc);
@@ -136,6 +138,8 @@ export const generateImageTool: DocumentToolDefinition = {
     const prompt = typeof a.prompt === "string" ? a.prompt.trim() : "";
     if (!prompt) return "error: prompt is required for image generation";
 
+    const offTarget = ctx.offPage(typeof a.nodeId === "string" ? a.nodeId.trim() : undefined);
+    if (offTarget) return offTarget;
     const targetId = digestId(doc, a.nodeId);
     if (!targetId) return "error: existing nodeId is required for image generation";
 

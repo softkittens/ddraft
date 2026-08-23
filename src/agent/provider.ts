@@ -1,5 +1,27 @@
 export type ReasoningEffort = "none" | "low" | "medium" | "high";
 
+function usesLowHighMaxThinking(p: Pick<Provider, "id" | "model">): boolean {
+  return p.id === "opencode-zen" || p.model === "x-preview-f-free" || p.model === "ox-alpha-free";
+}
+
+/**
+ * The effort value this endpoint will actually accept.
+ *
+ * The selector already sends low / medium / high. OpenCode Zen's Console
+ * models (Ox Alpha / GLM-5.3) only accept low, high, or max — `medium` is
+ * rejected as "thinking disabled". Map at the wire, not in the UI, so the
+ * rest of the app can keep one three-level control.
+ */
+export function toWireReasoningEffort(
+  p: Pick<Provider, "id" | "model" | "reasoningEffort">
+): ReasoningEffort | undefined {
+  const effort = p.reasoningEffort;
+  if (!usesLowHighMaxThinking(p)) return effort === "none" ? undefined : effort;
+  if (effort === "high") return "high";
+  if (effort === "low") return "low";
+  return effort === "medium" ? "high" : "low";
+}
+
 /**
  * One notch less deliberation, for a reply the provider cut off mid-thought.
  *
@@ -10,8 +32,12 @@ export type ReasoningEffort = "none" | "low" | "medium" | "high";
  * one explicitly; "low" is the floor, because a reasoning model handed "none"
  * is a different model and the run did not ask for that.
  */
-export function stepDownEffort(effort: ReasoningEffort | undefined): ReasoningEffort {
+export function stepDownEffort(
+  effort: ReasoningEffort | undefined,
+  p?: Pick<Provider, "id" | "model">
+): ReasoningEffort {
   if (effort === "none") return "none";
+  if (p && usesLowHighMaxThinking(p)) return "low";
   if (effort === "high") return "medium";
   return "low";
 }
@@ -159,8 +185,8 @@ export async function complete(
     ? {
         model: p.model,
         input: toResponsesInput(messages),
-        ...(p.reasoningEffort && p.reasoningEffort !== "none"
-          ? { reasoning: { effort: p.reasoningEffort } }
+        ...(toWireReasoningEffort(p)
+          ? { reasoning: { effort: toWireReasoningEffort(p) } }
           : {})
       }
     : api === "messages"
@@ -171,7 +197,7 @@ export async function complete(
         ...(usesMaxCompletionTokens(p)
           ? { max_completion_tokens: p.maxOutputTokens ?? 4096 }
           : { max_tokens: p.maxOutputTokens ?? 4096 }),
-        ...(p.reasoningEffort ? { reasoning_effort: p.reasoningEffort } : {})
+        ...(toWireReasoningEffort(p) ? { reasoning_effort: toWireReasoningEffort(p) } : {})
       };
   const endpoint = api === "chat" ? "chat/completions" : api;
   const headers: Record<string, string> = {

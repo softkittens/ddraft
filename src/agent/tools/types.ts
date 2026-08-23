@@ -10,9 +10,26 @@ import { viewportFor, MAX_SCREEN_HEIGHT } from "../../design/scaffold";
 import type { FetchFn, Tool } from "../provider";
 
 export interface ToolContext {
+  /** The whole document. Writes land here, because a page is a view, not a store. */
   get doc(): Document;
   setDoc(next: Document): void;
   get initialDoc(): Document;
+  /**
+   * The document narrowed to the page being worked on.
+   *
+   * Every digest the agent reads comes from this. A run that can see four
+   * pages of screens spends its context on three it was not asked about, and
+   * reliably starts editing them.
+   */
+  get pageDoc(): Document;
+  /** The page new top-level screens join. Undefined when the document has no pages. */
+  readonly pageId: string | undefined;
+  /**
+   * An error to return when the id names something outside the page, or
+   * undefined when the tool may proceed. Always undefined when no page is
+   * active, so a single-page document behaves exactly as it did before.
+   */
+  offPage(id: string | undefined): string | undefined;
   image: { providerId?: string; apiKey?: string; fetch?: FetchFn };
   recordWrite(id: string, property: string, value: unknown): string;
 }

@@ -50,7 +50,9 @@ export const readDigestTool: DocumentToolDefinition = {
     }
   },
   execute: (ctx, a) => {
-    return digestSubtree(ctx.doc, digestId(ctx.doc, a.id));
+    const off = ctx.offPage(typeof a.id === "string" ? a.id.trim() : undefined);
+    if (off) return off;
+    return digestSubtree(ctx.pageDoc, digestId(ctx.pageDoc, a.id));
   }
 };
 
@@ -87,9 +89,15 @@ export const setPropertyTool: DocumentToolDefinition = {
     if (vocabulary.value === undefined) return vocabulary.note;
     a.value = vocabulary.value;
     const vocabularyNote = vocabulary.note;
+    const offTarget = ctx.offPage(a.id);
+    if (offTarget) return offTarget;
     if (!findNode(doc.children, a.id)) {
       const inside = splitInstanceId(doc, a.id);
       if (!inside) return `error: node ${a.id} not found`;
+      // A composite instance id is not a node, so the guard above passed it
+      // through. The ref it names is a node, and that is what gets written.
+      const offInstance = ctx.offPage(inside.refId);
+      if (offInstance) return offInstance;
       const beforeInstance = doc;
       doc = setInstanceProperty(doc, inside, a.property, a.value);
       if (doc === beforeInstance) {
@@ -164,6 +172,14 @@ export const batchSetPropertiesTool: DocumentToolDefinition = {
     let doc = ctx.doc;
     const updates: Array<Record<string, unknown>> = Array.isArray(a.updates) ? a.updates : [];
     if (updates.length === 0) return "error: updates array is required";
+
+    for (const u of updates) {
+      if (!u || typeof u.id !== "string") continue;
+      // The batch is atomic, so one off-page id fails the call rather than
+      // silently applying the rest against a page the run cannot see.
+      const off = ctx.offPage(u.id) ?? ctx.offPage(splitInstanceId(doc, u.id)?.refId);
+      if (off) return off;
+    }
 
     const blocked = updates.find((u) => {
       if (!u || typeof u.id !== "string" || typeof u.property !== "string") return false;
@@ -244,7 +260,11 @@ export const measureTool: DocumentToolDefinition = {
     }
   },
   execute: (ctx, a) => {
-    const doc = ctx.doc;
+    const off = ctx.offPage(typeof a.id === "string" ? a.id.trim() : undefined);
+    if (off) return off;
+    // Measured against the page: with no id this lists every root frame, and
+    // the roots worth listing are the ones this run is allowed to touch.
+    const doc = ctx.pageDoc;
     const targetId = digestId(doc, a.id);
     const resolvedTree = layoutResolvedDocument(resolveInstances(doc));
 

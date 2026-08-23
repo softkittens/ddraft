@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { complete, type Provider, type FetchFn, type Message } from "../src/agent/provider";
+import { complete, stepDownEffort, toWireReasoningEffort, type Provider, type FetchFn, type Message } from "../src/agent/provider";
 import {
   loadProvider,
   listConfiguredProviders,
@@ -505,5 +505,41 @@ describe("Icon catalog standalone resolution & subprocess verification", () => {
     expect(out.available).toBe(true);
     expect(out.resolved).toBe(true);
     expect(out.search).toContain("paw-print");
+  });
+});
+
+describe("OpenCode Zen thinking effort", () => {
+  const zen: Provider = {
+    id: "opencode-zen",
+    baseUrl: "https://opencode.ai/zen/v1",
+    model: "x-preview-f-free",
+    apiKey: "k",
+    reasoningEffort: "medium"
+  };
+
+  it("does not send medium, which that model treats as thinking-off", () => {
+    expect(toWireReasoningEffort(zen)).toBe("high");
+    expect(toWireReasoningEffort({ ...zen, reasoningEffort: "high" })).toBe("high");
+    expect(toWireReasoningEffort({ ...zen, reasoningEffort: "low" })).toBe("low");
+  });
+
+  it("leaves medium alone for providers that accept it", () => {
+    expect(toWireReasoningEffort({ ...echoProvider, reasoningEffort: "medium" })).toBe("medium");
+  });
+
+  it("steps high down to low, skipping medium", () => {
+    expect(stepDownEffort("high", zen)).toBe("low");
+    expect(stepDownEffort("high")).toBe("medium");
+  });
+
+  it("posts the remapped effort on the chat body", async () => {
+    let posted: { reasoning_effort?: string } = {};
+    for await (const _ of completeStream(zen, [{ role: "user", content: "hi" }], undefined, {
+      fetch: async (_i, init) => {
+        posted = JSON.parse(String(init?.body));
+        return streamed();
+      }
+    })) {}
+    expect(posted.reasoning_effort).toBe("high");
   });
 });

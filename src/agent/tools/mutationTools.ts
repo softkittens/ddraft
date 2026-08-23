@@ -1,6 +1,7 @@
 import type { PenNode } from "../../model/types";
 import { insertChild, moveNode, removeNode, replaceNode, setProperty, duplicateNode, getNextNodeId } from "../../model/edit";
 import { childrenOf, findNode, maxNumericId } from "../../model/tree";
+import { pageScopedDocument, setPageOf } from "../../model/pages";
 import { digest, digestSubtree } from "../../digest/digest";
 import { buildScreen, type ScreenSpec, type TabSpec } from "../../design/scaffold";
 import { insertionNote } from "../../design/evaluator";
@@ -89,13 +90,23 @@ export const createScreenTool: DocumentToolDefinition = {
     const scaffold = buildScreen(spec, () => `n${Number(base) + counter++}`);
     resolveIconGeometry(scaffold.node);
 
+    // Placed beside the screens on this page, not beside everything on the
+    // canvas: a page whose screens sit in one band should keep them there
+    // rather than trailing off past another page's work.
+    const siblings = ctx.pageDoc.children;
     let maxX = 0;
-    for (const root of doc.children) {
+    for (const root of siblings) {
       const right = (root.x ?? 0) + (typeof root.width === "number" ? root.width : 1200);
       if (right > maxX) maxX = right;
     }
-    (scaffold.node as any).x = doc.children.length > 0 ? maxX + 80 : 0;
-    (scaffold.node as any).y = doc.children[0]?.y ?? 0;
+    (scaffold.node as any).x = siblings.length > 0 ? maxX + 80 : 0;
+    (scaffold.node as any).y = siblings[0]?.y ?? 0;
+    if (ctx.pageId) {
+      (scaffold.node as any).metadata = {
+        ...((scaffold.node as any).metadata ?? {}),
+        page: ctx.pageId
+      };
+    }
 
     doc = insertChild(doc, undefined, scaffold.node as PenNode);
     ctx.setDoc(doc);
@@ -163,6 +174,9 @@ export const insertNodeTool: DocumentToolDefinition = {
       if (nodeToInsert.height === undefined) nodeToInsert.height = 920;
     }
 
+    const offParent = ctx.offPage(targetParent);
+    if (offParent) return offParent;
+
     const before = doc;
     doc = insertChild(doc, targetParent, nodeToInsert as PenNode, typeof a.index === "number" ? a.index : undefined);
     if (doc === before) return `error: could not insert into ${rawParentId || "canvas"}`;
@@ -173,7 +187,7 @@ export const insertNodeTool: DocumentToolDefinition = {
     doc = percent.doc;
     ctx.setDoc(doc);
 
-    const body = targetParent ? digestSubtree(doc, targetParent) : digest(doc);
+    const body = targetParent ? digestSubtree(doc, targetParent) : digest(ctx.pageDoc);
     const note = insertionNote(doc, (nodeToInsert as PenNode).id);
     return [normalizationNote, ...percent.notes, body, note].filter(Boolean).join("\n");
   }
@@ -215,6 +229,11 @@ export const placeInstancesTool: DocumentToolDefinition = {
     const component = findNode(doc.children, componentId);
     if (!component) return `error: component ${componentId} not found`;
     if (!findNode(doc.children, parentId)) return `error: parent ${parentId} not found`;
+    // Only the destination is guarded. Reusable components live at the top of
+    // the canvas and are meant to be instanced from anywhere, so a component
+    // on another page is a shared asset, not a trespass.
+    const offParent = ctx.offPage(parentId);
+    if (offParent) return offParent;
     if (items.length === 0) return "error: items is empty. Give one entry per instance.";
 
     const known = new Set<string>();
@@ -289,6 +308,8 @@ export const duplicateNodeTool: DocumentToolDefinition = {
     if (typeof a.id !== "string" || !a.id.trim()) return "error: id is required";
     const targetId = digestId(doc, a.id);
     if (!targetId || !findNode(doc.children, targetId)) return `error: node ${a.id} not found`;
+    const off = ctx.offPage(targetId);
+    if (off) return off;
 
     const res = duplicateNode(doc, targetId);
     if (!res) return `error: could not duplicate ${a.id}`;
@@ -320,16 +341,19 @@ export const deleteNodeTool: DocumentToolDefinition = {
     if (typeof a.id !== "string") return "error: id is required";
     const targetId = a.id.trim();
     if (!findNode(doc.children, targetId)) return `error: node ${targetId} not found`;
+    const off = ctx.offPage(targetId);
+    if (off) return off;
 
-    // Guard against accidentally wiping out the sole root screen on canvas
-    if (doc.children.length === 1 && targetId === doc.children[0].id) {
+    // Guard against accidentally wiping out the sole root screen on this page
+    const pageRoots = ctx.pageDoc.children;
+    if (pageRoots.length === 1 && targetId === pageRoots[0].id) {
       return `error: cannot delete "${targetId}" because it is the only root screen on the canvas. To change its contents, edit or delete its child nodes instead.`;
     }
 
     const parentId = parentIdOf(doc, targetId);
     doc = removeNode(doc, targetId);
     ctx.setDoc(doc);
-    return parentId ? digestSubtree(doc, parentId) : digest(doc);
+    return parentId ? digestSubtree(doc, parentId) : digest(ctx.pageDoc);
   }
 };
 
@@ -360,17 +384,24 @@ export const moveNodeTool: DocumentToolDefinition = {
     if (typeof a.id !== "string") return "error: id is required";
     const targetId = a.id.trim();
     if (!findNode(doc.children, targetId)) return `error: could not find node ${targetId}`;
+    const off = ctx.offPage(targetId);
+    if (off) return off;
 
     const rawParentId = typeof a.newParentId === "string" ? a.newParentId.trim() : undefined;
+    const offParent = ctx.offPage(rawParentId);
+    if (offParent) return offParent;
     const isRootMove = !rawParentId || rawParentId === "canvas" || rawParentId === "root" || rawParentId === "document";
     const oldParent = parentIdOf(doc, targetId);
 
     const before = digest(doc);
     doc = moveNode(doc, targetId, isRootMove ? undefined : rawParentId, typeof a.index === "number" ? a.index : undefined);
     if (digest(doc) === before) return `error: could not move ${targetId}`;
+    // A node moved out to the canvas becomes a screen, and a screen with no
+    // label belongs to no page. It joins the page the run is working on.
+    if (isRootMove && ctx.pageId) doc = setPageOf(doc, targetId, ctx.pageId);
     ctx.setDoc(doc);
 
-    const parts = [isRootMove ? digest(doc) : digestSubtree(doc, rawParentId!)];
+    const parts = [isRootMove ? digest(pageScopedDocument(doc, ctx.pageId)) : digestSubtree(doc, rawParentId!)];
     if (oldParent && oldParent !== rawParentId && !isRootMove) parts.unshift(digestSubtree(doc, oldParent));
     const loop = ctx.recordWrite(targetId, "parent", rawParentId ?? "canvas");
     return [parts.join("\n---\n"), loop].filter(Boolean).join("\n");
@@ -396,6 +427,8 @@ export const revertNodeTool: DocumentToolDefinition = {
       return "error: id is required";
     }
     const targetId = a.id.trim();
+    const off = ctx.offPage(targetId);
+    if (off) return off;
     const initialNode = findNode(ctx.initialDoc.children, targetId);
 
     if (initialNode) {

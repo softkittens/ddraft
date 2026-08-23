@@ -3,6 +3,7 @@ import { indexDocument, walkNodes } from "../model/tree";
 import { resolveInstances } from "../model/instance";
 import { paintNode, preloadCachedImage } from "./paint";
 import type { Document as PenDocument, Fill, ImageFill, PenNode } from "../model/types";
+import { pageScopedDocument } from "../model/pages";
 import type { LayoutNode, Box } from "../layout/types";
 
 export type CaptureFailure = "unavailable" | "no_target";
@@ -256,10 +257,21 @@ function captureSingleRoot(
   return captures;
 }
 
-export async function captureDocumentPng(doc: PenDocument): Promise<CaptureResult> {
+/**
+ * Every image the critic is shown.
+ *
+ * Scoped to one page, because the critic's job is to judge the screens the run
+ * was working on. An overview spanning the whole canvas puts three pages of
+ * unrelated screens in the same frame and invites a verdict on all of them —
+ * and worse, it disagrees with the audit, which is scoped to the page. Two
+ * reviewers with different ideas of what "the design" is cannot be reconciled
+ * by anything downstream.
+ */
+export async function captureDocumentPng(doc: PenDocument, pageId?: string): Promise<CaptureResult> {
   if (typeof globalThis.document === "undefined" || typeof globalThis.document.createElement !== "function") {
     return { ok: false, reason: "unavailable" };
   }
+  doc = pageScopedDocument(doc, pageId);
 
   const fonts = (globalThis.document as { fonts?: { ready?: Promise<unknown> } }).fonts;
   if (fonts?.ready) {

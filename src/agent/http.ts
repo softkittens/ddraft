@@ -118,6 +118,7 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
       direction?: unknown;
       audit?: unknown;
       context?: unknown;
+      pageId?: unknown;
       sessionId?: unknown;
     };
     try {
@@ -258,6 +259,7 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
       reasoningEffort?: ReasoningEffort;
       selection?: unknown;
       recentStyles?: unknown;
+      pageId?: unknown;
       sessionId?: unknown;
     };
     let provider = null;
@@ -295,6 +297,7 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
               recentStyles: Array.isArray(body.recentStyles)
                 ? (body.recentStyles.filter(isStyleRun) as StyleRun[])
                 : [],
+              pageId: typeof body.pageId === "string" && body.pageId.trim() ? body.pageId.trim() : undefined,
               trace: (event) => log?.write(event)
             })) {
               if (event.type === "done") log?.write({ type: "session_done" });

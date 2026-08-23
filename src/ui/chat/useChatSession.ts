@@ -10,7 +10,8 @@ import {
   restoredChat,
   resetToken,
   persistChat,
-  zoomToFit
+  zoomToFit,
+  activePage
 } from "../store";
 import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
 import { noteAgentEdits, clearAgentEditTargets, diffChangedNodeIds } from "../canvas/workingFrames";
@@ -30,6 +31,7 @@ import {
 } from "../../agent/review";
 import { digest } from "../../digest/digest";
 import { resolvePromptContext } from "../../agent/context";
+import { pageScopedDocument } from "../../model/pages";
 import { currentDirection } from "../../design/styleSystem";
 import { STYLE_METADATA_KEY } from "../../design/styleKeys";
 import { loadHistory, recordRun, saveHistory } from "../../design/history";
@@ -245,6 +247,7 @@ export function useChatSession() {
           messages: next,
           doc: expectedDoc,
           selection: Array.from(selectedIds()),
+          pageId: activePage()?.id,
           providerId: selected?.providerId,
           model: selected?.model,
           reasoningEffort: effort(),
@@ -363,9 +366,14 @@ export function useChatSession() {
     const seq = ++reviewSeq;
     const signal = reviewAbort.signal;
     const captured = doc();
+    // Pinned once for the whole review: the screenshots, the digest, the audit
+    // and the resolved context all have to describe the same page, and the
+    // user can switch pages while the request is in flight.
+    const capturedPage = activePage()?.id;
+    const pageDoc = pageScopedDocument(captured, capturedPage);
 
     setPending({ label: "Rendering the mockup", icon: "review" });
-    const capture = await captureDocumentPng(captured);
+    const capture = await captureDocumentPng(captured, capturedPage);
     if (seq !== reviewSeq || doc() !== captured) return {};
     if (!capture.ok) return { error: "the canvas could not be captured" };
 
@@ -390,13 +398,14 @@ export function useChatSession() {
             kind: s.kind,
             parentId: s.parentId
           })),
-          digest: digest(captured),
+          digest: digest(pageDoc),
           direction: currentDirection(captured),
-          audit: formatAudit(auditDocument(captured), "Measured design audit"),
+          audit: formatAudit(auditDocument(pageDoc), "Measured design audit"),
+          pageId: capturedPage,
           // The server sees only the brief. Without this the critic re-resolves
           // from that one string and can judge a mobile app against dashboard
           // criteria the builder never received.
-          context: resolvePromptContext(lastBrief(), captured, [...selectedIds()], sessionTextOf(agentMessages())),
+          context: resolvePromptContext(lastBrief(), pageDoc, [...selectedIds()], sessionTextOf(agentMessages())),
           sessionId
         },
         signal
@@ -473,7 +482,7 @@ export function useChatSession() {
          */
         let fixesAwaitingReview = false;
         for (let fixReview = 0; fixReview <= MAX_POST_FIX_REVIEWS; fixReview++) {
-          const measuredReview = enforceAuditFindings(reviewed.review, auditDocument(doc()));
+          const measuredReview = enforceAuditFindings(reviewed.review, auditDocument(pageScopedDocument(doc(), activePage()?.id)));
           const beforeFixes = doc();
           const fixed = applyReviewFixes(beforeFixes, measuredReview);
           if (fixed.applied.length > 0 && doc() === beforeFixes) {
@@ -533,7 +542,7 @@ export function useChatSession() {
             break;
           }
           if (!confirmed.review) break;
-          const confirmedReview = enforceAuditFindings(confirmed.review, auditDocument(doc()));
+          const confirmedReview = enforceAuditFindings(confirmed.review, auditDocument(pageScopedDocument(doc(), activePage()?.id)));
           finalReview = confirmedReview;
           reviewNumber += 1;
           setEntries((prev) => [

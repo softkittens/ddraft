@@ -1,4 +1,6 @@
 import type { Document } from "../model/types";
+import { pageScopedDocument } from "../model/pages";
+import { findNode } from "../model/tree";
 import type { FetchFn, Tool } from "./provider";
 // Registers the full icon catalog. Without it every name outside the
 // browser core map resolves to nothing and paints the fallback glyph.
@@ -35,7 +37,8 @@ export const TOOL_DEFS: Tool[] = ALL_DOCUMENT_TOOLS.map((tool) => ({
 
 export function createDocumentTools(
   initial: Document,
-  image: { providerId?: string; apiKey?: string; fetch?: FetchFn } = {}
+  image: { providerId?: string; apiKey?: string; fetch?: FetchFn } = {},
+  pageId?: string
 ) {
   let doc = initial;
 
@@ -76,6 +79,19 @@ export function createDocumentTools(
     },
     get initialDoc() {
       return initial;
+    },
+    get pageDoc() {
+      return pageScopedDocument(doc, pageId);
+    },
+    pageId,
+    offPage(id: string | undefined) {
+      if (!pageId || !id) return undefined;
+      // Unknown ids are not this guard's business. The tools already report a
+      // missing node in their own words, and answering "not on this page" for
+      // a typo would send the model looking for a page problem it does not have.
+      if (!findNode(doc.children, id)) return undefined;
+      if (findNode(pageScopedDocument(doc, pageId).children, id)) return undefined;
+      return `error: ${id} is on another page. This run is working on one page; switch pages to edit it.`;
     },
     image,
     recordWrite

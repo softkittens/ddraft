@@ -1,6 +1,7 @@
 import {
   toApiMessages,
   toResponsesInput,
+  toWireReasoningEffort,
   usesMaxCompletionTokens,
   type CompleteOptions,
   type Message,
@@ -93,8 +94,8 @@ async function* completeResponsesStream(
     input: toResponsesInput(messages),
     stream: true,
     max_output_tokens: outputCap(p),
-    ...(p.reasoningEffort && p.reasoningEffort !== "none"
-      ? { reasoning: { effort: p.reasoningEffort } }
+    ...(toWireReasoningEffort(p)
+      ? { reasoning: { effort: toWireReasoningEffort(p) } }
       : {})
   };
   if (tools?.length) {
@@ -202,7 +203,7 @@ export async function* completeStream(
     messages: toApiMessages(messages, p),
     stream: true,
     ...(usesMaxCompletionTokens(p) ? { max_completion_tokens: cap } : { max_tokens: cap }),
-    ...(p.reasoningEffort ? { reasoning_effort: p.reasoningEffort } : {})
+    ...(toWireReasoningEffort(p) ? { reasoning_effort: toWireReasoningEffort(p) } : {})
   };
   if (tools && tools.length > 0) {
     body.tools = tools.map((t) => ({

@@ -3,6 +3,7 @@ import { findNode } from "../model/tree";
 import { stepDownEffort, type Message, type Provider, type FetchFn, type Tool } from "./provider";
 import { completeStream, assembleToolCalls } from "./stream";
 import { TOOL_DEFS, createDocumentTools } from "./tools";
+import { pageScopedDocument } from "../model/pages";
 import { withSystemPrompt, MAX_MODEL_ROUNDS } from "./prompt";
 import type { StyleRun } from "../design/history";
 import {
@@ -68,6 +69,8 @@ export async function* runSession(
     maxTurns?: number;
     selection?: string[];
     recentStyles?: readonly StyleRun[];
+    /** The page this run works on. Undefined means the whole document. */
+    pageId?: string;
     trace?: AgentTrace;
   } = {}
 ): AsyncGenerator<AgentEvent> {
@@ -75,8 +78,12 @@ export async function* runSession(
     providerId: provider.id,
     apiKey: provider.apiKey,
     fetch: opts.fetch
-  });
-  const out = withSystemPrompt(messages, doc, opts.selection ?? [], provider.model, opts.recentStyles ?? []);
+  }, opts.pageId);
+  // The prompt describes the page, not the canvas. Everything downstream of
+  // this — the digest, the selection lines, the resolved context that picks
+  // the blueprints — narrows with it.
+  const promptDoc = pageScopedDocument(doc, opts.pageId);
+  const out = withSystemPrompt(messages, promptDoc, opts.selection ?? [], provider.model, opts.recentStyles ?? []);
 
   // Attach canvas reference image if selected
   if (opts.selection && opts.selection.length > 0) {
@@ -176,7 +183,7 @@ export async function* runSession(
           return;
         }
         out.pop();
-        const lowered = stepDownEffort(currentProvider.reasoningEffort);
+        const lowered = stepDownEffort(currentProvider.reasoningEffort, currentProvider);
         if (lowered !== currentProvider.reasoningEffort) {
           currentProvider = { ...currentProvider, reasoningEffort: lowered };
           trace(opts.trace, { type: "effort_step_down", turn: turn + 1, reasoningEffort: lowered });

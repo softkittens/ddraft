@@ -19,7 +19,12 @@ import {
   zoomOut,
   setToolMode,
   selectedIds,
-  deleteSelectedNodes
+  deleteSelectedNodes,
+  clipboard,
+  copySelection,
+  cutSelection,
+  pasteClipboard,
+  duplicateSelection
 } from "./store";
 
 export const App: Component = () => {
@@ -30,6 +35,36 @@ export const App: Component = () => {
       if (selectedIds().size > 0) {
         e.preventDefault();
         deleteSelectedNodes();
+        return;
+      }
+    }
+
+    // Clipboard before the zoom shortcuts: they share the Cmd modifier, and a
+    // key that falls through to the tool-mode branch below would switch tools.
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      const key = e.key.toLowerCase();
+      if (key === "c" && selectedIds().size > 0) {
+        e.preventDefault();
+        copySelection();
+        return;
+      }
+      if (key === "x" && selectedIds().size > 0) {
+        e.preventDefault();
+        cutSelection();
+        return;
+      }
+      if (key === "v") {
+        // Only swallow the keystroke when there is something to paste, so a
+        // browser paste of an image onto the canvas still reaches the page.
+        if (clipboard()) {
+          e.preventDefault();
+          pasteClipboard();
+          return;
+        }
+      }
+      if (key === "d" && selectedIds().size > 0) {
+        e.preventDefault();
+        duplicateSelection();
         return;
       }
     }

@@ -15,6 +15,8 @@ export interface AgentRunRequest {
   model?: string;
   reasoningEffort?: "low" | "medium" | "high";
   recentStyles?: unknown[];
+  /** The page this run is confined to. */
+  pageId?: string;
   sessionId: string;
 }
 
@@ -28,6 +30,8 @@ export interface AgentReviewRequest {
   digest: string;
   direction?: unknown;
   audit: string;
+  /** The page the screenshots and the audit both cover. */
+  pageId?: string;
   /** What the builder resolved, so the critic judges the same product it built. */
   context?: ResolvedContext;
   sessionId: string;

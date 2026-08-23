@@ -33,6 +33,8 @@ export interface PersistedSession {
   doc: Document;
   camera?: Camera;
   chat?: ChatSnapshot;
+  /** The page being worked on. Undefined means the first page in the document. */
+  activePageId?: string;
 }
 
 /** Execute an IndexedDB transaction safely with automatic cleanup and fallback. */
@@ -119,7 +121,8 @@ export function restoreRecord(raw: any): PersistedSession | null {
     savedAt: typeof raw.savedAt === "string" ? raw.savedAt : new Date().toISOString(),
     doc: parsed.data as Document,
     camera: validCamera(raw.camera),
-    chat: validChat(raw.chat)
+    chat: validChat(raw.chat),
+    activePageId: typeof raw.activePageId === "string" && raw.activePageId.trim() ? raw.activePageId : undefined
   };
 }
 
@@ -170,7 +173,10 @@ export function saveSession(patch: Partial<PersistedSession>): void {
     savedAt: new Date().toISOString(),
     doc: patch.doc ?? cachedSession?.doc!,
     camera: patch.camera ?? cachedSession?.camera,
-    chat: patch.chat ?? cachedSession?.chat
+    chat: patch.chat ?? cachedSession?.chat,
+    // Tested for presence rather than truthiness: undefined is a meaningful
+    // value here, and ?? would quietly restore a page the user just left.
+    activePageId: "activePageId" in patch ? patch.activePageId : cachedSession?.activePageId
   };
 
   if (maxWaitTimer === null) {
