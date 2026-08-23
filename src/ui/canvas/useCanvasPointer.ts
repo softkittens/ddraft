@@ -2,12 +2,20 @@ import { createSignal, onMount, onCleanup, type Accessor } from "solid-js";
 import { screenToWorld, panCamera, zoomAtScreenPoint, type Point } from "../../interaction/camera";
 import { hitTestScene, hitTestSceneWorld, findNodeWorldBox, findNodesInMarquee } from "../../interaction/hittest";
 import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../../interaction/drag";
+import {
+  applyResize,
+  cursorForHandle,
+  handleAtScreenPoint,
+  resizeBox,
+  type ResizeHandle
+} from "../../interaction/resize";
 import { duplicateNode, getNextNodeId } from "../../model/edit";
 import { splitInstanceId } from "../../model/instance";
 import { cloneDocument } from "../../model/tree";
 import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
 import { telemetry } from "../../telemetry/logger";
 import type { PenNode } from "../../model/types";
+import type { Box } from "../../layout/types";
 import {
   doc,
   camera,
@@ -19,6 +27,8 @@ import {
   setCamera,
   setToolMode,
   updateDoc,
+  beginEdit,
+  endEdit,
   layoutTree,
   nodeMap,
   selectNode,
@@ -42,6 +52,42 @@ export function useCanvasPointer(opts: {
   const [shapeCurrent, setShapeCurrent] = createSignal<Point | null>(null);
   const [marqueeStart, setMarqueeStart] = createSignal<Point | null>(null);
   const [marqueeCurrent, setMarqueeCurrent] = createSignal<Point | null>(null);
+
+  /**
+   * A resize in progress.
+   *
+   * `startBox` is the node's *measured* box, which is what makes dragging a
+   * hugging or filling node work: the first write is its rendered size plus the
+   * delta, so auto sizing becomes a number the moment it is dragged.
+   */
+  interface ResizeSession {
+    nodeId: string;
+    handle: ResizeHandle;
+    startWorld: Point;
+    startBox: Box;
+  }
+  const [resizeSession, setResizeSession] = createSignal<ResizeSession | null>(null);
+
+  const worldBoxToScreen = (box: Box): Box => {
+    const cam = camera();
+    return {
+      x: box.x * cam.zoom + cam.x,
+      y: box.y * cam.zoom + cam.y,
+      width: box.width * cam.zoom,
+      height: box.height * cam.zoom
+    };
+  };
+
+  /** The handle under a screen point, across everything selected. */
+  const handleUnderPointer = (screenPt: Point): { nodeId: string; handle: ResizeHandle } | null => {
+    for (const id of selectedIds()) {
+      const world = findNodeWorldBox(layoutTree(), id);
+      if (!world) continue;
+      const found = handleAtScreenPoint(worldBoxToScreen(world), screenPt);
+      if (found) return { nodeId: id, handle: found };
+    }
+    return null;
+  };
 
   // Held while dragging, this suspends snapping the way ⌘ does in Figma — the
   // escape hatch for placing something one pixel off a guide on purpose.
@@ -69,6 +115,22 @@ export function useCanvasPointer(opts: {
     const rectBounds = canvas.getBoundingClientRect();
     const screenPt = { x: e.clientX - rectBounds.left, y: e.clientY - rectBounds.top };
     const world = screenToWorld(screenPt, camera());
+
+    // Before hit testing: a handle sits on its node's edge, so whichever is
+    // under the pointer there, the handle is the one that was aimed at.
+    if (toolMode() === "select") {
+      const grabbed = handleUnderPointer(screenPt);
+      if (grabbed) {
+        const startBox = findNodeWorldBox(layoutTree(), grabbed.nodeId);
+        if (startBox) {
+          // One undo step for the whole drag, however many frames it takes.
+          beginEdit();
+          setResizeSession({ ...grabbed, startWorld: world, startBox });
+          canvas.style.cursor = cursorForHandle(grabbed.handle);
+          return;
+        }
+      }
+    }
 
     if (toolMode() !== "select") {
       setShapeStart(world);
@@ -135,6 +197,22 @@ export function useCanvasPointer(opts: {
     lastWorldMouse = world;
     snapDisabled = e.metaKey || e.ctrlKey;
 
+    const resizing = resizeSession();
+    if (resizing) {
+      const next = resizeBox(
+        resizing.startBox,
+        resizing.handle,
+        world.x - resizing.startWorld.x,
+        world.y - resizing.startWorld.y,
+        { fromCenter: e.altKey, aspect: e.shiftKey, min: 1 }
+      );
+      // Written through the document rather than drawn as a preview, so an
+      // auto-layout parent reflows and text rewraps while the edge is moving —
+      // the drag ghost approach can only show the box that is being dragged.
+      updateDoc(applyResize(doc(), resizing.nodeId, resizing.handle, next, { fromCenter: e.altKey }));
+      return;
+    }
+
     if (shapeStart()) {
       setShapeCurrent(world);
       return;
@@ -171,6 +249,11 @@ export function useCanvasPointer(opts: {
     if (current) {
       syncDragState(world);
     } else {
+      // The cursor is the only thing announcing the edge bands, which carry no
+      // handle of their own.
+      const overHandle = toolMode() === "select" ? handleUnderPointer(screenPt) : null;
+      canvas.style.cursor = overHandle ? cursorForHandle(overHandle.handle) : "default";
+
       const stopHit = telemetry.startSpan("interaction:hittest");
       const hit = hitTestScene(layoutTree(), world, nodeMap());
       stopHit();
@@ -185,6 +268,15 @@ export function useCanvasPointer(opts: {
     const canvas = opts.getCanvas();
     isPanning = false;
     pendingPress = null;
+
+    if (resizeSession()) {
+      // Every frame of the drag wrote to the document with the edit open, so
+      // this is what turns all of them into one entry.
+      endEdit();
+      setResizeSession(null);
+      if (canvas) canvas.style.cursor = "default";
+      return;
+    }
 
     const sStart = shapeStart();
     const sCurrent = shapeCurrent();
@@ -283,6 +375,10 @@ export function useCanvasPointer(opts: {
   };
 
   const handleBlur = () => {
+    if (resizeSession()) {
+      endEdit();
+      setResizeSession(null);
+    }
     isPanning = false;
     pendingPress = null;
     setMarqueeStart(null);
@@ -322,6 +418,7 @@ export function useCanvasPointer(opts: {
 
   return {
     dragSession,
+    resizeSession,
     shapeStart,
     shapeCurrent,
     marqueeStart,

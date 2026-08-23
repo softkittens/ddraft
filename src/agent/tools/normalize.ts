@@ -1,3 +1,17 @@
+import {
+  COMMON_KEYS,
+  TYPE_KEYS,
+  VALUE_ALIASES,
+  VALUE_UNAVAILABLE,
+  normalizePropertyValue
+} from "../../model/vocabulary";
+
+/*
+ * Re-exported so the agent's tools keep one import site while the tables
+ * themselves live in the model, where the editor can read them too.
+ */
+export { normalizePropertyValue };
+
 export interface NormalizeReport {
   renamed: string[];
   unknown: string[];
@@ -6,26 +20,6 @@ export interface NormalizeReport {
   unavailable?: string[];
 }
 
-const COMMON_KEYS = new Set([
-  "id", "type", "name", "x", "y", "width", "height", "fill", "fills", "stroke", "strokes",
-  "strokeWidth", "cornerRadius", "rotation", "opacity", "layoutPosition", "clip", "reusable",
-  "enabled", "effect", "metadata", "children"
-]);
-
-const TYPE_KEYS: Record<string, Set<string>> = {
-  frame: new Set(["layout", "gap", "padding", "justifyContent", "alignItems"]),
-  group: new Set([]),
-  text: new Set([
-    "content", "fontFamily", "fontSize", "fontWeight", "letterSpacing", "lineHeight",
-    "textAlign", "textGrowth"
-  ]),
-  icon: new Set(["icon", "library", "geometry"]),
-  rectangle: new Set([]),
-  ellipse: new Set(["innerRadius", "startAngle", "sweepAngle"]),
-  polygon: new Set(["points"]),
-  path: new Set(["geometry", "viewBox"]),
-  ref: new Set(["ref", "descendants"])
-};
 
 const ALIASES: Record<string, string> = {
   text: "content",
@@ -45,61 +39,6 @@ const ALIASES: Record<string, string> = {
   direction: "layout",
   justify: "justifyContent",
   align_items: "alignItems"
-};
-
-/**
- * The values a model writes when it is thinking in CSS, and what they are here.
- *
- * The engine reads one spelling and ignores every other, silently: an
- * unrecognised alignItems falls through computeCrossAxisPosition's `default`
- * to `start`, and an unrecognised justifyContent does the same. Across the
- * logs that is 787 writes that did nothing —
- *
- *   justifyContent 'space-between'  256   the hyphen; rows meant to be
- *                                          justified rendered left-packed
- *   textGrowth     'fit_content'    232   text kept growing
- *   textGrowth     'fixed'          158
- *   alignItems     'stretch'         57
- *   alignItems     'flex_end'        37   bar charts hanging from the top of
- *                                          the plot instead of standing on it
- *   alignItems     'baseline'        28
- *
- * — and the last of those is instructed by our own bar-chart rule, which asked
- * for 'flex_end'. Renaming a property the model got wrong was already this
- * function's job; the value it was set to is the same problem one level down.
- */
-const VALUE_ALIASES: Record<string, Record<string, string>> = {
-  justifyContent: {
-    "space-between": "space_between", "space-around": "space_around",
-    "space-evenly": "space_around", "space_evenly": "space_around",
-    "flex-start": "start", "flex_start": "start", "left": "start",
-    "flex-end": "end", "flex_end": "end", "right": "end"
-  },
-  alignItems: {
-    "flex-start": "start", "flex_start": "start", "top": "start",
-    "flex-end": "end", "flex_end": "end", "bottom": "end"
-  },
-  layout: { row: "horizontal", column: "vertical", flex: "horizontal", stack: "vertical" },
-  textAlign: { start: "left", end: "right" },
-  textGrowth: {
-    "fixed": "fixed-width", "fixed_width": "fixed-width",
-    "fixed_width_height": "fixed-width-height", "fixed-width_height": "fixed-width-height",
-    "fit_content": "auto", "fit-content": "auto", "hug": "auto"
-  }
-};
-
-/**
- * Values with no equivalent here, and the shape that does the same job.
- *
- * Renaming these would be guessing. Saying what the engine has instead costs
- * one line and is the difference between the model choosing and the model
- * finding out from a screenshot.
- */
-const VALUE_UNAVAILABLE: Record<string, Record<string, string>> = {
-  alignItems: {
-    stretch: "children fill the cross axis by setting their own width/height to 'fill_container'",
-    baseline: "the engine aligns boxes, not text baselines — use 'end' for a row of mixed type sizes"
-  }
 };
 
 const PROSE_LENGTH = 40;
@@ -299,27 +238,4 @@ export function describeNormalization(report: NormalizeReport): string {
     );
   }
   return parts.join("\n");
-}
-
-/**
- * The same value vocabulary, for the single-property write path.
- *
- * insert_node normalizes because it builds whole trees; set_property never did,
- * so `set_property(id, 'justifyContent', 'space-between')` stayed the CSS
- * spelling and did nothing. Both doors lead to the same engine.
- */
-export function normalizePropertyValue(
-  property: string,
-  value: unknown
-): { value: unknown; note: string } {
-  if (typeof value !== "string") return { value, note: "" };
-  const mapped = VALUE_ALIASES[property]?.[value];
-  if (mapped && mapped !== value) {
-    return { value: mapped, note: `note: ${property} '${value}' is written '${mapped}' here; applied as '${mapped}'.` };
-  }
-  const advice = VALUE_UNAVAILABLE[property]?.[value];
-  if (advice) {
-    return { value: undefined, note: `error: ${property} has no '${value}' — ${advice}.` };
-  }
-  return { value, note: "" };
 }

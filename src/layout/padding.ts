@@ -37,3 +37,17 @@ export function normalisePadding(p: unknown): Padding {
   // Fallback for unexpected data formats
   return { top: 0, right: 0, bottom: 0, left: 0 };
 }
+
+/**
+ * The inverse: four edges back to the shortest form that means them.
+ *
+ * A control that always wrote `[t, r, b, l]` would turn every `padding: 16` in
+ * a document into a four-element array the first time anybody nudged it, which
+ * is noise in the file and in every diff of it.
+ */
+export function compactPadding(sides: Padding): number | [number, number] | [number, number, number, number] {
+  const { top, right, bottom, left } = sides;
+  if (top === right && right === bottom && bottom === left) return top;
+  if (top === bottom && right === left) return [top, right];
+  return [top, right, bottom, left];
+}

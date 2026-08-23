@@ -2,6 +2,18 @@ import { createSignal, createMemo, createRoot, createEffect, on } from "solid-js
 import type { Document } from "../model/types";
 import { createHistory, pushDocument, undo as undoDoc, redo as redoDoc, type HistoryState } from "../model/history";
 import { removeNode, duplicateNode } from "../model/edit";
+import { applyProperty, type ApplyPropertyResult } from "../model/properties";
+import {
+  documentColorsInUse,
+  documentFonts,
+  documentRadiusScale,
+  documentSpacingScale,
+  documentSwatches,
+  documentTypeScale,
+  DEFAULT_RADIUS_SCALE,
+  DEFAULT_SPACING_SCALE,
+  DEFAULT_TYPE_SCALE
+} from "../model/tokens";
 import { copyNodes, pasteNodes, type ClipboardContents } from "../model/clipboard";
 import { layoutResolvedDocument } from "../layout/layout";
 import { resolveInstances, setInstanceProperty, splitInstanceId } from "../model/instance";
@@ -74,10 +86,179 @@ export const { resolvedDoc, nodeMap, layoutTree, pages, activePage, activeScreen
   return { resolvedDoc, nodeMap, layoutTree, pages, activePage, activeScreens };
 });
 
+/*
+ * What the editing controls offer.
+ *
+ * Derived from the document rather than from the style catalog, so a file that
+ * came from somewhere else still offers its own colours and its own sizes. A
+ * control that offered a colour wheel and a numeric field would let a person
+ * hand-make the exact findings the audit raises against the agent — an off-
+ * palette hex, a fifteenth font size — so the tokens come first and the free
+ * value is the deliberate second choice.
+ */
+/**
+ * Two lists are the same list when they hold the same values in the same order.
+ *
+ * The token functions build fresh objects on every call, and the document they
+ * read is deep-cloned on every write, so without this each memo emitted a new
+ * array for every keystroke — and `<For>`, which diffs by reference, tore down
+ * and rebuilt every swatch button underneath it. That loses hover and focus
+ * mid-interaction and restarts every transition.
+ */
+function sameList<T>(key: (item: T) => string) {
+  return (a: readonly T[], b: readonly T[]): boolean =>
+    a.length === b.length && a.every((item, i) => key(item) === key(b[i]));
+}
+
+const sameSwatches = sameList<{ token: string; value: string }>((s) => `${s.token}|${s.value}`);
+const sameNumbers = sameList<number>(String);
+
+export const { swatches, fonts, typeScale, spacingScale, radiusScale } = createRoot(() => {
+  // Tokens when the document has them. A file that never ran set_style — an
+  // import, or anything built by hand — falls back to the colours it already
+  // paints with, so the control is never an empty row.
+  const swatches = createMemo(
+    () => {
+      const tokens = documentSwatches(doc());
+      return tokens.length > 0 ? tokens : documentColorsInUse(activeScreens());
+    },
+    undefined,
+    { equals: sameSwatches }
+  );
+  const fonts = createMemo(() => documentFonts(doc()), undefined, { equals: sameSwatches });
+  // Scoped to the page, which is the working context. A document that has not
+  // said anything yet gets a starting scale rather than an empty row.
+  const typeScale = createMemo(
+    () => {
+      const scale = documentTypeScale(activeScreens());
+      return scale.length > 0 ? scale : DEFAULT_TYPE_SCALE;
+    },
+    undefined,
+    { equals: sameNumbers }
+  );
+  const spacingScale = createMemo(
+    () => {
+      const scale = documentSpacingScale(activeScreens());
+      return scale.length > 0 ? scale : DEFAULT_SPACING_SCALE;
+    },
+    undefined,
+    { equals: sameNumbers }
+  );
+  const radiusScale = createMemo(
+    () => {
+      const scale = documentRadiusScale(activeScreens());
+      return scale.length > 0 ? scale : DEFAULT_RADIUS_SCALE;
+    },
+    undefined,
+    { equals: sameNumbers }
+  );
+  return { swatches, fonts, typeScale, spacingScale, radiusScale };
+});
+
+/* ------------------------------------------------------------------ *
+ * Edits
+ * ------------------------------------------------------------------ */
+
+/**
+ * A live edit in progress, or null when writes commit one at a time.
+ *
+ * `dirty` records whether anything was actually written, so a drag that ends
+ * where it started leaves no undo step behind.
+ */
+let liveEdit: { dirty: boolean } | null = null;
+
+/**
+ * Write a document and, unless an edit is open, make it an undo step.
+ *
+ * Every action in this file goes through here, so opening an edit around a
+ * gesture is enough to make that whole gesture one step — no action needs to
+ * know it is being dragged.
+ */
 export function updateDoc(newDoc: Document) {
   if (newDoc === doc()) return;
   setDocState(newDoc);
+  if (liveEdit) {
+    liveEdit.dirty = true;
+    return;
+  }
   setHistoryState((prev) => pushDocument(prev, newDoc));
+}
+
+/**
+ * Start a gesture that will write many times and should undo once.
+ *
+ * A slider dragged across twenty pixels writes forty documents. Each one is a
+ * full deep clone onto the undo stack, and each one is a separate Cmd+Z, so
+ * without this every continuous control is both slow and unusable.
+ *
+ * Re-entry keeps the open edit rather than nesting it. Two controls both
+ * beginning still means one step.
+ */
+export function beginEdit(): void {
+  if (!liveEdit) liveEdit = { dirty: false };
+}
+
+/**
+ * Close the gesture and record it as a single step.
+ *
+ * This works because nothing pushed while the edit was open: `historyState()`
+ * still holds the document as it stood at `beginEdit`, so pushing the current
+ * one puts exactly the right pair on the stack.
+ */
+export function endEdit(): void {
+  const edit = liveEdit;
+  // Cleared first. A wedged edit means no undo entries for the rest of the
+  // session, which is a far worse failure than a lost step.
+  liveEdit = null;
+  if (!edit?.dirty) return;
+  setHistoryState((prev) => pushDocument(prev, doc()));
+}
+
+export function isEditing(): boolean {
+  return liveEdit !== null;
+}
+
+/**
+ * Run a group of writes as one undo step, joining an edit already in progress.
+ *
+ * `endEdit` closes whatever is open on the first call — deliberately, so a
+ * control that forgets to end cannot wedge undo for the rest of the session.
+ * The cost is that a helper which brackets its own writes will close a gesture
+ * it knows nothing about. That is not hypothetical: the size field opens an
+ * edit on focus, and the helper it calls per keystroke used to close it again,
+ * turning one typed number into four undo steps.
+ *
+ * So callers that write several properties at once use this instead of
+ * bracketing by hand. Alone it is one step; inside a gesture it is part of it.
+ */
+export function asOneEdit(writes: () => void): void {
+  if (isEditing()) {
+    writes();
+    return;
+  }
+  beginEdit();
+  try {
+    writes();
+  } finally {
+    endEdit();
+  }
+}
+
+/**
+ * Set a property on the selection, or on the ids given.
+ *
+ * The result carries what was written, what was skipped, and why a value was
+ * rewritten or refused, so a control can say so instead of appearing to do
+ * nothing.
+ */
+export function setNodeProperty(
+  property: string,
+  value: unknown,
+  ids: Iterable<string> = selectedIds()
+): ApplyPropertyResult {
+  const result = applyProperty(doc(), ids, property, value);
+  updateDoc(result.doc);
+  return result;
 }
 
 let cameraAnimFrame: number | null = null;
@@ -237,6 +418,8 @@ if (typeof window !== "undefined") {
  * empty — two answers to the same question.
  */
 export async function resetCanvas(): Promise<void> {
+  // Dropped rather than closed: the document it was measured against is gone.
+  liveEdit = null;
   const fresh = createDefaultDocument();
   setDocState(fresh);
   setHistoryState(createHistory(fresh));
@@ -251,6 +434,9 @@ export async function resetCanvas(): Promise<void> {
 }
 
 export function handleUndo() {
+  // An edit still open is a step the user has finished making, whatever the
+  // control forgot to say. Close it, then undo it.
+  endEdit();
   const res = undoDoc(historyState());
   if (res) {
     setHistoryState(res.history);
@@ -260,6 +446,7 @@ export function handleUndo() {
 }
 
 export function handleRedo() {
+  endEdit();
   const res = redoDoc(historyState());
   if (res) {
     setHistoryState(res.history);

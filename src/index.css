@@ -22,6 +22,48 @@
   transition: opacity 150ms ease-out, transform 150ms ease-out, height 160ms ease-out;
 }
 
+/*
+ * The dot that opens the selection toolbar.
+ *
+ * Painted in the selection blue rather than as chrome, because it belongs to
+ * the selection: it appears with it, sits on its top edge, and goes when it
+ * goes. Chrome-coloured it read as a floating button that happened to be
+ * nearby.
+ */
+.selection-handle {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 6px rgba(15, 15, 15, 0.1);
+  animation: selection-handle-in 110ms ease-out;
+  transition: color 110ms ease-out, box-shadow 110ms ease-out;
+}
+
+.selection-handle:hover {
+  color: #0d99ff;
+  box-shadow: 0 2px 10px rgba(13, 153, 255, 0.3);
+}
+
+@keyframes selection-handle-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .selection-handle {
+    animation: none;
+    transition: none;
+  }
+}
+
 .chat-reopen {
   transition:
     opacity 150ms ease-out,

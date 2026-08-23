@@ -1,7 +1,15 @@
-import { Component, createEffect, Show } from "solid-js";
-import { editingTextId, setEditingTextId, doc, camera, layoutTree, nodeMap, updateDoc } from "../store";
-import { setProperty } from "../../model/edit";
-import { setInstanceProperty, splitInstanceId } from "../../model/instance";
+import { Component, createEffect, onCleanup, Show } from "solid-js";
+import {
+  editingTextId,
+  setEditingTextId,
+  doc,
+  camera,
+  layoutTree,
+  nodeMap,
+  setNodeProperty,
+  beginEdit,
+  endEdit
+} from "../store";
 import { resolveVariable } from "../../model/variables";
 import { getLineHeight } from "../../layout/text";
 import { findNodeWorldBox } from "../../interaction/hittest";
@@ -61,14 +69,26 @@ export const InlineTextEditor: Component = () => {
     }
   });
 
+  /*
+   * One undo step for one typing session.
+   *
+   * Every keystroke writes a document, so Cmd+Z used to walk back through the
+   * text one character at a time. Keyed on the id being edited rather than on
+   * focus, so every way out — Escape, Enter, a click elsewhere, the selection
+   * changing underneath — closes the step, and so does unmounting.
+   */
+  createEffect(() => {
+    if (!editingTextId()) return;
+    beginEdit();
+    onCleanup(endEdit);
+  });
+
   const handleInput = (e: InputEvent & { currentTarget: HTMLTextAreaElement }) => {
     const id = editingTextId();
     if (!id) return;
-    const current = doc();
-    const target = splitInstanceId(current, id);
-    updateDoc(target
-      ? setInstanceProperty(current, target, "content", e.currentTarget.value)
-      : setProperty(current, id, "content", e.currentTarget.value));
+    // Writing an instance descendant as an override rather than through to the
+    // component is setNodeProperty's job now, not this component's.
+    setNodeProperty("content", e.currentTarget.value, [id]);
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {

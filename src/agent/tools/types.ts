@@ -7,6 +7,7 @@ import { layoutResolvedDocument, flattenLayoutTree } from "../../layout/layout";
 import type { LayoutNode } from "../../layout/types";
 import { getLucideIconPath } from "../../model/icons";
 import { viewportFor, MAX_SCREEN_HEIGHT } from "../../design/scaffold";
+import { ALLOWED_PROPERTIES } from "../../model/vocabulary";
 import type { FetchFn, Tool } from "../provider";
 
 export interface ToolContext {
@@ -41,13 +42,12 @@ export interface DocumentToolDefinition {
   execute: (ctx: ToolContext, args: any) => Promise<string> | string;
 }
 
-export const ALLOWED_PROPERTIES = new Set([
-  "width", "height", "x", "y", "gap", "padding", "fill", "stroke", "strokeWidth",
-  "name", "content", "fontSize", "fontWeight", "fontFamily", "letterSpacing",
-  "lineHeight", "textAlign", "textGrowth", "layout", "justifyContent", "alignItems",
-  "opacity", "rotation", "cornerRadius", "clip", "enabled", "layoutPosition",
-  "effect", "icon", "strokeWidth", "textGrowth", "reusable", "ref"
-]);
+/*
+ * Re-exported from the model. What the renderer honours is a fact about the
+ * document, not about the agent, and the editor's write path reads the same
+ * set.
+ */
+export { ALLOWED_PROPERTIES };
 
 export const GEOMETRY_PROPERTIES = new Set([
   "width", "height", "gap", "padding", "layout", "fontSize", "lineHeight",

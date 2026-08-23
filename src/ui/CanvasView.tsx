@@ -17,6 +17,7 @@ import { useCanvasPointer } from "./canvas/useCanvasPointer";
 import { useFileDrop } from "./canvas/useFileDrop";
 import { InlineTextEditor } from "./canvas/InlineTextEditor";
 import { WorkingFrameIndicator } from "./canvas/WorkingFrameIndicator";
+import { SelectionToolbar } from "./canvas/SelectionToolbar";
 import { workingFrameIds } from "./canvas/workingFrames";
 
 export const CanvasView: Component = () => {
@@ -80,6 +81,7 @@ export const CanvasView: Component = () => {
     hoveredId();
     editingTextId();
     pointer.dragSession();
+    pointer.resizeSession();
     keyboard.isAltHeld();
     pointer.shapeStart();
     pointer.shapeCurrent();
@@ -149,6 +151,14 @@ export const CanvasView: Component = () => {
       </Show>
       <InlineTextEditor />
       <WorkingFrameIndicator />
+      <SelectionToolbar
+        busy={() =>
+          pointer.dragSession() !== null ||
+          pointer.resizeSession() !== null ||
+          pointer.marqueeStart() !== null ||
+          pointer.shapeStart() !== null
+        }
+      />
     </div>
   );
 };
