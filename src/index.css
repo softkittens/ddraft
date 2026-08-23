@@ -22,10 +22,6 @@
   transition: opacity 150ms ease-out, transform 150ms ease-out, height 160ms ease-out;
 }
 
-.chat-shell-body {
-  transition: grid-template-rows 160ms ease-out;
-}
-
 .chat-reopen {
   transition:
     opacity 150ms ease-out,
@@ -36,7 +32,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .chat-shell,
-  .chat-shell-body,
   .chat-reopen {
     transition: none;
   }

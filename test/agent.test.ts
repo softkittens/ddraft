@@ -12,7 +12,7 @@ import {
 import { visionModelFor } from "../src/agent/catalog";
 import { runSession, type AgentEvent } from "../src/agent/session";
 import { createDocumentTools, TOOL_DEFS } from "../src/agent/tools";
-import { makeDoc, frame, rect } from "./harness";
+import { makeDoc, frame, rect, txt } from "./harness";
 import { callsSse, saysSse, streamed, runTestSequence } from "./agent-harness";
 import { digest } from "../src/digest/digest";
 import { agentSystemPrompt } from "../src/agent/prompt";
@@ -310,6 +310,53 @@ describe("H4 document tools specification", () => {
     const xaiRes = await xaiSession.execute("generate_image", { prompt: "Horse", nodeId: "hero" });
     expect(xaiRes).toContain("generated image (xai)");
     expect(xaiSession.doc.children[0].fill).toEqual({ type: "image", url: "data:image/jpeg;base64,aW1hZ2U=" });
+  });
+
+  it("handles atomic subtree reversion with revert_node", async () => {
+    const initialDoc = makeDoc(
+      frame("screen", 390, 844, [
+        frame("hero", 390, 200, [txt("t1", "Original Title", 24)])
+      ])
+    );
+    const session = createDocumentTools(initialDoc);
+
+    // Modify the hero
+    await session.execute("set_property", { id: "hero", property: "height", value: 600 });
+    await session.execute("set_property", { id: "t1", property: "content", value: "Changed Title" });
+    expect(session.doc.children[0].children?.[0].height).toBe(600);
+    expect((session.doc.children[0].children?.[0].children?.[0] as any).content).toBe("Changed Title");
+
+    // Insert a new temporary child
+    await session.execute("insert_node", {
+      parentId: "hero",
+      node: { type: "frame", name: "temp_box", width: 100, height: 100 }
+    });
+    const tempNode = session.doc.children[0].children?.[0].children?.find((c: any) => c.name === "temp_box");
+    expect(tempNode).toBeDefined();
+
+    // Revert the temp node (created this pass -> should be deleted)
+    const delRes = await session.execute("revert_node", { id: tempNode!.id });
+    expect(delRes).toContain("was created during this pass and has been removed");
+    expect(session.doc.children[0].children?.[0].children?.find((c: any) => c.name === "temp_box")).toBeUndefined();
+
+    // Revert the hero node (existed in initialDoc -> should restore height 200 and Original Title)
+    const revRes = await session.execute("revert_node", { id: "hero" });
+    expect(revRes).toContain("reverted \"hero\" and its entire subtree to its initial state");
+    expect(session.doc.children[0].children?.[0].height).toBe(200);
+    expect((session.doc.children[0].children?.[0].children?.[0] as any).content).toBe("Original Title");
+  });
+
+  it("warns about orphaned absolute heights when switching to auto-layout", async () => {
+    const doc = makeDoc(
+      frame("hero", 1440, 1200, [
+        frame("photo", 1440, 1200, []),
+        txt("copy", "Welcome", 32)
+      ], { layout: "none" })
+    );
+    const session = createDocumentTools(doc);
+    const res = await session.execute("set_property", { id: "hero", property: "layout", value: "vertical" });
+    expect(res).toContain("Switched \"hero\" from absolute to vertical layout");
+    expect(res).toContain("Child \"photo\" (1200px) still has a large fixed height from absolute layout");
   });
 });
 

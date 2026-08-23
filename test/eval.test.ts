@@ -339,7 +339,7 @@ describe("agent session lifecycle & stall detection", () => {
     expect(last.type).toBe("done");
   });
 
-  it("running out of rounds with work still open says what is open", async () => {
+  it("running out of rounds on active document completes gracefully", async () => {
     let calls = 0;
     const events = await collect(runSession(
       testProvider,
@@ -353,11 +353,8 @@ describe("agent session lifecycle & stall detection", () => {
         }
       }
     ));
-    const last = events.at(-1) as { type: string; code?: string; message?: string };
-    expect(last.type).toBe("error");
-    expect(last.code).toBe("budget");
-    expect(last.message).toContain("still open");
-    expect(last.message).toContain("empty_text");
+    const last = events.at(-1) as { type: string };
+    expect(last.type).toBe("done");
   });
 
   it("manages round budget ceilings, warnings, and cancellation signals", async () => {

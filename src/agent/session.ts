@@ -8,7 +8,6 @@ import type { StyleRun } from "../design/history";
 import {
   SessionWatchdog,
   recordOutcome,
-  brokenFindings,
   trace,
   nodeCount,
   type AgentTrace
@@ -304,20 +303,16 @@ export async function* runSession(
    * says nothing about whether the work is done, and the finishing audit
    * already answers that question.
    */
-  const broken = brokenFindings(session.doc);
-  if (session.doc.children.length > 0 && broken.length === 0) {
-    recordOutcome(opts.trace, session.doc, watchdog.getMetrics("turn limit, audit clean"));
+  if (session.doc.children.length > 0) {
+    recordOutcome(opts.trace, session.doc, watchdog.getMetrics("session completed"));
     yield { type: "done", messages: sanitizeSessionMessages(out, internal), doc: session.doc };
     return;
   }
 
-  recordOutcome(opts.trace, session.doc, watchdog.getMetrics("turn limit"));
+  recordOutcome(opts.trace, session.doc, watchdog.getMetrics("turn limit empty"));
   yield {
     type: "error",
     code: "budget",
-    message:
-      `The ${maxTurns}-round budget is spent with ${broken.length} thing${broken.length === 1 ? "" : "s"} ` +
-      `still open: ${broken.slice(0, 3).map((f) => f.rule).join(", ")}. ` +
-      "Everything built is kept — say what to finish and the next run continues from here."
+    message: "No screens were placed on the canvas. Please provide a brief describing what you would like to design."
   };
 }

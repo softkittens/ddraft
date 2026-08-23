@@ -12,6 +12,7 @@ import type { FetchFn, Tool } from "../provider";
 export interface ToolContext {
   get doc(): Document;
   setDoc(next: Document): void;
+  get initialDoc(): Document;
   image: { providerId?: string; apiKey?: string; fetch?: FetchFn };
   recordWrite(id: string, property: string, value: unknown): string;
 }

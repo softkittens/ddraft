@@ -28,10 +28,9 @@ export interface ScreenSpec {
   /** Mobile only. Omit for a screen with no tab bar, such as onboarding. */
   tabs?: TabSpec[];
   /**
-   * Page height. The viewport (844 / 900) is the floor — a scrolling landing
-   * page passes a larger number. Values below the floor are raised.
+   * Page height. Sizing keyword or number in px. Defaults to dynamic "fit_content" with a viewport floor.
    */
-  height?: number;
+  height?: number | string;
 }
 
 export interface Scaffold {
@@ -53,10 +52,21 @@ export function viewportFor(kind: "mobile" | "desktop"): { width: number; height
     : { width: DESKTOP_WIDTH, height: DESKTOP_HEIGHT };
 }
 
-export function clampScreenHeight(kind: "mobile" | "desktop", height: number | undefined): number {
+export function clampScreenHeight(kind: "mobile" | "desktop", height: number | string | undefined): number | string {
   const min = viewportFor(kind).height;
-  const requested = typeof height === "number" && Number.isFinite(height) ? height : min;
-  return Math.min(MAX_SCREEN_HEIGHT, Math.max(min, requested));
+  if (height === undefined || height === "fit_content" || height === "auto") {
+    return `fit_content(${min})`;
+  }
+  if (typeof height === "string") {
+    if (height.startsWith("fit_content") || height.startsWith("fill_container")) return height;
+    const num = parseFloat(height);
+    if (!isNaN(num)) return Math.min(MAX_SCREEN_HEIGHT, Math.max(min, num));
+    return `fit_content(${min})`;
+  }
+  if (typeof height === "number" && Number.isFinite(height)) {
+    return Math.min(MAX_SCREEN_HEIGHT, Math.max(min, height));
+  }
+  return `fit_content(${min})`;
 }
 export const STATUS_BAR_HEIGHT = 62;
 export const TAB_BAR_HEIGHT = 56;
@@ -214,7 +224,12 @@ function mobileScreen(spec: ScreenSpec, id: () => string, slots: Record<string, 
     id: slots.screen,
     name: spec.name,
     width: MOBILE_WIDTH,
-    height: clampScreenHeight("mobile", spec.height),
+    height:
+      spec.height !== undefined
+        ? clampScreenHeight("mobile", spec.height)
+        : spec.tabs && spec.tabs.length > 0
+        ? MOBILE_HEIGHT
+        : "fit_content(844)",
     layout: "vertical",
     justifyContent: "space_between",
     fill: "$surface-primary",

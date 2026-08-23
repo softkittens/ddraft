@@ -23,6 +23,7 @@ export interface AgentReviewRequest {
   reasoningEffort?: "low" | "medium" | "high";
   brief: string;
   screenshot: string;
+  screenshots?: { id: string; name: string; dataUrl: string; kind?: "screen" | "section"; parentId?: string }[];
   digest: string;
   direction?: unknown;
   audit: string;

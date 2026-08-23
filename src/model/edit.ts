@@ -83,6 +83,23 @@ export function removeNode(doc: Document, id: string): Document {
   return newDoc;
 }
 
+export function replaceNode(doc: Document, id: string, replacement: PenNode): Document {
+  const newDoc = cloneDocument(doc);
+  function doReplace(list: PenNode[]): boolean {
+    const idx = list.findIndex((n) => n.id === id);
+    if (idx !== -1) {
+      list[idx] = structuredClone(replacement);
+      return true;
+    }
+    for (const item of list) {
+      if (doReplace(childrenOf(item))) return true;
+    }
+    return false;
+  }
+  if (doReplace(newDoc.children)) return newDoc;
+  return doc;
+}
+
 export function moveNode(doc: Document, id: string, newParentId: string, at?: number): Document {
   if (id === newParentId) return doc;
   const target = findNode(doc.children, id);

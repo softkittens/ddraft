@@ -40,6 +40,24 @@ export const ReviewCard: Component<{
           )}
         </Show>
 
+        <Show when={props.entry.sectionThumbnails && props.entry.sectionThumbnails.length > 0}>
+          <div class="space-y-1 pt-1">
+            <div class="text-[10px] font-medium text-neutral-400 uppercase tracking-wider">
+              {props.entry.sectionThumbnails!.length} close-up section slices evaluated:
+            </div>
+            <div class="grid grid-cols-2 gap-1.5">
+              <For each={props.entry.sectionThumbnails}>
+                {(sec) => (
+                  <div class="rounded-lg bg-white p-1 border border-black/[0.04] overflow-hidden space-y-1 shadow-2xs">
+                    <img src={sec.url} alt={sec.name} class="w-full h-16 object-cover rounded" />
+                    <div class="text-[9px] text-neutral-600 truncate px-0.5 font-medium">{sec.name}</div>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
         <Show when={by()}>
           {(who) => (
             <div class="text-[11px] text-neutral-500 leading-relaxed">

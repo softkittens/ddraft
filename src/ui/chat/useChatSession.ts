@@ -9,7 +9,8 @@ import {
   setChatExpanded,
   restoredChat,
   resetToken,
-  persistChat
+  persistChat,
+  zoomToFit
 } from "../store";
 import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
 import { noteAgentEdits, clearAgentEditTargets, diffChangedNodeIds } from "../canvas/workingFrames";
@@ -19,7 +20,7 @@ import type { Document } from "../../model/types";
 import { decideAgentDocument } from "../agentDocument";
 import { parseChoice, choiceValue } from "../ModelSelector";
 import { captureDocumentPng } from "../../render/capture";
-import { applyReviewFixes, applyReviewMessage, type ReviewResponse } from "../../agent/review";
+import { applyReviewFixes, applyReviewMessage, enforceAuditFindings, type ReviewResponse } from "../../agent/review";
 import { digest } from "../../digest/digest";
 import { currentDirection } from "../../design/styleSystem";
 import { STYLE_METADATA_KEY } from "../../design/styleKeys";
@@ -40,12 +41,21 @@ function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError";
 }
 
+let hasAutoFitInitial = false;
+
 function applyCanvasUpdate(nextDoc: Document) {
   const oldMap = nodeMap();
   const oldPositions = snapshotPositions(layoutTree());
   updateDoc(nextDoc);
   trackLayoutTransitionsFromSnapshot(oldPositions, layoutTree(), 320);
   noteAgentEdits(diffChangedNodeIds(oldMap, nodeMap()), layoutTree());
+
+  if (!hasAutoFitInitial && oldMap.size <= 1 && nextDoc.children.length > 0) {
+    hasAutoFitInitial = true;
+    setTimeout(() => {
+      zoomToFit({ animate: true });
+    }, 80);
+  }
 }
 
 function rememberStyle(doc: Document, brief: string) {
@@ -158,6 +168,12 @@ export function useChatSession() {
     setConfigured(status.configured);
   });
 
+  createEffect(
+    on(resetToken, () => {
+      hasAutoFitInitial = false;
+    })
+  );
+
   onCleanup(() => {
     abort?.abort();
     reviewAbort?.abort();
@@ -267,6 +283,11 @@ export function useChatSession() {
               return nextSel;
             });
             finished = true;
+            if (context.length <= 1 && edited) {
+              setTimeout(() => {
+                zoomToFit({ animate: true });
+              }, 120);
+            }
             break;
           case "error":
             failure = event.message;
@@ -290,7 +311,12 @@ export function useChatSession() {
 
   async function runReview(
     sessionId: string
-  ): Promise<{ review?: ReviewResponse; error?: string; thumbnail?: string }> {
+  ): Promise<{
+    review?: ReviewResponse;
+    error?: string;
+    thumbnail?: string;
+    sectionThumbnails?: { name: string; url: string }[];
+  }> {
     const selected = parseChoice(choice());
     reviewAbort?.abort();
     reviewAbort = new AbortController();
@@ -317,6 +343,13 @@ export function useChatSession() {
           reasoningEffort: effort(),
           brief: lastBrief(),
           screenshot: capture.dataUrl,
+          screenshots: capture.screens.map((s) => ({
+            id: s.id,
+            name: s.name,
+            dataUrl: s.dataUrl,
+            kind: s.kind,
+            parentId: s.parentId
+          })),
           digest: digest(captured),
           direction: currentDirection(captured),
           audit: formatAudit(auditDocument(captured), "Measured design audit"),
@@ -325,7 +358,24 @@ export function useChatSession() {
         signal
       );
       if (seq !== reviewSeq || doc() !== captured) return {};
-      return { review, thumbnail: await createThumbnail(capture.dataUrl) };
+      const thumbSrc = capture.screens[0]?.dataUrl || capture.dataUrl;
+      const sectionThumbnails: { name: string; url: string }[] = [];
+      for (const s of capture.screens) {
+        if (s.kind === "section") {
+          const thumb = await createThumbnail(s.dataUrl);
+          if (thumb) {
+            sectionThumbnails.push({
+              name: s.name,
+              url: thumb
+            });
+          }
+        }
+      }
+      return {
+        review,
+        thumbnail: await createThumbnail(thumbSrc),
+        sectionThumbnails
+      };
     } catch (err) {
       if (signal.aborted) return {};
       return { error: err instanceof Error ? err.message : String(err) };
@@ -363,7 +413,7 @@ export function useChatSession() {
           break;
         }
         if (!reviewed.review) break;
-        const review = reviewed.review;
+        const review = enforceAuditFindings(reviewed.review, auditDocument(doc()));
 
         const beforeFixes = doc();
         const fixed = applyReviewFixes(beforeFixes, review);
@@ -378,7 +428,8 @@ export function useChatSession() {
             pass: pass + 1,
             review,
             applied: fixed.applied.length,
-            thumbnail: reviewed.thumbnail
+            thumbnail: reviewed.thumbnail,
+            sectionThumbnails: reviewed.sectionThumbnails
           }
         ]);
 

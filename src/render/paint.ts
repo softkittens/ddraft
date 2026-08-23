@@ -112,6 +112,16 @@ export function paintNode(
     }
   }
 
+  if (data?.flipX || data?.flipY) {
+    const scaleX = data.flipX ? -1 : 1;
+    const scaleY = data.flipY ? -1 : 1;
+    const cx = layoutNode.box.width / 2;
+    const cy = layoutNode.box.height / 2;
+    ctx.translate(cx, cy);
+    ctx.scale(scaleX, scaleY);
+    ctx.translate(-cx, -cy);
+  }
+
   if (data?.opacity !== undefined && data.opacity < 1) {
     ctx.globalAlpha *= data.opacity;
   }

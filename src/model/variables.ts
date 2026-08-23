@@ -10,7 +10,13 @@ export function resolveVariable(val: Fill | string | undefined, variables?: Reco
     const key = val.slice(1);
     const item = variables[key] ?? variables[val];
     if (typeof item === "string") return item;
-    if (item && typeof item === "object" && typeof item.value === "string") return item.value;
+    if (item && typeof item === "object") {
+      if (typeof item.value === "string") return item.value;
+      if (Array.isArray(item.value)) {
+        const entry = item.value.find((v: any) => v && typeof v.value === "string");
+        if (entry) return entry.value;
+      }
+    }
   }
   return typeof val === "string" ? val : "";
 }

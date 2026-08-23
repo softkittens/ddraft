@@ -103,28 +103,20 @@ export const TranscriptList: Component<{
   const [expandedGroups, setExpandedGroups] = createSignal<Set<number>>(new Set());
   let containerRef: HTMLDivElement | undefined;
 
-  const toggleTool = (idx: number) => {
-    setExpandedTools((prev) => {
-      const next = new Set(prev);
-      if (next.has(idx)) next.delete(idx);
-      else next.add(idx);
-      return next;
-    });
+  const toggleSet = (set: Set<number>, val: number) => {
+    const next = new Set(set);
+    if (!next.delete(val)) next.add(val);
+    return next;
   };
 
-  const toggleGroup = (idx: number) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(idx)) next.delete(idx);
-      else next.add(idx);
-      return next;
-    });
-  };
+  const toggleTool = (idx: number) => setExpandedTools((prev) => toggleSet(prev, idx));
+  const toggleGroup = (idx: number) => setExpandedGroups((prev) => toggleSet(prev, idx));
 
   const items = createMemo(() => groupTranscriptEntries(props.entries));
   const lastUserEntry = createMemo(() => {
-    for (let i = props.entries.length - 1; i >= 0; i--) {
-      if (isUserMessage(props.entries[i])) return props.entries[i];
+    const list = props.entries;
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (isUserMessage(list[i])) return list[i];
     }
     return null;
   });
@@ -133,22 +125,8 @@ export const TranscriptList: Component<{
     props.configured && props.entries.length === 0 && doc().children.length === 0;
 
   const scrollToBottom = () => {
-    const el = containerRef;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  };
-
-  const scheduleScrollToBottom = () => {
-    scrollToBottom();
-    const frame = requestAnimationFrame(() => {
-      scrollToBottom();
-      requestAnimationFrame(scrollToBottom);
-    });
-    const timer = window.setTimeout(scrollToBottom, 180);
-    onCleanup(() => {
-      cancelAnimationFrame(frame);
-      window.clearTimeout(timer);
-    });
+    const parent = containerRef?.parentElement;
+    if (parent) parent.scrollTop = parent.scrollHeight;
   };
 
   createEffect(() => {
@@ -156,13 +134,18 @@ export const TranscriptList: Component<{
     props.streamText;
     props.pending;
     if (!props.expanded) return;
-    scheduleScrollToBottom();
+    scrollToBottom();
+    const frame = requestAnimationFrame(scrollToBottom);
+    onCleanup(() => cancelAnimationFrame(frame));
   });
 
   return (
-    <div class="h-full min-h-0 flex flex-col">
+    <div
+      ref={containerRef}
+      class="flex flex-col gap-2.5 select-text"
+    >
       <Show when={!props.configured}>
-        <div class="shrink-0 px-3 pt-1">
+        <div class="shrink-0 pt-1">
           <DisconnectedNotice />
         </div>
       </Show>
@@ -170,45 +153,38 @@ export const TranscriptList: Component<{
       <Show
         when={isEmpty()}
         fallback={
-          <div
-            ref={containerRef}
-            class="flex-1 overflow-y-auto custom-scrollbar px-3 pb-3 flex flex-col gap-2.5 min-h-0 relative"
-          >
-            <For each={items()}>
-              {(item) => {
-                const isSticky = () =>
-                  item.type === "entry" && item.entry === lastUserEntry();
-                return (
-                  <DisplayRow
-                    item={item}
-                    stickyUser={isSticky()}
-                    expandedGroups={expandedGroups()}
-                    onToggleGroup={toggleGroup}
-                    expandedTools={expandedTools()}
-                    onToggleTool={toggleTool}
-                    providers={props.providers}
-                  />
-                );
-              }}
-            </For>
-
-            <Show when={props.pending}>
-              {(step) => <PendingStepBubble step={step()} />}
-            </Show>
-
-            <Show when={props.streamReasoning}>
-              {(text) => <ThinkingBubble text={text()} />}
-            </Show>
-
-            <Show when={props.streamText}>
-              {(text) => <LiveStreamBubble text={text()} />}
-            </Show>
-          </div>
+          <For each={items()}>
+            {(item) => {
+              const isSticky = () =>
+                item.type === "entry" && item.entry === lastUserEntry();
+              return (
+                <DisplayRow
+                  item={item}
+                  stickyUser={isSticky()}
+                  expandedGroups={expandedGroups()}
+                  onToggleGroup={toggleGroup}
+                  expandedTools={expandedTools()}
+                  onToggleTool={toggleTool}
+                  providers={props.providers}
+                />
+              );
+            }}
+          </For>
         }
       >
-        <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-3 pb-3">
-          <EmptyState onSelectPrompt={props.onSelectPrompt} />
-        </div>
+        <EmptyState onSelectPrompt={props.onSelectPrompt} />
+      </Show>
+
+      <Show when={props.pending}>
+        {(step) => <PendingStepBubble step={step()} />}
+      </Show>
+
+      <Show when={props.streamReasoning}>
+        {(text) => <ThinkingBubble text={text()} />}
+      </Show>
+
+      <Show when={props.streamText}>
+        {(text) => <LiveStreamBubble text={text()} />}
       </Show>
     </div>
   );

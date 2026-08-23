@@ -8,7 +8,7 @@ export interface CatalogModel {
 }
 
 export interface CatalogProvider {
-  id: "vercel" | "opencode-go" | "qwen-studio" | "gemini" | "xai";
+  id: "vercel" | "opencode-zen" | "opencode-go" | "qwen-studio" | "gemini" | "xai";
   label: string;
   envKeys: string[];
   baseUrlEnv?: string | string[];
@@ -33,8 +33,43 @@ export const PROVIDER_CATALOG: CatalogProvider[] = [
     envKeys: ["VERCEL_API_KEY", "AI_GATEWAY_API_KEY", "VERCEL_AI_GATEWAY_API_KEY"],
     baseUrlEnv: ["VERCEL_BASE_URL", "AI_GATEWAY_BASE_URL"],
     baseUrl: "https://ai-gateway.vercel.sh/v1",
+    /*
+     * One key, several vendors.
+     *
+     * The gateway routes vendor-prefixed ids, so this is the only provider
+     * where the design model and the critic can be different houses without
+     * asking the user for a second key. That matters for review: a model does
+     * not see the thing it just failed to see, and until now the critic was
+     * always the model that drew the canvas.
+     *
+     * Luna stays first: loadProvider falls back to models[0] when the caller
+     * names none, and the cheapest model in the series is the right thing to
+     * bill an unattended default to. The vendor-prefixed ids take the chat API
+     * by inference, which the gateway serves for every vendor it routes.
+     */
     models: [
-      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", vision: true }
+      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", vision: true },
+      { id: "anthropic/claude-opus-5", label: "Claude Opus 5", vision: true },
+      { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", vision: true },
+      { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", vision: true },
+      { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5", vision: true },
+      { id: "openai/gpt-5.6-terra", label: "GPT-5.6 Terra", vision: true }
+    ]
+  },
+  {
+    id: "opencode-zen",
+    label: "OpenCode Zen",
+    envKeys: ["OPENCODE_ZEN_API_KEY", "OPENCODE_API_KEY", "OPENCODE_GO_API_KEY"],
+    baseUrlEnv: "OPENCODE_ZEN_BASE_URL",
+    baseUrl: "https://opencode.ai/zen/v1",
+    models: [
+      { id: "x-preview-f-free", label: "Ox Alpha Free (Unlimited)", vision: true },
+      { id: "hy3-free", label: "Hy3 Free" },
+      { id: "mimo-v2.5-free", label: "MiMo V2.5 Free", vision: true },
+      { id: "muse-spark-1.2-contributor-free", label: "Muse Spark 1.2 Free" },
+      { id: "nemotron-3-ultra-free", label: "Nemotron 3 Ultra Free" },
+      { id: "nemotron-3.5-lightning-free", label: "Nemotron 3.5 Lightning Free" },
+      { id: "laguna-s-2.1-free", label: "Laguna S 2.1 Free" }
     ]
   },
   {
@@ -46,19 +81,33 @@ export const PROVIDER_CATALOG: CatalogProvider[] = [
     models: [
       { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", api: "responses", vision: true },
       { id: "grok-4.5", label: "Grok 4.5", api: "responses", vision: true },
+      { id: "ox-alpha-free", label: "Ox Alpha (Free)", api: "responses", vision: true },
       { id: "kimi-k3", label: "Kimi K3", vision: true },
       { id: "kimi-k2.7-code", label: "Kimi K2.7 Code", vision: true },
+      { id: "kimi-k2.6", label: "Kimi K2.6", vision: true },
+      { id: "kimi-k2.5", label: "Kimi K2.5" },
       { id: "glm-5.3", label: "GLM-5.3" },
       { id: "glm-5.2", label: "GLM-5.2" },
+      { id: "glm-5.1", label: "GLM-5.1" },
+      { id: "glm-5", label: "GLM-5" },
       { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
       { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
       { id: "deepseek-v4-flash-vision-exp", label: "DeepSeek V4 Flash Vision", vision: true },
       { id: "minimax-m3", label: "MiniMax M3", api: "messages", vision: true },
+      { id: "minimax-m2.7", label: "MiniMax M2.7", api: "messages" },
+      { id: "minimax-m2.5", label: "MiniMax M2.5", api: "messages" },
       { id: "qwen3.8-max", label: "Qwen3.8 Max", api: "messages", vision: true },
       { id: "qwen3.7-max", label: "Qwen3.7 Max", api: "messages" },
+      { id: "qwen3.7-plus", label: "Qwen3.7 Plus" },
+      { id: "qwen3.6-plus", label: "Qwen3.6 Plus" },
+      { id: "qwen3.5-plus", label: "Qwen3.5 Plus" },
       { id: "mimo-v2.5-pro", label: "MiMo-V2.5 Pro" },
       { id: "mimo-v2.5", label: "MiMo-V2.5", vision: true },
-      { id: "hy3", label: "Hy3" }
+      { id: "mimo-v2-omni", label: "MiMo-V2 Omni", vision: true },
+      { id: "mimo-v2-pro", label: "MiMo-V2 Pro" },
+      { id: "hy3", label: "Hy3" },
+      { id: "hy3-preview", label: "Hy3 Preview" },
+      { id: "muse-spark-1.2-contributor", label: "Muse Spark 1.2" }
     ]
   },
   {

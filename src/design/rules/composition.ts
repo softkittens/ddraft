@@ -1,5 +1,6 @@
 import type { LayoutNode } from "../../layout/types";
 import type { TextNode, PenNode } from "../../model/types";
+import { parseSizing } from "../../model/parse";
 import { getLucideIconPath } from "../../model/icons";
 import {
   type AuditFinding,
@@ -19,6 +20,13 @@ import {
   SCREEN_CHROME_NAME
 } from "../helpers";
 import { MIN_TAP_TARGET } from "./constraints";
+import {
+  SEVERE_CROP,
+  croppedFraction,
+  nearestGeneratedAspect,
+  servableHeights,
+  isPanoramicBanner
+} from "../photography";
 import { normalisePadding } from "../../layout/padding";
 
 export function checkTapTargets(ctx: AuditContext): AuditFinding[] {
@@ -541,6 +549,38 @@ export function checkCompositionExpectations(ctx: AuditContext): AuditFinding[] 
           )
         );
       }
+    } else {
+      const hSizing = parseSizing(screen.height);
+      if (hSizing.mode === "fixed" && screenHeight > 1000) {
+        let lastBottom = 0;
+        function lastContent(node: LayoutNode, offsetY: number) {
+          const data = ctx.nodes.get(node.id);
+          if (!data || data.enabled === false) return;
+          const y = offsetY + node.box.y;
+          const structural = /^(Bleed|Inset) Content|Body$/i.test(data.name ?? "");
+          const fill = solidFillOf(data);
+          const visible =
+            node.id !== screen.id &&
+            (data.type === "text" ||
+              data.type === "icon" ||
+              hasImageFill(data) ||
+              (!structural && fill !== undefined && fill !== "$surface-primary"));
+          if (visible) lastBottom = Math.max(lastBottom, y + node.box.height);
+          for (const child of node.children) lastContent(child, y);
+        }
+        lastContent(layoutRoot, 0);
+        const unused = screenHeight - lastBottom;
+        if (lastBottom > 0 && unused > 400 && unused > screenHeight * 0.25) {
+          findings.push(
+            warning(
+              "empty_tail",
+              screen.id,
+              `Screen "${screen.name ?? screen.id}" is ${Math.round(screenHeight)}px tall but content ends at ${Math.round(lastBottom)}px, leaving a ${Math.round(unused)}px empty void.`,
+              "Set height: 'fit_content' so the page dynamically hugs its content, or add the remaining sections."
+            )
+          );
+        }
+      }
     }
 
     const isDesktop =
@@ -575,13 +615,15 @@ export function checkCompositionExpectations(ctx: AuditContext): AuditFinding[] 
       imageCount += 1;
       largestImageArea = Math.max(largestImageArea, box.width * box.height);
     });
-    if (imageCount > 0 && largestImageArea < screenWidth * screenHeight * 0.18) {
+    const viewportHeight = Math.min(screenHeight, 900);
+    const viewportArea = screenWidth * viewportHeight;
+    if (imageCount > 0 && largestImageArea < viewportArea * 0.18) {
       findings.push(
         warning(
           "undersized_subject",
           screen.id,
-          `Screen "${screen.name ?? screen.id}" has photography, but the largest image covers ${Math.round((largestImageArea / (screenWidth * screenHeight)) * 100)}% of the viewport.`,
-          "Enlarge the subject photograph to about a third of the screen. A thumbnail strip above a card grid is not a hero."
+          `Screen "${screen.name ?? screen.id}" has photography, but the largest image covers ${Math.round((largestImageArea / viewportArea) * 100)}% of the viewport.`,
+          "Enlarge the subject photograph to about a third of the first viewport. A thumbnail strip above a card grid is not a hero."
         )
       );
     }
@@ -653,6 +695,95 @@ export function checkIconGeometry(ctx: AuditContext): AuditFinding[] {
   return findings;
 }
 
+/** Nothing smaller than this reads as photography; avatars and chips are not the subject. */
+const PHOTO_MIN_SIDE = 40;
+
+/**
+ * A photograph in a frame no photograph can fill.
+ *
+ * generate_image picks from three aspect ratios and the canvas paints the
+ * result with cover, so a frame matching none of the three loses the
+ * difference off the edges. Under a third that reads as framing. Over it the
+ * subject starts leaving the picture: one logged run resized a phone hero to
+ * 390x1320 for an overlay composition, regenerated the photograph into it, then
+ * undid the overlay — and shipped a courtyard rendered as a vertical sliver.
+ *
+ * The frame is the thing to fix here, not the prompt. Regenerating into the
+ * same box returns the same crop.
+ */
+export function checkPhotographCrop(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  walkEnabled(ctx.doc.children, (node) => {
+    if (!hasImageFill(node)) return;
+    const box = ctx.boxes.get(node.id)?.box;
+    if (!box || box.width < PHOTO_MIN_SIDE || box.height < PHOTO_MIN_SIDE) return;
+
+    if (isPanoramicBanner(box.width, box.height)) return;
+
+    const ratio = box.width / box.height;
+    // Standard web/mobile card and split hero ratios (0.45 to 2.8) are normal UI patterns
+    if (ratio >= 0.45 && ratio <= 2.8) return;
+
+    const chosen = nearestGeneratedAspect(ratio);
+    const lost = croppedFraction(ratio, chosen.ratio);
+    if (lost <= SEVERE_CROP) return;
+
+    const w = Math.round(box.width);
+    const h = Math.round(box.height);
+    findings.push(
+      warning(
+        "cropped_photography",
+        node.id,
+        `"${node.name ?? node.id}" holds a photograph in a ${w}x${h} frame — ${ratio.toFixed(2)}:1. ` +
+          `Photographs come back as 16:9, 1:1 or 3:4 and are painted cover, so ${Math.round(lost * 100)}% ` +
+          `of this one is cropped away off the edges.`,
+        `Resize the frame to a shape a photograph fits — ${servableHeights(box.width, ratio)} — rather than ` +
+          `regenerating, which returns the same crop. If the tall or wide band is the composition, put the ` +
+          `photograph in a frame that fits and let the remaining space carry copy.`
+      )
+    );
+  });
+  return findings;
+}
+
+export function checkSectionHeightBudget(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  for (const screen of ctx.doc.children) {
+    if (!isScreen(screen) || screen.enabled === false) continue;
+    const screenBox = ctx.boxes.get(screen.id)?.box;
+    if (!screenBox) continue;
+    const isMobile = screenBox.width <= 500;
+    const maxHeightBudget = isMobile ? 540 : 680;
+    const recommended = isMobile ? "240px–420px" : "380px–520px";
+
+    for (const child of childrenOf(screen)) {
+      if (child.enabled === false) continue;
+      if (scaffoldRole(child) !== undefined) continue;
+      const box = ctx.boxes.get(child.id)?.box;
+      if (!box || box.height <= maxHeightBudget) continue;
+
+      const isMedia = hasImageFill(child);
+      const isCard = child.type === "frame" || child.type === "group";
+      if (!isMedia && !isCard) continue;
+
+      const textKids = (childrenOf(child) as any[]).filter((c) => c.type === "text" && c.content?.trim());
+      if (textKids.length > 2) continue;
+
+      findings.push(
+        warning(
+          "oversized_section_height",
+          child.id,
+          `"${child.name ?? child.id}" is ${Math.round(box.height)}px tall in a vertical flow screen, consuming ${Math.round(
+            (box.height / (isMobile ? 844 : 900)) * 100
+          )}% of the initial viewport and pushing page content off-screen.`,
+          `Resize to standard section proportions (${recommended}), or use fit_content / fill_container if it holds content.`
+        )
+      );
+    }
+  }
+  return findings;
+}
+
 function isStatTile(node: PenNode): boolean {
   const kids = childrenOf(node).filter((c) => c.enabled !== false);
   const texts = kids.filter((c) => c.type === "text") as TextNode[];
@@ -704,18 +835,19 @@ function textCount(node: PenNode): number {
 
 export function checkCatalogCardRow(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
-  const tallSites: PenNode[] = [];
-  walkEnabled(ctx.doc.children, (node) => {
-    if (!isScreen(node)) return;
-    const height = ctx.boxes.get(node.id)?.box.height ?? 0;
-    if (height > 1400) tallSites.push(node);
-  });
+  const tallSites = new Set(
+    ctx.doc.children
+      .filter((n) => isScreen(n) && (ctx.boxes.get(n.id)?.box.height ?? 0) > 1400)
+      .map((n) => n.id)
+  );
 
   walkEnabled(ctx.doc.children, (node) => {
-    if (node.type !== "frame") return;
+    if (node.type !== "frame" || (node as { layout?: string }).layout !== "horizontal") return;
     if (SCREEN_CHROME_NAME.test(node.name ?? "")) return;
-    if (tallSites.some((site) => node === site || isDescendant(node, site))) return;
-    if ((node as { layout?: string }).layout !== "horizontal") return;
+    if (tallSites.has(node.id) || Array.from(tallSites).some((id) => {
+      const site = ctx.nodes.get(id);
+      return site && isDescendant(node, site);
+    })) return;
     const kids = childrenOf(node).filter((c) => c.enabled !== false && c.type === "frame");
     if (kids.length < 3) return;
     const boxes = kids.map((k) => ctx.boxes.get(k.id)?.box).filter((b): b is NonNullable<typeof b> => !!b);
@@ -949,6 +1081,260 @@ export function checkChromeCollisions(ctx: AuditContext): AuditFinding[] {
       });
     }
   }
+
+  return findings;
+}
+
+export function checkTextOnTextCollisions(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  const textNodes: PenNode[] = [];
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type === "text") textNodes.push(node);
+  });
+
+  for (let i = 0; i < textNodes.length; i++) {
+    const a = textNodes[i];
+    const boxA = ctx.absBoxes.get(a.id);
+    if (!boxA || boxA.width <= 0 || boxA.height <= 0) continue;
+
+    for (let j = i + 1; j < textNodes.length; j++) {
+      const b = textNodes[j];
+      const boxB = ctx.absBoxes.get(b.id);
+      if (!boxB || boxB.width <= 0 || boxB.height <= 0) continue;
+
+      if (boxesOverlap(boxA, boxB)) {
+        const contentA = (a as TextNode).content ?? a.id;
+        const contentB = (b as TextNode).content ?? b.id;
+        findings.push(
+          blocker(
+            "collision",
+            a.id,
+            `Text "${contentA.slice(0, 20)}" overlaps directly with text "${contentB.slice(0, 20)}".`,
+            "Wrap the text nodes in a vertical auto-layout container with gap >= 8px to ensure clean vertical separation."
+          )
+        );
+      }
+    }
+  }
+  return findings;
+}
+
+export function checkCardRowButtonBaselines(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "frame" || (node as any).layout !== "horizontal") return;
+    const cards = childrenOf(node).filter((c) => c.type === "frame" && c.enabled !== false);
+    if (cards.length < 2) return;
+
+    const cardButtons: { cardId: string; btnId: string; btnY: number; cardHeight: number }[] = [];
+    for (const card of cards) {
+      const cardBox = ctx.absBoxes.get(card.id);
+      if (!cardBox || cardBox.width < 120 || cardBox.height < 100) continue;
+
+      let deepestBtn: { id: string; y: number } | undefined;
+      walkEnabled([card], (sub) => {
+        if (sub === card) return;
+        const isBtn =
+          INTERACTIVE_NAME.test(sub.name ?? "") ||
+          /button|cta|reserve|book|apply|inquire|buy|join/i.test(sub.name ?? "");
+        if (isBtn && (sub.type === "frame" || sub.type === "text")) {
+          const btnBox = ctx.absBoxes.get(sub.id);
+          if (btnBox && (!deepestBtn || btnBox.y > deepestBtn.y)) {
+            deepestBtn = { id: sub.id, y: btnBox.y };
+          }
+        }
+      });
+
+      if (deepestBtn) {
+        cardButtons.push({
+          cardId: card.id,
+          btnId: (deepestBtn as { id: string; y: number }).id,
+          btnY: (deepestBtn as { id: string; y: number }).y,
+          cardHeight: cardBox.height
+        });
+      }
+    }
+
+    if (cardButtons.length >= 2) {
+      const minY = Math.min(...cardButtons.map((cb) => cb.btnY));
+      const maxY = Math.max(...cardButtons.map((cb) => cb.btnY));
+      const delta = maxY - minY;
+
+      if (delta >= 4) {
+        const worst = cardButtons.find((cb) => cb.btnY === maxY)!;
+        findings.push(
+          warning(
+            "misaligned_buttons",
+            worst.cardId,
+            `Action buttons across sibling cards in "${node.name ?? node.id}" are staggered vertically by ${Math.round(delta)}px.`,
+            "Set height: 'fill_container' and justifyContent: 'space_between' on all sibling cards in the row so buttons lock to a uniform horizontal baseline."
+          )
+        );
+      }
+    }
+  });
+
+  return findings;
+}
+
+export function checkCardRowHeights(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "frame" || (node as any).layout !== "horizontal") return;
+    const cards = childrenOf(node).filter((c) => c.type === "frame" && c.enabled !== false);
+    if (cards.length < 2) return;
+
+    const heights: { id: string; height: number }[] = [];
+    for (const card of cards) {
+      const box = ctx.absBoxes.get(card.id);
+      if (box && box.width >= 120 && box.height >= 80) {
+        heights.push({ id: card.id, height: box.height });
+      }
+    }
+
+    if (heights.length >= 2) {
+      const minH = Math.min(...heights.map((h) => h.height));
+      const maxH = Math.max(...heights.map((h) => h.height));
+      if (maxH - minH >= 12) {
+        const worst = heights.find((h) => h.height === minH) || heights[0];
+        findings.push(
+          warning(
+            "uneven_card_heights",
+            worst.id,
+            `Sibling cards in "${node.name ?? node.id}" have uneven heights (${Math.round(minH)}px vs ${Math.round(maxH)}px).`,
+            "Set height: 'fill_container' on all cards in the row so they form a balanced, uniform height."
+          )
+        );
+      }
+    }
+  });
+
+  return findings;
+}
+
+export function checkFormInputAlignment(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "frame" || (node as any).layout !== "vertical") return;
+    const kids = childrenOf(node).filter((c) => c.type === "frame" && c.enabled !== false);
+    const inputRows = kids.filter((k) => {
+      const name = k.name ?? "";
+      const isInput = /input|field|date|picker|guest|person|time|select|row/i.test(name) || (k as any).stroke !== undefined;
+      return isInput && (k as any).layout === "horizontal";
+    });
+
+    if (inputRows.length >= 2) {
+      const aligns = new Set(inputRows.map((r) => (r as any).justifyContent || "flex_start"));
+      if (aligns.size > 1) {
+        const misaligned = inputRows.find((r) => (r as any).justifyContent === "center") || inputRows[0];
+        findings.push(
+          warning(
+            "misaligned_inputs",
+            misaligned.id,
+            `Form input fields inside "${node.name ?? node.id}" have inconsistent alignment (some centered, some left-aligned).`,
+            "Set justifyContent: 'flex_start' and padding: [0, 16] on all input fields in the stack for consistent left alignment."
+          )
+        );
+      }
+    }
+  });
+
+  return findings;
+}
+
+export function checkStrayOrphanCharacters(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "text") return;
+    const content = (node as TextNode).content;
+    if (typeof content !== "string") return;
+    const trimmed = content.trim();
+    if (/^[-—•.,;/:\\|]$/.test(trimmed)) {
+      findings.push(
+        warning(
+          "stray_character",
+          node.id,
+          `Text node "${node.name ?? node.id}" contains only a stray placeholder character ("${trimmed}").`,
+          "Delete this placeholder text node or replace it with real copy."
+        )
+      );
+    }
+  });
+  return findings;
+}
+
+export function checkTextOverlappingFrames(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  const textNodes: PenNode[] = [];
+  const frameNodes: PenNode[] = [];
+
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type === "text") textNodes.push(node);
+    else if (node.type === "frame" && (node as any).fill && (node as any).fill !== "$surface-primary") {
+      frameNodes.push(node);
+    }
+  });
+
+  for (const text of textNodes) {
+    const boxT = ctx.absBoxes.get(text.id);
+    if (!boxT || boxT.width <= 0 || boxT.height <= 0) continue;
+
+    for (const frame of frameNodes) {
+      if (text.id === frame.id || isDescendant(text, frame)) continue;
+      const boxF = ctx.absBoxes.get(frame.id);
+      if (!boxF || boxF.width <= 0 || boxF.height <= 0) continue;
+
+      if (boxesOverlap(boxT, boxF)) {
+        const content = (text as TextNode).content ?? text.id;
+        findings.push(
+          blocker(
+            "collision",
+            text.id,
+            `Text "${content.slice(0, 24)}" overlaps the boundary of card "${frame.name ?? frame.id}".`,
+            "Place headings and cards in a vertical auto-layout container with gap >= 24px so headings never collide with card borders."
+          )
+        );
+      }
+    }
+  }
+
+  return findings;
+}
+
+export function checkSegmentedPillDistribution(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "frame" || (node as any).layout !== "horizontal") return;
+    const isPillRow = /pill|segment|tab|switcher|selector/i.test(node.name ?? "");
+    if (!isPillRow) return;
+
+    const parentBox = ctx.boxes.get(node.id)?.box;
+    if (!parentBox || parentBox.width <= 0) return;
+
+    const kids = childrenOf(node).filter((c) => c.enabled !== false);
+    if (kids.length < 2) return;
+
+    let totalKidsWidth = 0;
+    for (const kid of kids) {
+      const kBox = ctx.boxes.get(kid.id)?.box;
+      if (kBox) totalKidsWidth += kBox.width;
+    }
+
+    if (totalKidsWidth > parentBox.width + 4) {
+      findings.push(
+        warning(
+          "overflow",
+          node.id,
+          `Segmented pills inside "${node.name ?? node.id}" total ${Math.round(totalKidsWidth)}px, overflowing the ${Math.round(parentBox.width)}px container.`,
+          "Set width: 'fill_container' on each pill child and reduce horizontal padding so all options distribute evenly."
+        )
+      );
+    }
+  });
 
   return findings;
 }

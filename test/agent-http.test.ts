@@ -36,8 +36,8 @@ describe("H2 key configuration & /agent/status", () => {
     });
     const body = (await res.json()) as { configured: boolean; providers: { id: string; models: { id: string }[] }[] };
     expect(body.configured).toBe(true);
-    expect(body.providers.map((p) => p.id)).toEqual(["vercel", "opencode-go", "gemini", "xai", "qwen-studio"]);
-    expect(body.providers[2].models.map((m) => m.id)).toEqual(["gemini-3.1-pro-preview", "gemini-3.7-flash"]);
+    expect(body.providers.map((p) => p.id)).toEqual(["vercel", "opencode-zen", "opencode-go", "gemini", "xai", "qwen-studio"]);
+    expect(body.providers[3].models.map((m) => m.id)).toEqual(["gemini-3.1-pro-preview", "gemini-3.7-flash"]);
     expect(JSON.stringify(body)).not.toMatch(/sk-[vgmxq]/);
   });
 });
@@ -152,6 +152,28 @@ describe("agent review HTTP endpoint & vision handoffs", () => {
     expect(pMsg.url()).toBe("https://opencode.ai/zen/go/v1/messages");
   });
 
+  it("runs focused per-section reviews concurrently when section slices are attached", async () => {
+    let calls = 0;
+    const pMulti = fakeProvider(() => {
+      calls++;
+      return responsesReply(REVIEW);
+    });
+    const res = await reviewPost(
+      {
+        providerId: "opencode-go",
+        model: "gpt-5.6-luna",
+        brief: "Lisbon coworking site",
+        screenshots: [
+          { id: "hero", name: "Hero Section", dataUrl: PNG, kind: "section" },
+          { id: "pricing", name: "Pricing Section", dataUrl: PNG, kind: "section" }
+        ]
+      },
+      { env: { OPENCODE_API_KEY: "k" }, fetch: pMulti.fetch }
+    );
+    expect(res.status).toBe(200);
+    expect(calls).toBe(3);
+  });
+
   it("handles vision handoffs, retries on failure, and informs when unsupported", async () => {
     // Automatic handoff from non-vision model (glm-5.2 -> gpt-5.6-luna)
     const pHandoff = fakeProvider(() => responsesReply(REVIEW));
@@ -181,7 +203,7 @@ describe("agent review HTTP endpoint & vision handoffs", () => {
     expect((await reviewPost({ screenshot: "https://example.com/shot.png" }, { env: { GEMINI_API_KEY: "k" } })).status).toBe(400);
 
     // Oversized body payload (413)
-    const res413 = await agentPost("review", "{}", { env: { GEMINI_API_KEY: "k" } }, { headers: { "Content-Length": String(9 * 1024 * 1024) } });
+    const res413 = await agentPost("review", "{}", { env: { GEMINI_API_KEY: "k" } }, { headers: { "Content-Length": String(33 * 1024 * 1024) } });
     expect(res413.status).toBe(413);
 
     // Disallowed origin (403)

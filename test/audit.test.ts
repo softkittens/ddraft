@@ -11,6 +11,7 @@ import {
   type AuditFinding
 } from "../src/design/evaluator";
 import { STYLE_METADATA_KEY, HARD_SHADOW_ELEVATION } from "../src/design/styleKeys";
+import { nearestGeneratedAspect } from "../src/design/photography";
 import { createDocumentTools } from "../src/agent/tools";
 import type { Document } from "../src/model/types";
 
@@ -430,6 +431,18 @@ describe("Composition & Anti-Patterns", () => {
     expectFinding(strip, "undersized_subject", { severity: "warning", message: "viewport" });
   });
 
+  it("does not warn about undersized_subject on tall pages when hero occupies a real share of first viewport", () => {
+    const tallSite = makeDoc(frame("desk", 1440, 4800, [
+      frame("top", "fill_container", 56, [txt("brand", "Casa Estrela", 16, {})], { name: "Top Bar" }),
+      frame("hero", "fill_container", 720, [
+        frame("hero_copy", 600, 400, [txt("h", "Book a desk", 48, {})]),
+        frame("hero_photo", 680, 520, [], { fill: { type: "image", url: "room.jpg" } })
+      ], { name: "Hero", layout: "horizontal" })
+    ], { name: "Casa Estrela", layout: "vertical", metadata: { screenKind: "desktop" } }));
+
+    expect(rules(tallSite)).not.toContain("undersized_subject");
+  });
+
   it("warns when three equal catalog cards are the page", () => {
     const card = (id: string, title: string) => frame(id, 220, 120, [
       txt(`${id}_t`, title, 16),
@@ -624,6 +637,54 @@ describe("State has its own vocabulary", () => {
   });
 });
 
+describe("A photograph in a frame no photograph fits", () => {
+  const photo = { type: "image" as const, url: "data:image/jpeg;base64,AA==" };
+
+  it("flags a phone hero band that crops most of the picture away", () => {
+    const doc = screenWith(frame("m-hero-photo", 390, 1320, [], { name: "Courtyard mobile", fill: photo }));
+    const found = expectFinding(doc, "cropped_photography", {
+      nodeId: "m-hero-photo",
+      severity: "warning",
+      message: /390x1320 frame — 0\.30:1/
+    });
+    expect(found.message).toContain("61%");
+    // The frame is the fix, so the sizes that work are named in it.
+    // 3:4 is the tallest shape on offer, so 520 is as tall as 390 wide can go,
+    // and being nearest the band it is named first.
+    expect(found.fix).toMatch(/fits — 390x520 \(3:4\), /);
+    expect(found.fix).toContain("390x219 (16:9)");
+  });
+
+  it("leaves a frame the generator can fill alone", () => {
+    const doc = screenWith(frame("hero-photo", 390, 219, [], { name: "Courtyard", fill: photo }));
+    expect(rules(doc)).not.toContain("cropped_photography");
+  });
+
+  /*
+   * A nearly-square card used to be the common case of this defect, because
+   * the tool split landscape from square at 1.15 and sent 1.17 to 16:9 — a 34%
+   * crop where 1:1 costs 14%. Fixing the boundary halved the corpus-wide count
+   * of severe crops, so this asserts the boundary rather than the rule.
+   */
+  it("does not flag a nearly-square card, which 1:1 serves", () => {
+    const doc = screenWith(frame("card-photo", 350, 300, [], { name: "Library desk", fill: photo }));
+    expect(rules(doc)).not.toContain("cropped_photography");
+    expect(nearestGeneratedAspect(350 / 300).name).toBe("square");
+  });
+
+  it("puts the boundary between square and landscape at the geometric mean", () => {
+    expect(nearestGeneratedAspect(1.2).name).toBe("square");
+    expect(nearestGeneratedAspect(1.4).name).toBe("landscape");
+    expect(nearestGeneratedAspect(0.8).name).toBe("portrait");
+    expect(nearestGeneratedAspect(3.0).name).toBe("landscape");
+  });
+
+  it("ignores decoration too small to read as photography", () => {
+    const doc = screenWith(frame("hairline", 30, 120, [], { name: "Edge sliver", fill: photo }));
+    expect(rules(doc)).not.toContain("cropped_photography");
+  });
+});
+
 describe("Scoping, Triage & Tool Integration", () => {
   it("scopes audit findings to subtree roots", () => {
     const doc = makeDoc(
@@ -795,5 +856,156 @@ describe("Scoping, Triage & Tool Integration", () => {
     const chromeFinding = findings.find((f) => f.nodeId === "footer" && f.rule === "collision");
     expect(chromeFinding).toBeDefined();
     expect(chromeFinding!.message).toContain("overlaps the bottom navigation bar");
+  });
+
+  it("permits intentional 1440x480 panoramic banners without crop warning", () => {
+    const bannerDoc = makeDoc(
+      screen("desktop", [
+        frame("banner", 1440, 480, [], { fill: { type: "image", url: "hero.png" } })
+      ], { width: 1440, height: 900 })
+    );
+    const cropFindings = audit(bannerDoc).filter((f) => f.rule === "cropped_photography");
+    expect(cropFindings).toHaveLength(0);
+  });
+
+  it("flags severe crop on extreme narrow vertical slivers", () => {
+    const sliverDoc = makeDoc(
+      screen("mobile", [
+        frame("sliver", 390, 1320, [], { fill: { type: "image", url: "narrow.png" } })
+      ], { width: 390, height: 844 })
+    );
+    expectFinding(sliverDoc, "cropped_photography", {
+      severity: "warning",
+      message: "holds a photograph in a 390x1320 frame"
+    });
+  });
+
+  it("flags oversized 1200px section height in vertical flow", () => {
+    const tallDoc = makeDoc(
+      screen("desktop", [
+        frame("hero_photo", 1440, 1200, [], { fill: { type: "image", url: "wall.png" } })
+      ], { width: 1440, height: 900, layout: "vertical" })
+    );
+    expectFinding(tallDoc, "oversized_section_height", {
+      severity: "warning",
+      message: "is 1200px tall in a vertical flow screen"
+    });
+  });
+
+  it("flags staggered button baselines in horizontal card rows", () => {
+    const cardsDoc = makeDoc(
+      screen("desktop", [
+        frame("card_row", 1200, "fit_content", [
+          frame("card1", 380, 400, [
+            txt("title1", "Plan A", 20),
+            frame("btn1", "fill_container", 44, [txt("btntxt1", "Buy", 14)], { name: "CTA Button", layoutPosition: "absolute", x: 20, y: 340 } as any)
+          ], { layout: "none" }),
+          frame("card2", 380, 430, [
+            txt("badge2", "POPULAR", 12),
+            txt("title2", "Plan B", 20),
+            frame("btn2", "fill_container", 44, [txt("btntxt2", "Buy", 14)], { name: "CTA Button", layoutPosition: "absolute", x: 20, y: 370 } as any)
+          ], { layout: "none" })
+        ], { layout: "horizontal", gap: 20 })
+      ], { width: 1440, height: 900 })
+    );
+    expectFinding(cardsDoc, "misaligned_buttons", {
+      severity: "warning",
+      message: "staggered vertically"
+    });
+  });
+
+  it("flags overflowing segmented pills in pill switchers", () => {
+    const pillDoc = makeDoc(
+      screen("desktop", [
+        frame("switcher", 300, 44, [
+          frame("p1", 120, 36, [txt("t1", "Day Pass", 13)]),
+          frame("p2", 120, 36, [txt("t2", "5-Day Pack", 13)]),
+          frame("p3", 120, 36, [txt("t3", "Resident Desk", 13)])
+        ], { name: "Segmented Pill Switcher", layout: "horizontal", gap: 8 })
+      ], { width: 1440, height: 900 })
+    );
+    expectFinding(pillDoc, "overflow", {
+      severity: "warning",
+      message: "overflowing"
+    });
+  });
+
+  it("flags large button baseline misalignments (e.g. >50px) across sibling cards", () => {
+    const cardsDoc = makeDoc(
+      screen("desktop", [
+        frame("card_row", 1200, "fit_content", [
+          frame("card1", 380, 280, [
+            txt("title1", "Plan A", 20),
+            frame("btn1", "fill_container", 44, [txt("btntxt1", "Buy", 14)], { name: "CTA Button", layoutPosition: "absolute", x: 20, y: 220 } as any)
+          ], { layout: "none" }),
+          frame("card2", 380, 400, [
+            txt("title2", "Plan B", 20),
+            frame("btn2", "fill_container", 44, [txt("btntxt2", "Buy", 14)], { name: "CTA Button", layoutPosition: "absolute", x: 20, y: 340 } as any)
+          ], { layout: "none" })
+        ], { layout: "horizontal", gap: 20 })
+      ], { width: 1440, height: 900 })
+    );
+    expectFinding(cardsDoc, "misaligned_buttons", {
+      severity: "warning",
+      message: "staggered vertically"
+    });
+  });
+
+  it("flags uneven card heights in horizontal comparison rows", () => {
+    const cardsDoc = makeDoc(
+      screen("desktop", [
+        frame("card_row", 1200, "fit_content", [
+          frame("card1", 380, 260, [txt("t1", "Day Pass", 20)], { name: "Card 1", fill: "$surface-secondary" }),
+          frame("card2", 380, 360, [txt("t2", "Resident", 20)], { name: "Card 2", fill: "$surface-secondary" })
+        ], { layout: "horizontal", gap: 20 })
+      ], { width: 1440, height: 900 })
+    );
+    expectFinding(cardsDoc, "uneven_card_heights", {
+      severity: "warning",
+      message: "uneven heights"
+    });
+  });
+
+  it("flags stray orphan punctuation characters", () => {
+    const strayDoc = makeDoc(
+      screen("desktop", [
+        frame("card", 380, 200, [
+          txt("title", "Fast Wi-Fi", 16),
+          txt("orphan", "-", 14)
+        ], { layout: "vertical", gap: 8 })
+      ], { width: 1440, height: 900 })
+    );
+    expectFinding(strayDoc, "stray_character", {
+      severity: "warning",
+      message: "stray placeholder character"
+    });
+  });
+
+  it("flags section titles that collide into card borders", () => {
+    const overlapDoc = makeDoc(
+      screen("desktop", [
+        txt("heading", "Come as you are", 32, { layoutPosition: "absolute", x: 56, y: 100 } as any),
+        frame("card", 380, 240, [], { name: "Day Pass Card", fill: "$surface-secondary", layoutPosition: "absolute", x: 56, y: 110 } as any)
+      ], { width: 1440, height: 900, layout: "none" })
+    );
+    expectFinding(overlapDoc, "collision", {
+      severity: "blocker",
+      message: /collides with|overlaps/
+    });
+  });
+
+  it("flags inconsistent text alignment across form inputs in a card stack", () => {
+    const formDoc = makeDoc(
+      screen("desktop", [
+        frame("card", 380, 200, [
+          frame("row1", "fill_container", 44, [txt("t1", "Tue, 18 Jun", 14)], { name: "Date Input", layout: "horizontal", justifyContent: "center", stroke: "$border-subtle" } as any),
+          frame("row2", "fill_container", 44, [txt("t2", "1 person", 14)], { name: "Guest Input", layout: "horizontal", justifyContent: "flex_start", stroke: "$border-subtle" } as any)
+        ], { layout: "vertical", gap: 10 })
+      ], { width: 1440, height: 900 })
+    );
+    expectFinding(formDoc, "misaligned_inputs", {
+      severity: "warning",
+      message: "inconsistent alignment"
+    });
   });
 });

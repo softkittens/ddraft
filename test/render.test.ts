@@ -67,6 +67,46 @@ describe("browser capture", () => {
     expect(calls.some((c) => c.includes("$surface-primary"))).toBe(false);
   });
 
+  it("extracts nested individual section slices on tall documents", async () => {
+    const { ctx } = createMockCanvas();
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      writable: true,
+      value: {
+        createElement: () => ({
+          width: 0,
+          height: 0,
+          getContext: () => ctx,
+          toDataURL: () => "data:image/jpeg;base64,xx"
+        }),
+        fonts: { ready: Promise.resolve() }
+      }
+    });
+
+    const tallDoc = makeDoc(
+      frame("screen1", 1440, 3600, [
+        frame("topbar", "fill_container", 64, [], { name: "Top Bar" }),
+        frame("body", "fill_container", 3500, [
+          frame("hero", "fill_container", 700, [], { name: "Hero Section" }),
+          frame("rooms", "fill_container", 650, [], { name: "Rooms Section" }),
+          frame("amenities", "fill_container", 550, [], { name: "Amenities Section" }),
+          frame("pricing", "fill_container", 500, [], { name: "Pricing Section" }),
+          frame("footer", "fill_container", 380, [], { name: "Footer Section" })
+        ], { name: "Body", layout: "vertical" })
+      ], { name: "Casa Estrela", layout: "vertical" })
+    );
+
+    const result = await captureDocumentPng(tallDoc);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.screens.length).toBeGreaterThanOrEqual(4);
+      const sectionCaps = result.screens.filter((s) => s.kind === "section");
+      expect(sectionCaps.length).toBeGreaterThanOrEqual(3);
+      expect(sectionCaps.map((s) => s.name)).toContain("Casa Estrela — Hero Section");
+      expect(sectionCaps.map((s) => s.name)).toContain("Casa Estrela — Rooms Section");
+    }
+  });
+
   it("waits for document images before painting", async () => {
     let waited = false;
     class FakeImage {

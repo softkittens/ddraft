@@ -2,16 +2,27 @@ import { layoutResolvedDocument } from "../layout/layout";
 import { indexDocument, walkNodes } from "../model/tree";
 import { resolveInstances } from "../model/instance";
 import { paintNode, preloadCachedImage } from "./paint";
-import type { Document as PenDocument, Fill, ImageFill } from "../model/types";
+import type { Document as PenDocument, Fill, ImageFill, PenNode } from "../model/types";
 import type { LayoutNode, Box } from "../layout/types";
 
 export type CaptureFailure = "unavailable" | "no_target";
 
+export interface ScreenCapture {
+  id: string;
+  name: string;
+  dataUrl: string;
+  box: Box;
+  kind?: "screen" | "section";
+  parentId?: string;
+}
+
 export type CaptureResult =
-  | { ok: true; dataUrl: string }
+  | { ok: true; dataUrl: string; screens: ScreenCapture[] }
   | { ok: false; reason: CaptureFailure };
 
-const SCALE = 1.5;
+const FULL_SCREEN_SCALE = 0.5;
+const SECTION_SLICE_SCALE = 0.75;
+const JPEG_QUALITY = 0.85;
 const IMAGE_WAIT_MS = 1500;
 const FONT_WAIT_MS = 300;
 const MAX_CAPTURE_AREA = 1920 * 1080;
@@ -52,10 +63,150 @@ function imageUrls(doc: PenDocument): string[] {
   return urls;
 }
 
-function captureScale(box: Box): number {
-  const area = box.width * box.height * SCALE * SCALE;
-  if (area <= MAX_CAPTURE_AREA) return SCALE;
-  return SCALE * Math.sqrt(MAX_CAPTURE_AREA / area);
+function captureScale(box: Box, baseScale: number = FULL_SCREEN_SCALE): number {
+  const area = box.width * box.height * baseScale * baseScale;
+  if (area <= MAX_CAPTURE_AREA) return baseScale;
+  return baseScale * Math.sqrt(MAX_CAPTURE_AREA / area);
+}
+
+function nodeWorldBox(root: LayoutNode, targetId: string): Box | null {
+  function find(node: LayoutNode, curX: number, curY: number): Box | null {
+    const nextX = curX + (node === root ? 0 : node.box.x);
+    const nextY = curY + (node === root ? 0 : node.box.y);
+    if (node.id === targetId) {
+      return { x: nextX, y: nextY, width: node.box.width, height: node.box.height };
+    }
+    for (const child of node.children) {
+      const res = find(child, nextX, nextY);
+      if (res) return res;
+    }
+    return null;
+  }
+  return find(root, 0, 0);
+}
+
+function captureBoxSlice(
+  root: LayoutNode,
+  sliceBox: Box,
+  map: Map<string, PenNode>,
+  variables?: Record<string, any>,
+  labelId?: string,
+  labelName?: string,
+  kind?: "screen" | "section",
+  parentId?: string
+): ScreenCapture | null {
+  if (sliceBox.width <= 0 || sliceBox.height <= 0) return null;
+  const baseScale = kind === "section" ? SECTION_SLICE_SCALE : FULL_SCREEN_SCALE;
+  const scale = captureScale(sliceBox, baseScale);
+  const canvas = globalThis.document.createElement("canvas");
+  const width = Math.max(1, Math.round(sliceBox.width * scale));
+  const height = Math.max(1, Math.round(sliceBox.height * scale));
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Solid background base for clean JPEG compression
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.scale(scale, scale);
+  ctx.translate(-sliceBox.x, -sliceBox.y);
+  ctx.beginPath();
+  ctx.rect(sliceBox.x, sliceBox.y, sliceBox.width, sliceBox.height);
+  ctx.clip();
+  paintNode(ctx, root, map, variables, { animate: false });
+
+  try {
+    return {
+      id: labelId || root.id,
+      name: labelName || root.id,
+      dataUrl: canvas.toDataURL("image/jpeg", JPEG_QUALITY),
+      box: sliceBox,
+      kind: kind || "screen",
+      parentId
+    };
+  } catch {
+    return null;
+  }
+}
+
+function findSectionSlices(root: LayoutNode): LayoutNode[] {
+  const sections: LayoutNode[] = [];
+  
+  function walk(node: LayoutNode, depth: number) {
+    if (depth > 0) {
+      if (node.box.width >= root.box.width * 0.7 && node.box.height >= 120 && node.box.height <= 1000) {
+        sections.push(node);
+        return;
+      }
+    }
+    for (const child of node.children) {
+      walk(child, depth + 1);
+    }
+  }
+
+  walk(root, 0);
+  return sections;
+}
+
+function captureSingleRoot(
+  root: LayoutNode,
+  map: Map<string, PenNode>,
+  variables?: Record<string, any>
+): ScreenCapture[] {
+  const box = root.box;
+  if (box.width <= 0 || box.height <= 0) return [];
+  const rootNode = map.get(root.id);
+  const rootName = rootNode?.name || root.id;
+
+  const captures: ScreenCapture[] = [];
+  const rootWorldBox = { x: 0, y: 0, width: box.width, height: box.height };
+  const fullCap = captureBoxSlice(root, rootWorldBox, map, variables, root.id, rootName, "screen");
+  if (fullCap) captures.push(fullCap);
+
+  // If the screen is tall, capture key structural landmark sections for precision review
+  if (box.height > 1400) {
+    const sections = findSectionSlices(root);
+    const substantive = sections.filter((s) => s.box.height >= 140);
+    let chosen: LayoutNode[] = [];
+    if (substantive.length <= 4) {
+      chosen = substantive;
+    } else {
+      // 1. Always include top section (Hero)
+      chosen.push(substantive[0]);
+
+      // 2. Look for explicit pricing/membership section
+      const pricing = substantive.find((s) => {
+        const name = map.get(s.id)?.name ?? "";
+        return /price|pricing|rate|rates|membership|tier|plan/i.test(name);
+      });
+
+      // 3. Middle sections (Spaces, Inclusions, Features)
+      const middle = substantive.filter((s) => s !== substantive[0] && s !== pricing);
+      if (middle.length > 0) chosen.push(middle[0]);
+      if (middle.length > 1) chosen.push(middle[Math.floor(middle.length / 2)]);
+
+      if (pricing && !chosen.includes(pricing)) {
+        chosen.push(pricing);
+      } else if (substantive.length > chosen.length) {
+        chosen.push(substantive[substantive.length - 1]);
+      }
+    }
+    // Sort in document order and deduplicate
+    const chosenSet = new Set(chosen);
+    const ordered = substantive.filter((s) => chosenSet.has(s)).slice(0, 4);
+
+    for (const sec of ordered) {
+      const secNode = map.get(sec.id);
+      const secName = secNode?.name ? `${rootName} — ${secNode.name}` : `${rootName} — Section #${sec.id}`;
+      const secWorld = nodeWorldBox(root, sec.id) || { x: sec.box.x, y: sec.box.y, width: sec.box.width, height: sec.box.height };
+      const secCap = captureBoxSlice(root, secWorld, map, variables, sec.id, secName, "section", root.id);
+      if (secCap) captures.push(secCap);
+    }
+  }
+
+  return captures;
 }
 
 export async function captureDocumentPng(doc: PenDocument): Promise<CaptureResult> {
@@ -82,7 +233,14 @@ export async function captureDocumentPng(doc: PenDocument): Promise<CaptureResul
   const box = documentBox(tree);
   if (!box) return { ok: false, reason: "no_target" };
 
-  const scale = captureScale(box);
+  const map = indexDocument(resolved);
+  const screens: ScreenCapture[] = [];
+  for (const root of tree) {
+    const screenCaps = captureSingleRoot(root, map, resolved.variables);
+    screens.push(...screenCaps);
+  }
+
+  const scale = captureScale(box, FULL_SCREEN_SCALE);
   const canvas = globalThis.document.createElement("canvas");
   const width = Math.max(1, Math.round(box.width * scale));
   const height = Math.max(1, Math.round(box.height * scale));
@@ -91,18 +249,20 @@ export async function captureDocumentPng(doc: PenDocument): Promise<CaptureResul
   const ctx = canvas.getContext("2d");
   if (!ctx) return { ok: false, reason: "unavailable" };
 
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+
   ctx.scale(scale, scale);
   ctx.translate(-box.x, -box.y);
   ctx.beginPath();
   ctx.rect(box.x, box.y, box.width, box.height);
   ctx.clip();
-  const map = indexDocument(resolved);
   for (const root of tree) {
     paintNode(ctx, root, map, resolved.variables, { animate: false });
   }
 
   try {
-    return { ok: true, dataUrl: canvas.toDataURL("image/png") };
+    return { ok: true, dataUrl: canvas.toDataURL("image/jpeg", JPEG_QUALITY), screens };
   } catch {
     return { ok: false, reason: "unavailable" };
   }

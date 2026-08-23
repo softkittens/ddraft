@@ -1,5 +1,6 @@
+import type { Document } from "../../model/types";
 import { setProperty } from "../../model/edit";
-import { findNode, findParent } from "../../model/tree";
+import { childrenOf, findNode, findParent } from "../../model/tree";
 import { digestSubtree } from "../../digest/digest";
 import { layoutResolvedDocument, flattenLayoutTree } from "../../layout/layout";
 import { resolveInstances } from "../../model/instance";
@@ -17,6 +18,27 @@ import {
   resolvePercentSizes
 } from "./types";
 import { normalizePropertyValue } from "./normalize";
+
+function checkLayoutTransition(
+  beforeDoc: Document,
+  nodeId: string,
+  property: string,
+  value: unknown
+): string {
+  if (property !== "layout" || (value !== "vertical" && value !== "horizontal")) {
+    return "";
+  }
+  const target = findNode(beforeDoc.children, nodeId);
+  if (!target || target.type !== "frame" || (target.layout && target.layout !== "none")) {
+    return "";
+  }
+  const oversized = childrenOf(target).filter(
+    (c) => typeof c.height === "number" && c.height > 600
+  );
+  if (oversized.length === 0) return "";
+  const names = oversized.map((k) => `"${k.name ?? k.id}" (${k.height}px)`).join(", ");
+  return `\nnote: Switched "${target.name ?? nodeId}" from absolute to ${value} layout. Child ${names} still has a large fixed height from absolute layout. Consider resizing it to fit normal flow (e.g. 400-520px or fill_container).`;
+}
 
 export const readDigestTool: DocumentToolDefinition = {
   name: "read_digest",
@@ -94,10 +116,13 @@ export const setPropertyTool: DocumentToolDefinition = {
     const parent = findParent(doc.children, a.id);
     const parentLayout = parent && parent.type === "frame" ? (parent as any).layout : undefined;
     const isAutoLayout = parentLayout === "horizontal" || parentLayout === "vertical";
-    const layoutTip =
+    let layoutTip =
       (a.property === "x" || a.property === "y") && isAutoLayout
         ? `\nnote: "${a.id}" is inside auto-layout parent "${parent!.name ?? parent!.id}" (layout: "${parentLayout}"). Position coordinates (x, y) are ignored by auto-layout. To center or align this child, set justifyContent: "center" and alignItems: "center" on parent "${parent!.id}".`
         : "";
+
+    const transitionTip = checkLayoutTransition(beforeWrite, a.id, a.property, a.value);
+    if (transitionTip) layoutTip += transitionTip;
 
     if (doc === beforeWrite) {
       return `no change: ${a.id}.${a.property} is already ${JSON.stringify(a.value)}. Something else is deciding this box — measure it, or change the parent instead.${layoutTip}`;
@@ -199,7 +224,11 @@ export const batchSetPropertiesTool: DocumentToolDefinition = {
       .filter((u) => u && typeof u.id === "string" && typeof u.property === "string")
       .map((u) => ctx.recordWrite(u.id as string, u.property as string, u.value))
       .filter(Boolean);
-    return [head, ...new Set(vocabularyNotes), ...notes, ...loops].join("\n");
+    const transitionTips = updates
+      .filter((u) => u && typeof u.id === "string" && typeof u.property === "string")
+      .map((u) => checkLayoutTransition(doc, u.id as string, u.property as string, u.value))
+      .filter(Boolean);
+    return [head, ...new Set(vocabularyNotes), ...notes, ...loops, ...transitionTips].join("\n");
   }
 };
 

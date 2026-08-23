@@ -4,7 +4,7 @@ import { createHistory, pushDocument, undo as undoDoc, redo as redoDoc, type His
 import { removeNode } from "../model/edit";
 import { layoutResolvedDocument } from "../layout/layout";
 import { resolveInstances } from "../model/instance";
-import { createCamera, zoomAtScreenPoint, type Camera } from "../interaction/camera";
+import { createCamera, zoomAtScreenPoint, calculateFitCamera, type Camera } from "../interaction/camera";
 import { indexDocument } from "../model/tree";
 import { createDefaultDocument } from "../model/defaultDocument";
 import { loadSession, saveSession, clearSession, flushSession, type ChatSnapshot } from "./persist";
@@ -38,6 +38,84 @@ export function updateDoc(newDoc: Document) {
   if (newDoc === doc()) return;
   setDocState(newDoc);
   setHistoryState((prev) => pushDocument(prev, newDoc));
+}
+
+let cameraAnimFrame: number | null = null;
+
+export function animateCameraTo(target: Camera, duration = 380): void {
+  if (typeof window === "undefined" || typeof requestAnimationFrame === "undefined") {
+    setCamera(target);
+    return;
+  }
+  if (cameraAnimFrame !== null) {
+    cancelAnimationFrame(cameraAnimFrame);
+    cameraAnimFrame = null;
+  }
+  const start = camera();
+  const startTime = performance.now();
+
+  function step(now: number) {
+    const elapsed = now - startTime;
+    const progress = Math.min(1, elapsed / duration);
+    const t = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+
+    setCamera({
+      x: start.x + (target.x - start.x) * t,
+      y: start.y + (target.y - start.y) * t,
+      zoom: start.zoom + (target.zoom - start.zoom) * t
+    });
+
+    if (progress < 1) {
+      cameraAnimFrame = requestAnimationFrame(step);
+    } else {
+      cameraAnimFrame = null;
+    }
+  }
+
+  cameraAnimFrame = requestAnimationFrame(step);
+}
+
+export function zoomToFit(options: { animate?: boolean; padding?: number } = {}) {
+  const tree = layoutTree();
+  if (!tree || tree.length === 0) return;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const root of tree) {
+    minX = Math.min(minX, root.box.x);
+    minY = Math.min(minY, root.box.y);
+    maxX = Math.max(maxX, root.box.x + root.box.width);
+    maxY = Math.max(maxY, root.box.y + root.box.height);
+  }
+
+  if (minX === Infinity || maxX <= minX || maxY <= minY) return;
+
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1440;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 900;
+  const isChatOpen = chatVisible() && chatExpanded();
+  const leftPad = isChatOpen ? Math.min(410, vw * 0.35) : 60;
+  const rightPad = inspectorVisible() ? 280 : 60;
+
+  const target = calculateFitCamera(
+    { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
+    {
+      width: vw,
+      height: vh,
+      leftPadding: leftPad,
+      rightPadding: rightPad,
+      topPadding: 70,
+      bottomPadding: 60
+    }
+  );
+
+  if (options.animate !== false) {
+    animateCameraTo(target);
+  } else {
+    setCamera(target);
+  }
 }
 
 /* ------------------------------------------------------------------ *

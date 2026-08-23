@@ -67,3 +67,56 @@ export function panCamera(camera: Camera, dx: number, dy: number): Camera {
     y: camera.y + dy
   };
 }
+
+export interface ViewportBounds {
+  width: number;
+  height: number;
+  leftPadding?: number;
+  rightPadding?: number;
+  topPadding?: number;
+  bottomPadding?: number;
+}
+
+export interface ContentBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Calculates a Camera that fits content bounds within a viewport, respecting panel paddings.
+ */
+export function calculateFitCamera(
+  content: ContentBounds,
+  viewport: ViewportBounds,
+  maxZoom = 1.0,
+  minZoom = 0.05
+): Camera {
+  const contentW = Math.max(1, content.width);
+  const contentH = Math.max(1, content.height);
+  const contentCenterX = content.x + contentW / 2;
+  const contentCenterY = content.y + contentH / 2;
+
+  const leftPad = viewport.leftPadding ?? 420;
+  const rightPad = viewport.rightPadding ?? 60;
+  const topPad = viewport.topPadding ?? 70;
+  const bottomPad = viewport.bottomPadding ?? 60;
+
+  const availW = Math.max(80, viewport.width - leftPad - rightPad);
+  const availH = Math.max(80, viewport.height - topPad - bottomPad);
+
+  const scaleX = availW / contentW;
+  const scaleY = availH / contentH;
+  const targetZoom = Math.max(minZoom, Math.min(maxZoom, Math.min(scaleX, scaleY)));
+
+  const viewCenterX = leftPad + availW / 2;
+  const viewCenterY = topPad + availH / 2;
+
+  return {
+    zoom: targetZoom,
+    x: viewCenterX - contentCenterX * targetZoom,
+    y: viewCenterY - contentCenterY * targetZoom
+  };
+}
+

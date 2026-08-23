@@ -6,7 +6,7 @@ import {
 } from "./credentials";
 import { isAbortError, runSession, type AgentEvent } from "./session";
 import { complete, type FetchFn, type ReasoningEffort } from "./provider";
-import { criticMessages, parseDesignReview } from "./critic";
+import { criticMessages, parseDesignReview, sectionCriticMessages } from "./critic";
 import type { ReviewResponse } from "./review";
 import type { StyleRun } from "../design/history";
 import { createSessionLog } from "./sessionLog";
@@ -29,7 +29,7 @@ export interface AgentHttpDeps {
   logDir?: string;
 }
 
-const REVIEW_BODY_LIMIT = 8 * 1024 * 1024;
+const REVIEW_BODY_LIMIT = 32 * 1024 * 1024;
 const IMAGE_DATA_URL = /^data:image\/(png|jpeg|jpg|webp);base64,/i;
 
 function encodeEvent(event: AgentEvent): Uint8Array {
@@ -110,6 +110,7 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
       reasoningEffort?: ReasoningEffort;
       brief?: unknown;
       screenshot?: unknown;
+      screenshots?: unknown;
       digest?: unknown;
       direction?: unknown;
       audit?: unknown;
@@ -128,6 +129,13 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
       return Response.json({ error: "screenshot must be an image data URL" }, { status: 400 });
     }
 
+    const screenshots = Array.isArray(body.screenshots)
+      ? body.screenshots.filter(
+          (s): s is { id?: string; name?: string; dataUrl: string; kind?: "screen" | "section"; parentId?: string } =>
+            Boolean(s && typeof s === "object" && typeof (s as any).dataUrl === "string" && IMAGE_DATA_URL.test((s as any).dataUrl))
+        )
+      : undefined;
+
     let provider = null;
     try {
       provider = loadRequestedProvider(env, body.providerId, body.model, body.reasoningEffort);
@@ -141,6 +149,7 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
     const messages = criticMessages({
       brief: body.brief,
       screenshotDataUrl: body.screenshot,
+      screenshots: screenshots && screenshots.length > 0 ? screenshots : undefined,
       digest: body.digest,
       direction: designDirection(body.direction),
       audit: typeof body.audit === "string" ? body.audit : undefined
@@ -185,18 +194,80 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
           messages
         });
         try {
-          const reply = await complete(provider, messages, {
-            fetch: deps.fetch,
-            signal: req.signal
-          });
-          log?.write({ type: "review_response", model: provider.model, response: reply });
-          const parsed = extractJson(typeof reply.content === "string" ? reply.content : "");
-          const review = parseDesignReview(parsed, body.digest);
+          const sectionSlices = (screenshots || []).filter((s) => s.kind === "section");
+          let review: ReviewResponse;
+
+          if (sectionSlices.length > 0) {
+            const sectionPromises = sectionSlices.map(async (sec) => {
+              const secMessages = sectionCriticMessages({
+                brief: typeof body.brief === "string" ? body.brief : String(body.brief || ""),
+                section: sec,
+                digest: typeof body.digest === "string" ? body.digest : String(body.digest || "")
+              });
+              try {
+                const secReply = await complete(provider!, secMessages, { fetch: deps.fetch, signal: req.signal });
+                const secParsed = extractJson(typeof secReply.content === "string" ? secReply.content : "");
+                return { sec, review: parseDesignReview(secParsed, typeof body.digest === "string" ? body.digest : String(body.digest || "")) };
+              } catch {
+                return null;
+              }
+            });
+
+            const overviewPromise = complete(provider, messages, { fetch: deps.fetch, signal: req.signal });
+            const [overviewReply, ...sectionResults] = await Promise.all([overviewPromise, ...sectionPromises]);
+
+            log?.write({ type: "review_response", model: provider.model, response: overviewReply });
+            const parsed = extractJson(typeof overviewReply.content === "string" ? overviewReply.content : "");
+            const overviewReview = parseDesignReview(parsed, body.digest);
+
+            const allIssues = [...overviewReview.issues];
+            const allFixes = [...(overviewReview.fixes || [])];
+            let hasRefine = overviewReview.verdict === "refine";
+
+            for (const item of sectionResults) {
+              if (!item) continue;
+              const { sec, review: sr } = item;
+              const secName = sec.name || `Section #${sec.id}`;
+              if (sr.verdict === "refine") {
+                hasRefine = true;
+                for (const issue of sr.issues) {
+                  const title = issue.title.startsWith("[") ? issue.title : `[${secName}] ${issue.title}`;
+                  allIssues.push({ ...issue, title });
+                }
+              }
+              if (sr.fixes) allFixes.push(...sr.fixes);
+            }
+
+            const finalScores = { ...overviewReview.scores };
+            if (hasRefine) {
+              finalScores.craft = Math.min(finalScores.craft || 5, 2);
+              finalScores.usability = Math.min(finalScores.usability || 5, 2);
+              finalScores.hierarchy = Math.min(finalScores.hierarchy || 5, 3);
+              finalScores.specificity = Math.min(finalScores.specificity || 5, 3);
+            }
+
+            review = {
+              ...overviewReview,
+              verdict: hasRefine ? "refine" : "pass",
+              scores: finalScores,
+              issues: allIssues.slice(0, 4),
+              fixes: allFixes.slice(0, 12)
+            };
+          } else {
+            const reply = await complete(provider, messages, {
+              fetch: deps.fetch,
+              signal: req.signal
+            });
+            log?.write({ type: "review_response", model: provider.model, response: reply });
+            const parsed = extractJson(typeof reply.content === "string" ? reply.content : "");
+            review = parseDesignReview(parsed, body.digest);
+          }
+
           const response: ReviewResponse = {
             ...review,
             reviewedBy: { providerId: provider.id, model: provider.model, handoff }
           };
-          log?.write({ type: "review_result", model: provider.model, handoff, review });
+          log?.write({ type: "review_result", model: provider.model, handoff, review: response });
           return Response.json(response);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import type { LayoutNode } from "../src/layout/types";
 import type { PenNode } from "../src/model/types";
-import { createCamera, worldToScreen, screenToWorld, zoomAtScreenPoint, panCamera } from "../src/interaction/camera";
+import { createCamera, worldToScreen, screenToWorld, zoomAtScreenPoint, panCamera, calculateFitCamera } from "../src/interaction/camera";
 import { hitTestScene, hitTestSceneWorld, nearestFrameHit, worldPointToFrameLocal, findNodesInMarquee, findNodeWorldBox } from "../src/interaction/hittest";
 import { createSelectionState, paintSelectionOverlay, getComponentKind } from "../src/interaction/selection";
 import { handleDragMove, commitDragDrop, pastDragThreshold, computeSmartGuides, type DragSession } from "../src/interaction/drag";
@@ -27,6 +27,34 @@ describe("camera coordinate transformations & zoom anchors", () => {
     const panned = panCamera(camera, -20, 30);
     expect(panned.x).toBe(80);
     expect(panned.y).toBe(80);
+  });
+
+  it("calculates camera fitting multi-screen content bounds with viewport paddings", () => {
+    // Desktop (1440x900 at 0,0) and Mobile (390x844 at 1540,0) -> total width: 1930, height: 900
+    const content = { x: 0, y: 0, width: 1930, height: 900 };
+    const viewport = {
+      width: 1600,
+      height: 900,
+      leftPadding: 420,
+      rightPadding: 60,
+      topPadding: 70,
+      bottomPadding: 60
+    };
+
+    const fit = calculateFitCamera(content, viewport);
+    expect(fit.zoom).toBeLessThan(1.0);
+    expect(fit.zoom).toBeGreaterThan(0.5);
+
+    // Center of content should map to center of available viewport
+    const contentCenterX = content.x + content.width / 2;
+    const contentCenterY = content.y + content.height / 2;
+    const screenCenter = worldToScreen({ x: contentCenterX, y: contentCenterY }, fit);
+
+    const availableCenterX = viewport.leftPadding + (viewport.width - viewport.leftPadding - viewport.rightPadding) / 2;
+    const availableCenterY = viewport.topPadding + (viewport.height - viewport.topPadding - viewport.bottomPadding) / 2;
+
+    expect(Math.round(screenCenter.x)).toBe(Math.round(availableCenterX));
+    expect(Math.round(screenCenter.y)).toBe(Math.round(availableCenterY));
   });
 });
 

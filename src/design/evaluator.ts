@@ -48,13 +48,22 @@ import {
   checkCompositionExpectations,
   checkClonedContent,
   checkIconGeometry,
+  checkPhotographCrop,
+  checkSectionHeightBudget,
   checkStatTileRow,
   checkCatalogCardRow,
   checkScaffoldOnlyScreens,
   checkUncenteredIconButtons,
   checkEyebrowKicker,
   checkTextBoundaryCollisions,
-  checkChromeCollisions
+  checkChromeCollisions,
+  checkTextOnTextCollisions,
+  checkCardRowButtonBaselines,
+  checkCardRowHeights,
+  checkStrayOrphanCharacters,
+  checkTextOverlappingFrames,
+  checkFormInputAlignment,
+  checkSegmentedPillDistribution
 } from "./rules/composition";
 
 /* ------------------------------------------------------------------ *
@@ -102,12 +111,21 @@ const AUDIT_RULES: AuditRuleRunner[] = [
   checkCatalogCardRow,
   checkClonedContent,
   checkIconGeometry,
+  checkPhotographCrop,
+  checkSectionHeightBudget,
   checkScaleDiscipline,
   checkScaffoldOnlyScreens,
   checkUncenteredIconButtons,
   checkEyebrowKicker,
   checkTextBoundaryCollisions,
-  checkChromeCollisions
+  checkChromeCollisions,
+  checkTextOnTextCollisions,
+  checkTextOverlappingFrames,
+  checkCardRowButtonBaselines,
+  checkCardRowHeights,
+  checkFormInputAlignment,
+  checkStrayOrphanCharacters,
+  checkSegmentedPillDistribution
 ];
 
 /* ------------------------------------------------------------------ *

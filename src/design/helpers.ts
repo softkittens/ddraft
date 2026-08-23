@@ -42,6 +42,13 @@ export type AuditRule =
   | "undrawn_series"
   | "empty_column"
   | "undersized_subject"
+  | "cropped_photography"
+  | "oversized_section_height"
+  | "misaligned_buttons"
+  | "misaligned_inputs"
+  | "uneven_card_heights"
+  | "stray_character"
+  | "overflow"
   | "catalog_row";
 
 export type AuditSeverity = "blocker" | "warning" | "info";

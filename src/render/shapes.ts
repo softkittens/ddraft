@@ -109,7 +109,11 @@ export function drawShape(
         if (path2d) {
           ctx.save();
           if (pathNode.viewBox) {
-            const parts = pathNode.viewBox.split(" ").map(Number);
+            const parts = Array.isArray(pathNode.viewBox)
+              ? pathNode.viewBox
+              : typeof pathNode.viewBox === "string"
+              ? pathNode.viewBox.split(" ").map(Number)
+              : [0, 0, box.width, box.height];
             const vbW = parts[2] || box.width;
             const vbH = parts[3] || box.height;
             ctx.scale(box.width / vbW, box.height / vbH);
@@ -126,7 +130,24 @@ export function drawShape(
     }
     case "polygon": {
       const poly = data as PolygonNode;
-      if (poly?.points && poly.points.length > 0) {
+      if (poly?.polygonCount && poly.polygonCount >= 3) {
+        const n = poly.polygonCount;
+        const rx = box.width / 2;
+        const ry = box.height / 2;
+        const cx = rx;
+        const cy = ry;
+        ctx.moveTo(cx + rx * Math.cos(-Math.PI / 2), cy + ry * Math.sin(-Math.PI / 2));
+        for (let i = 1; i < n; i++) {
+          const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+          ctx.lineTo(cx + rx * Math.cos(angle), cy + ry * Math.sin(angle));
+        }
+        ctx.closePath();
+        if (fillStyle) {
+          ctx.fillStyle = fillStyle;
+          ctx.fill();
+        }
+        strokeCurrentPath(ctx, data, variables);
+      } else if (poly?.points && poly.points.length > 0) {
         if (typeof poly.points[0] === "number") {
           const pts = poly.points as number[];
           ctx.moveTo(pts[0], pts[1]);

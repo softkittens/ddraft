@@ -4,6 +4,7 @@ import { findNode } from "../model/tree";
 import { setProperty } from "../model/edit";
 import { digestSubtree } from "../digest/digest";
 import { HARD_MIN_FONT_SIZE } from "../design/evaluator";
+import type { AuditFinding } from "../design/helpers";
 
 /* ------------------------------------------------------------------ *
  * Fixes the critic can apply itself.
@@ -211,6 +212,16 @@ export function applyReviewFixes(doc: Document, review: DesignReview): AppliedFi
  * context at the point that needs it costs a few lines, and finding it later
  * costs a round trip.
  */
+function findRootScreenForNode(doc: Document | undefined, nodeId: string): string | undefined {
+  if (!doc || !doc.children) return undefined;
+  for (const root of doc.children) {
+    if (root.id === nodeId || findNode([root], nodeId)) {
+      return root.name || root.id;
+    }
+  }
+  return undefined;
+}
+
 export function applyReviewMessage(
   brief: string,
   review: DesignReview,
@@ -231,8 +242,11 @@ export function applyReviewMessage(
     lines.push("- Address layout alignment, button centering, media breathing room, and visual hierarchy to bring the design to production polish.");
   } else {
     for (const issue of review.issues) {
+      const firstId = issue.nodeIds?.[0];
+      const screenName = firstId ? findRootScreenForNode(doc, firstId) : undefined;
+      const screenTag = screenName ? `[${screenName}] ` : "";
       const where = issue.nodeIds && issue.nodeIds.length > 0 ? ` (${issue.nodeIds.join(", ")})` : "";
-      lines.push(`- ${issue.title}${where}: ${issue.instruction}`);
+      lines.push(`- ${screenTag}${issue.title}${where}: ${issue.instruction}`);
     }
   }
 
@@ -246,4 +260,52 @@ export function applyReviewMessage(
     lines.push("", "The nodes it named, as they stand now:", ...subtrees);
   }
   return lines.join("\n");
+}
+
+export function enforceAuditFindings(
+  review: DesignReview,
+  findings: AuditFinding[]
+): DesignReview {
+  const severeFindings = findings.filter(
+    (f) =>
+      f.severity === "blocker" ||
+      f.rule === "cropped_photography" ||
+      f.rule === "oversized_section_height"
+  );
+  if (severeFindings.length === 0) return review;
+
+  const nextIssues = [...review.issues];
+  for (const f of severeFindings) {
+    const title =
+      f.rule === "cropped_photography"
+        ? "Cropped photograph out of proportion"
+        : f.rule === "oversized_section_height"
+        ? "Oversized section height in vertical flow"
+        : f.rule.replace(/_/g, " ");
+
+    const exists = nextIssues.some(
+      (iss) =>
+        iss.nodeIds?.includes(f.nodeId) &&
+        (iss.title.toLowerCase().includes(f.rule) || iss.reason.includes(f.message))
+    );
+    if (!exists) {
+      nextIssues.push({
+        title,
+        reason: f.message,
+        instruction: f.fix,
+        nodeIds: [f.nodeId]
+      });
+    }
+  }
+
+  return {
+    ...review,
+    verdict: "refine",
+    scores: {
+      ...review.scores,
+      craft: Math.min(review.scores.craft, 2),
+      hierarchy: Math.min(review.scores.hierarchy, 2)
+    },
+    issues: nextIssues
+  };
 }

@@ -87,4 +87,27 @@ describe("groupTranscriptEntries", () => {
     const grouped = groupTranscriptEntries(entries);
     expect(grouped).toHaveLength(5);
   });
+
+  it("groups tools even when intermediate empty assistant messages exist in the transcript", () => {
+    const entries: Entry[] = [
+      { kind: "message", message: msg("user", "build layout") },
+      { kind: "message", message: msg("assistant", "") },
+      { kind: "message", message: msg("tool", "ok"), tool: "insert_node" },
+      { kind: "message", message: msg("assistant", "") },
+      { kind: "message", message: msg("tool", "ok"), tool: "set_property" },
+      { kind: "message", message: msg("assistant", "") },
+      { kind: "message", message: msg("tool", "ok"), tool: "set_style" },
+      { kind: "message", message: msg("assistant", "Finished.") }
+    ];
+
+    const grouped = groupTranscriptEntries(entries);
+    expect(grouped).toHaveLength(3);
+    expect(grouped[0].type).toBe("entry");
+    const g1 = grouped[1];
+    expect(g1.type).toBe("tool_group");
+    if (g1.type === "tool_group") {
+      expect(g1.entries).toHaveLength(3);
+    }
+    expect(grouped[2].type).toBe("entry");
+  });
 });

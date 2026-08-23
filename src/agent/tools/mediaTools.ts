@@ -7,6 +7,12 @@ import { resolveInstances } from "../../model/instance";
 import { searchLucideIcons, getLucideIconPath } from "../../model/icons";
 import { generateDesignImage, ImageGenUnavailableError } from "../image_gen";
 import {
+  SEVERE_CROP,
+  croppedFraction,
+  nearestGeneratedAspect,
+  servableHeights
+} from "../../design/photography";
+import {
   type DocumentToolDefinition,
   digestId,
   splitInstanceId,
@@ -145,18 +151,39 @@ export const generateImageTool: DocumentToolDefinition = {
     const nodeName = `${(rawNode as any)?.name ?? ""} ${targetId}`.toLowerCase();
     let aspectRatio: "landscape" | "portrait" | "square" = "landscape";
     let targetSize = "target";
+    /*
+     * How much of the picture this frame will crop away, said out loud.
+     *
+     * The providers return one of three shapes and the canvas paints them with
+     * cover, so a frame that matches none of the three silently discards the
+     * difference. A 390x1320 phone band keeps 39% of a 3:4 photograph — which
+     * is why one logged run's hero came back as a vertical slice of a fountain
+     * after the frame was resized for a composition that was later undone.
+     */
+    let cropNote = "";
+    const noteCrop = (width: number, height: number, ratio: number) => {
+      const chosen = nearestGeneratedAspect(ratio);
+      const lost = croppedFraction(ratio, chosen.ratio);
+      if (lost <= SEVERE_CROP) return;
+      cropNote =
+        `\nnote: ${Math.round(width)}x${Math.round(height)} is ${ratio.toFixed(2)}:1, and the closest shape ` +
+        `available is ${chosen.label}, so cover fit crops ${Math.round(lost * 100)}% of the picture away. ` +
+        `Sizes that hold a whole photograph at this width: ${servableHeights(width, ratio)}.`;
+    };
 
     if (target && target.box.width > 0 && target.box.height > 0) {
       const ratio = target.box.width / target.box.height;
-      aspectRatio = ratio > 1.15 ? "landscape" : ratio < 0.87 ? "portrait" : "square";
+      aspectRatio = nearestGeneratedAspect(ratio).name;
       targetSize = `${Math.round(target.box.width)}x${Math.round(target.box.height)}`;
+      noteCrop(target.box.width, target.box.height, ratio);
     } else {
       const w = typeof (rawNode as any)?.width === "number" ? (rawNode as any).width : 0;
       const h = typeof (rawNode as any)?.height === "number" ? (rawNode as any).height : 0;
       if (w > 0 && h > 0) {
         const ratio = w / h;
-        aspectRatio = ratio > 1.15 ? "landscape" : ratio < 0.87 ? "portrait" : "square";
+        aspectRatio = nearestGeneratedAspect(ratio).name;
         targetSize = `${Math.round(w)}x${Math.round(h)}`;
+        noteCrop(w, h, ratio);
       } else if (/avatar|thumbnail|thumb|profile|icon|circle|user/i.test(nodeName)) {
         aspectRatio = "square";
         targetSize = "square";
@@ -188,11 +215,11 @@ export const generateImageTool: DocumentToolDefinition = {
     if (instanceTarget) {
       doc = setInstanceProperty(doc, instanceTarget, "fill", { type: "image", url: imgUrl });
       ctx.setDoc(doc);
-      return `ok: generated image (${result.provider}) using ${aspectRatio} composition for the ${targetSize} target and set fill on ${instanceTarget.descendantId} inside instance ${instanceTarget.refId}. Only this instance changed.`;
+      return `ok: generated image (${result.provider}) using ${aspectRatio} composition for the ${targetSize} target and set fill on ${instanceTarget.descendantId} inside instance ${instanceTarget.refId}. Only this instance changed.${cropNote}`;
     }
     doc = setProperty(doc, targetId, "fill", { type: "image", url: imgUrl });
     ctx.setDoc(doc);
-    return `ok: generated image (${result.provider}) using ${aspectRatio} composition for the ${targetSize} target and set fill on ${targetId}\n${digestSubtree(doc, targetId)}`;
+    return `ok: generated image (${result.provider}) using ${aspectRatio} composition for the ${targetSize} target and set fill on ${targetId}${cropNote}\n${digestSubtree(doc, targetId)}`;
   }
 };
 

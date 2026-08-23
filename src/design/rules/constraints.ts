@@ -66,6 +66,16 @@ export function checkCollision(nodes: LayoutNode[], doc: Document): Finding[] {
   return findings;
 }
 
+function carriesOrContainsText(node: PenNode): boolean {
+  if (node.type === "text" || node.type === "icon") return true;
+  if (node.type === "frame") {
+    for (const child of (node as FrameNode).children || []) {
+      if (carriesOrContainsText(child)) return true;
+    }
+  }
+  return false;
+}
+
 export function checkOverflow(nodes: LayoutNode[], doc: Document): Finding[] {
   const findings: Finding[] = [];
   const map = indexDocument(doc);
@@ -79,7 +89,7 @@ export function checkOverflow(nodes: LayoutNode[], doc: Document): Finding[] {
       for (const child of parent.children) {
         const childDoc = map.get(child.id);
         if (childDoc?.enabled === false) continue;
-        const carriesText = childDoc?.type === "text";
+        const carriesText = childDoc ? carriesOrContainsText(childDoc) : false;
         if (!isClipped && !carriesText) continue;
 
         const overRight = child.box.x + child.box.width - parent.box.width;

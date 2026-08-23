@@ -45,7 +45,7 @@ function selectionLines(doc: Document, selection: string[]): string[] {
  * that would stop it, and a run that ended at the ceiling had exceeded neither
  * in any way it could have seen coming.
  */
-export const MAX_MODEL_ROUNDS = 30;
+export const MAX_MODEL_ROUNDS = 100;
 
 export function agentSystemPrompt(
   doc: Document,
@@ -86,8 +86,10 @@ export function agentSystemPrompt(
     "  1. Decide SITE (persuade) vs TOOL (operate) from the surface, not the product.",
     "     A landing page is still SITE. Write THESIS, OWN-WORLD and FIRST VIEWPORT.",
     "  2. set_style — commit to that contract and pick the visual system that supports it.",
-    "  3. create_screen for ALL requested screens in one round. Site: omit tabs, height 2800-4500.",
-    "  4. Insert whole subtrees. Site: fill topBar; leave rail and aside empty; stack bands in main.",
+    "  3. Screen creation discipline:",
+    "     - SINGLE-SCREEN DEFAULT: Build ONE primary screen per request (Desktop 1440 for websites, web tools, dashboards, and landing pages; Mobile 390 for mobile-only apps). Do NOT build a companion mobile screen unless the user explicitly requests mobile or responsive in their brief.",
+    "     - When mobile is explicitly requested: Build the Desktop screen FIRST. Only after Desktop is complete, create Mobile by reusing the exact image fills (fill: { type: 'image', url: '...' }) and copy from desktop without generating new images.",
+    "  4. Insert whole subtrees. Site: fill topBar; leave rail and aside empty; stack 6–8 varied narrative bands in main to explore the product's full substance (hero, philosophy, spaces/catalog, specs/amenities, photo story, pricing, deep footer).",
     "     Tool: fill only the slots needed. Empty is better than costume. Mobile: content or bleed.",
     "  5. Finish once the screens hold the product. An unused desktop slot is allowed.",
     "",

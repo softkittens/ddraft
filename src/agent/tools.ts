@@ -74,6 +74,9 @@ export function createDocumentTools(
     setDoc(next: Document) {
       doc = next;
     },
+    get initialDoc() {
+      return initial;
+    },
     image,
     recordWrite
   };

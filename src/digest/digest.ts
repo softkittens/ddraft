@@ -11,16 +11,19 @@ function formatPadding(padding: any): string {
   return "";
 }
 
-function formatFill(fill: Fill | Fill[] | undefined): string {
+function formatFill(fill: Fill | Fill[] | undefined, width?: unknown, height?: unknown): string {
   if (!fill) return "";
   if (Array.isArray(fill)) {
     const active = fill.find((f) => typeof f !== "object" || (f as any).enabled !== false) || fill[0];
-    return formatFill(active);
+    return formatFill(active, width, height);
   }
   if (typeof fill === "string") return `f:${fill}`;
   if (typeof fill === "object") {
     if (fill.type === "color" && fill.color) return `f:${fill.color}`;
-    if (fill.type === "image") return "f:image";
+    if (fill.type === "image") {
+      const sizeStr = typeof width === "number" && typeof height === "number" ? `[${width}x${height}]` : "";
+      return `f:image${sizeStr}`;
+    }
     if (fill.type === "gradient") return "f:gradient";
   }
   return "";
@@ -65,7 +68,7 @@ function formatNode(node: PenNode, depth: number): string {
     }
   }
 
-  const fillStr = formatFill(node.fill);
+  const fillStr = formatFill(node.fill, node.width, node.height);
   if (fillStr) parts.push(fillStr);
 
   const strokeStr = formatStroke(node.stroke);

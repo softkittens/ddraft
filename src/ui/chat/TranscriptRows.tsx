@@ -29,14 +29,13 @@ export const NoticeBubble: Component<{ item: NoteEntry }> = (props) => {
   );
 };
 
-export const UserBubble: Component<{ message: Message; sticky?: boolean; pinned?: boolean }> = (props) => {
-  const isSticky = () => props.sticky || props.pinned;
+export const UserBubble: Component<{ message: Message; sticky?: boolean }> = (props) => {
   return (
     <div
       class={
-        isSticky()
-          ? "sticky top-0 z-10 rounded-2xl bg-neutral-100/95 backdrop-blur-sm px-3.5 py-2.5 text-[13px] text-neutral-800 leading-relaxed whitespace-pre-wrap shadow-[0_4px_12px_-4px_rgba(0,0,0,0.08)] border border-black/[0.04]"
-          : "rounded-2xl bg-neutral-100/80 px-3.5 py-2.5 text-[13px] text-neutral-800 leading-relaxed whitespace-pre-wrap"
+        props.sticky
+          ? "sticky top-0 z-10 rounded-2xl bg-neutral-100/95 backdrop-blur-md px-3.5 py-2.5 text-[13px] text-neutral-800 leading-relaxed whitespace-pre-wrap shadow-[0_4px_12px_-4px_rgba(0,0,0,0.08)] border border-black/[0.04]"
+          : "rounded-2xl bg-neutral-100/90 px-3.5 py-2.5 text-[13px] text-neutral-800 leading-relaxed whitespace-pre-wrap border border-black/[0.03]"
       }
     >
       {renderMessageText(props.message.content)}
@@ -228,23 +227,21 @@ export const DisconnectedNotice: Component = () => {
 
 export const EmptyState: Component<{ onSelectPrompt: (text: string) => void }> = (props) => {
   return (
-    <div class="flex flex-col pt-2 pb-1">
-      <div class="px-1 mb-2.5">
-        <div class="text-[13px] font-medium text-neutral-800">Start from a brief</div>
-        <div class="text-[11px] text-neutral-400 leading-relaxed mt-0.5">
-          Clicking fills the input. It does not send.
+    <div class="flex flex-col pt-1 pb-1">
+      <div class="px-1 mb-3">
+        <div class="text-[13px] font-medium text-neutral-800 leading-snug">
+          Hey, I'm your design agent. Ask me to design something wonderful for you..
         </div>
       </div>
-      <div class="space-y-1.5">
+      <div class="flex flex-col gap-1">
         <For each={EXAMPLE_PROMPTS}>
-          {(example) => (
+          {(prompt) => (
             <button
               type="button"
-              class="w-full text-left rounded-2xl bg-black/[0.03] hover:bg-black/[0.055] px-3 py-2.5 transition"
-              onClick={() => props.onSelectPrompt(example.text)}
+              class="w-full text-left rounded-2xl bg-black/[0.035] px-3 py-2 text-[12px] text-neutral-700 leading-snug hover:bg-black/[0.06] hover:text-neutral-900 transition cursor-pointer"
+              onClick={() => props.onSelectPrompt(prompt)}
             >
-              <div class="text-[12px] font-medium text-neutral-800">{example.title}</div>
-              <div class="text-[11px] text-neutral-500 leading-relaxed mt-0.5">{example.text}</div>
+              {prompt}
             </button>
           )}
         </For>

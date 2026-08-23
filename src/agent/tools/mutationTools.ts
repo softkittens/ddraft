@@ -1,5 +1,5 @@
 import type { PenNode } from "../../model/types";
-import { insertChild, moveNode, removeNode, setProperty, duplicateNode, getNextNodeId } from "../../model/edit";
+import { insertChild, moveNode, removeNode, replaceNode, setProperty, duplicateNode, getNextNodeId } from "../../model/edit";
 import { childrenOf, findNode, maxNumericId } from "../../model/tree";
 import { digest, digestSubtree } from "../../digest/digest";
 import { buildScreen, type ScreenSpec, type TabSpec } from "../../design/scaffold";
@@ -17,7 +17,7 @@ import { normalizeNodeTree, describeNormalization, type NormalizeReport } from "
 export const createScreenTool: DocumentToolDefinition = {
   name: "create_screen",
   description:
-    "Build a mobile or desktop screen frame. Omit tabs except on multi-destination apps. Width is the device (390 or 1440). A SITE (persuade) page is tall — 2800-4500 desktop, 2400-4000 mobile — so bands can stack. A TOOL stays at one viewport (844 or 900).",
+    "Build a mobile or desktop screen frame. Omit tabs except on multi-destination apps. Width is the device (390 or 1440). Height defaults to dynamic 'fit_content' with a viewport floor (844 mobile / 900 desktop) so stacked bands expand naturally without leaving empty space.",
   parameters: {
     type: "object",
     properties: {
@@ -53,9 +53,9 @@ export const createScreenTool: DocumentToolDefinition = {
           "Bottom tab bar destinations. Mobile only, and only when the product is an app with multiple primary destinations. Omit for websites, landing pages, booking flows, and single-purpose screens."
       },
       height: {
-        type: "number",
+        type: ["number", "string"],
         description:
-          "Page height in px. A SITE is 2400-4000 (mobile) or 2800-4500 (desktop) so stacked bands fit. A TOOL stays at 844 / 900. Smaller values are raised to the viewport."
+          "Page height in px or 'fit_content'. Defaults to dynamic fit_content (with 844 / 900 viewport minimum floor) so stacked sections fit naturally without empty voids."
       }
     },
     required: ["name", "kind"]
@@ -82,7 +82,7 @@ export const createScreenTool: DocumentToolDefinition = {
       name,
       kind: a.kind,
       tabs: tabs.length > 0 ? tabs : undefined,
-      height: typeof a.height === "number" ? a.height : undefined
+      height: typeof a.height === "number" || typeof a.height === "string" ? a.height : undefined
     };
     let counter = 0;
     const base = getNextNodeId(doc, "n").split("_")[1];
@@ -366,11 +366,50 @@ export const moveNodeTool: DocumentToolDefinition = {
   }
 };
 
+export const revertNodeTool: DocumentToolDefinition = {
+  name: "revert_node",
+  description:
+    "Atomically restore a node and its entire subtree to its state at the beginning of this pass, or delete it if it was created in this pass.",
+  parameters: {
+    type: "object",
+    properties: {
+      id: {
+        type: "string",
+        description: "Node ID to revert"
+      }
+    },
+    required: ["id"]
+  },
+  execute: (ctx, a) => {
+    if (typeof a.id !== "string" || !a.id.trim()) {
+      return "error: id is required";
+    }
+    const targetId = a.id.trim();
+    const initialNode = findNode(ctx.initialDoc.children, targetId);
+
+    if (initialNode) {
+      const nextDoc = replaceNode(ctx.doc, targetId, initialNode);
+      ctx.setDoc(nextDoc);
+      return `ok: reverted "${targetId}" and its entire subtree to its initial state before this pass.\n${digestSubtree(nextDoc, targetId)}`;
+    }
+
+    const current = findNode(ctx.doc.children, targetId);
+    if (!current) {
+      return `error: node "${targetId}" not found in current document or initial snapshot`;
+    }
+
+    const nextDoc = removeNode(ctx.doc, targetId);
+    ctx.setDoc(nextDoc);
+    return `ok: node "${targetId}" was created during this pass and has been removed.`;
+  }
+};
+
 export const mutationTools = [
   createScreenTool,
   insertNodeTool,
   placeInstancesTool,
   duplicateNodeTool,
   deleteNodeTool,
-  moveNodeTool
+  moveNodeTool,
+  revertNodeTool
 ];

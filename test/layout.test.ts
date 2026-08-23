@@ -48,6 +48,16 @@ describe("Layout Subsystem (Unit B)", () => {
       makeDoc(frame("f", "fit_content", 100, [rect("c1", "fill_container" as any, 50)], { padding: 0, gap: 0, layout: "horizontal" })),
       { f: [0, 0, 0, 100], c1: [0, 0, 1, 50] }
     );
+
+    // 4. fit_content with minimum floor fallback (e.g. fit_content(900))
+    expectLayout(
+      makeDoc(frame("f", 1440, "fit_content(900)" as any, [rect("c1", 1440, 400)], { layout: "vertical" })),
+      { f: [0, 0, 1440, 900], c1: [0, 0, 1440, 400] }
+    );
+    expectLayout(
+      makeDoc(frame("f", 1440, "fit_content(900)" as any, [rect("c1", 1440, 600), rect("c2", 1440, 800)], { layout: "vertical", gap: 50 })),
+      { f: [0, 0, 1440, 1450], c1: [0, 0, 1440, 600], c2: [0, 650, 1440, 800] }
+    );
   });
 
   it("measures text growth modes accurately", () => {

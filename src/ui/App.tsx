@@ -14,6 +14,7 @@ import {
   handleUndo,
   handleRedo,
   resetZoom100,
+  zoomToFit,
   zoomIn,
   zoomOut,
   setToolMode,
@@ -42,6 +43,11 @@ export const App: Component = () => {
     if ((e.metaKey || e.ctrlKey) && e.key === "0") {
       e.preventDefault();
       resetZoom100();
+      return;
+    }
+    if (((e.metaKey || e.ctrlKey) && e.key === "1") || (e.shiftKey && e.key === "1")) {
+      e.preventDefault();
+      zoomToFit({ animate: true });
       return;
     }
     if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) {

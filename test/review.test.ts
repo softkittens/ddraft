@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { applyReviewMessage, applyReviewFixes, type DesignReview } from "../src/agent/review";
+import { applyReviewMessage, applyReviewFixes, enforceAuditFindings, type DesignReview } from "../src/agent/review";
 import { CRITIC_PROMPT, criticMessages, parseDesignReview } from "../src/agent/critic";
 import type { Document } from "../src/model/types";
 
@@ -228,11 +228,40 @@ describe("Fixes the critic applies itself", () => {
     expect(CRITIC_PROMPT).toContain("Uncentered chips");
     expect(CRITIC_PROMPT).toContain("Unused viewport");
     expect(CRITIC_PROMPT).toContain("house as an operations console");
-    expect(CRITIC_PROMPT).toContain("Subject too small");
+    expect(CRITIC_PROMPT).toContain("Photography that fails its frame");
+    // Both directions: a picture too small to be the subject, and one cropped
+    // past recognition by a frame no photograph fits.
+    expect(CRITIC_PROMPT).toContain("not a real share of the viewport");
+    expect(CRITIC_PROMPT).toContain("only a sliver of the subject survives the crop");
     expect(CRITIC_PROMPT).toContain("Catalog as page");
     expect(CRITIC_PROMPT).toContain("Data That Is Not Drawn");
     expect(CRITIC_PROMPT).not.toContain("SYSTEMS NOMINAL");
     expect(CRITIC_PROMPT).not.toContain("Shift Handoff");
     expect(CRITIC_PROMPT).not.toContain("requires dark/mission-critical");
+  });
+
+  it("overrides a passing critic verdict to refine when severe audit findings exist", () => {
+    const passingReview: DesignReview = {
+      verdict: "pass",
+      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 5 },
+      strengths: ["Great photo"],
+      issues: []
+    };
+
+    const enforced = enforceAuditFindings(passingReview, [
+      {
+        rule: "cropped_photography",
+        severity: "warning",
+        nodeId: "m-hero-photo",
+        message: "390x1320 frame throws away 61% of photograph",
+        fix: "Resize to 390x293 (3:4) or 390x390 (1:1)"
+      }
+    ]);
+
+    expect(enforced.verdict).toBe("refine");
+    expect(enforced.scores.craft).toBeLessThanOrEqual(2);
+    expect(enforced.issues).toHaveLength(1);
+    expect(enforced.issues[0].title).toBe("Cropped photograph out of proportion");
+    expect(enforced.issues[0].nodeIds).toEqual(["m-hero-photo"]);
   });
 });

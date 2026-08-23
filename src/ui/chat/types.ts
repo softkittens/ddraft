@@ -16,6 +16,7 @@ export interface ReviewEntry {
   review: ReviewResponse;
   applied: number;
   thumbnail?: string;
+  sectionThumbnails?: { name: string; url: string }[];
 }
 
 export interface MessageEntry {
@@ -110,6 +111,14 @@ export function isToolMessage(entry: Entry): entry is MessageEntry {
   return entry.kind === "message" && entry.message.role === "tool";
 }
 
+export function isEmptyAssistantEntry(entry: Entry): boolean {
+  return (
+    entry.kind === "message" &&
+    entry.message.role === "assistant" &&
+    !renderMessageText(entry.message.content).trim()
+  );
+}
+
 export type DisplayItem =
   | { type: "entry"; entry: Entry }
   | { type: "tool_group"; entries: MessageEntry[]; startIndex: number };
@@ -121,10 +130,10 @@ export function groupTranscriptEntries(entries: Entry[]): DisplayItem[] {
 
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
+    if (isEmptyAssistantEntry(entry)) continue;
+
     if (isToolMessage(entry)) {
-      if (currentTools.length === 0) {
-        groupStartIndex = i;
-      }
+      if (currentTools.length === 0) groupStartIndex = i;
       currentTools.push(entry);
     } else {
       if (currentTools.length > 0) {
@@ -143,11 +152,18 @@ export function groupTranscriptEntries(entries: Entry[]): DisplayItem[] {
 }
 
 export function transcriptFromMessages(messages: Message[]): Entry[] {
-  return messages.map((message, i) => ({
-    kind: "message" as const,
-    message,
-    tool: message.role === "tool" ? toolLabel(messages, i) : undefined
-  }));
+  const result: Entry[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    if (message.role === "system") continue;
+    if (message.role === "assistant" && !renderMessageText(message.content).trim()) continue;
+    result.push({
+      kind: "message" as const,
+      message,
+      tool: message.role === "tool" ? toolLabel(messages, i) : undefined
+    });
+  }
+  return result;
 }
 
 export function commitAgentPass(args: {

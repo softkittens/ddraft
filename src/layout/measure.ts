@@ -180,7 +180,10 @@ export function measureNode(
     const padEnd = isHoriz ? pad.right : pad.bottom;
     const childTotal = flowChildren.reduce((sum, c) => sum + (isHoriz ? c.measuredWidth : c.measuredHeight), 0);
     const gapTotal = flowCount > 1 ? gap * (flowCount - 1) : 0;
-    measuredMain = padStart + childTotal + gapTotal + padEnd;
+    const contentMain = padStart + childTotal + gapTotal + padEnd;
+    measuredMain = mainSizing.mode === "fit_content" && mainSizing.fallback !== undefined
+      ? Math.max(mainSizing.fallback, contentMain)
+      : contentMain;
   }
 
   let measuredCross = 0;
@@ -190,7 +193,10 @@ export function measureNode(
     const padStartCross = isHoriz ? pad.top : pad.left;
     const padEndCross = isHoriz ? pad.bottom : pad.right;
     const maxChildCross = flowChildren.reduce((max, c) => Math.max(max, isHoriz ? c.measuredHeight : c.measuredWidth), 0);
-    measuredCross = padStartCross + maxChildCross + padEndCross;
+    const contentCross = padStartCross + maxChildCross + padEndCross;
+    measuredCross = crossSizing.mode === "fit_content" && crossSizing.fallback !== undefined
+      ? Math.max(crossSizing.fallback, contentCross)
+      : contentCross;
   }
 
   return {
