@@ -20,6 +20,7 @@ import type { PublicProvider } from "../../agent/credentials";
 import type { Document } from "../../model/types";
 import { decideAgentDocument } from "../agentDocument";
 import { parseChoice, choiceValue } from "../ModelSelector";
+import { defaultEffortForModelChoice } from "../../agent/catalog";
 import { captureDocumentPng } from "../../render/capture";
 import {
   applyReviewFixes,
@@ -128,23 +129,15 @@ export function useChatSession() {
     defaultChoice;
   const [choice, setChoice] = createSignal(initialChoice);
 
-  const defaultEffortForModel = (modelChoice: string): "low" | "medium" | "high" => {
-    const lower = modelChoice.toLowerCase();
-    if (lower.includes("luna") || lower.includes("deepseek")) return "high";
-    if (lower.includes("opus") || lower.includes("sol")) return "low";
-    if (lower.includes("gemini")) return "medium";
-    return "medium";
-  };
-
   const initialEffort =
     (typeof localStorage !== "undefined" && (localStorage.getItem("ddraft_selected_effort") as "low" | "medium" | "high")) ||
     saved?.effort ||
-    defaultEffortForModel(initialChoice);
+    defaultEffortForModelChoice(initialChoice);
   const [effort, setEffort] = createSignal<"low" | "medium" | "high">(initialEffort);
 
   const handleChoiceChange = (newChoice: string) => {
     setChoice(newChoice);
-    setEffort(defaultEffortForModel(newChoice));
+    setEffort(defaultEffortForModelChoice(newChoice));
   };
 
   const [entries, setEntries] = createSignal<Entry[]>(saved?.entries ?? []);
@@ -364,6 +357,8 @@ export function useChatSession() {
           case "error":
             failure = event.message;
             setPending(null);
+            setStreamReasoning("");
+            setStreamText("");
             note(event.message, event.code === "budget" ? "budget" : "error");
             break;
         }
@@ -371,6 +366,8 @@ export function useChatSession() {
     } catch (err) {
       if (!isAbortError(err)) {
         failure = err instanceof Error ? err.message : String(err);
+        setStreamReasoning("");
+        setStreamText("");
         note(failure, "error");
       }
     } finally {
@@ -627,6 +624,8 @@ export function useChatSession() {
     } finally {
       abort = null;
       setPending(null);
+      setStreamReasoning("");
+      setStreamText("");
       setRunning(false);
       clearAgentEditTargets();
       // Only a turn that actually built something is a design run. Recording

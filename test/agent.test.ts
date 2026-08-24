@@ -2,14 +2,14 @@ import { describe, it, expect } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { complete, stepDownEffort, toWireReasoningEffort, toApiMessages, GEMINI_SKIP_THOUGHT_SIGNATURE, type Provider, type FetchFn, type Message } from "../src/agent/provider";
+import { complete, stepDownEffort, toWireReasoningEffort, toApiMessages, toResponsesInput, jsonToolArguments, GEMINI_SKIP_THOUGHT_SIGNATURE, type Provider, type FetchFn, type Message } from "../src/agent/provider";
 import {
   loadProvider,
   listConfiguredProviders,
   loadVisionProvider,
   UnknownModelError
 } from "../src/agent/credentials";
-import { visionModelFor } from "../src/agent/catalog";
+import { visionModelFor, defaultEffortForModelChoice } from "../src/agent/catalog";
 import { runSession, isAbortError, type AgentEvent } from "../src/agent/session";
 import { createDocumentTools, TOOL_DEFS } from "../src/agent/tools";
 import { makeDoc, frame, rect, txt } from "./harness";
@@ -145,12 +145,7 @@ describe("H1 provider client & streaming protocol", () => {
   });
 
   it("fills in a dummy Gemini thought signature when the gateway omitted one", () => {
-    const gemini: Provider = {
-      id: "vercel",
-      baseUrl: "https://ai-gateway.vercel.sh/v1",
-      model: "google/gemini-3.7-flash",
-      apiKey: "k"
-    };
+    const gemini = loadProvider("vercel", { VERCEL_API_KEY: "k" }, "google/gemini-3.7-flash")!;
     const filled = toApiMessages([
       { role: "assistant", content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "set_style", arguments: "{}" } }] }
     ], gemini);
@@ -162,6 +157,23 @@ describe("H1 provider client & streaming protocol", () => {
     ], gemini);
     expect((kept[0].tool_calls as { extra_content?: { google?: { thought_signature?: string } } }[])[0].extra_content?.google?.thought_signature)
       .toBe("real-sig");
+  });
+
+  it("sends valid JSON for truncated tool-call arguments so the next turn is not a 400", () => {
+    expect(jsonToolArguments("{not json")).toBe("{}");
+    expect(jsonToolArguments("")).toBe("{}");
+    expect(jsonToolArguments('{"id":"n1"}')).toBe('{"id":"n1"}');
+
+    const chat = toApiMessages([
+      { role: "assistant", content: null as unknown as string, tool_calls: [{ id: "c1", type: "function", function: { name: "insert_node", arguments: '{"name":"Hero"' } }] }
+    ]);
+    expect(JSON.parse((chat[0].tool_calls as { function: { arguments: string } }[])[0].function.arguments)).toEqual({});
+
+    const responses = toResponsesInput([
+      { role: "assistant", content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "insert_node", arguments: '{"name":"Hero"' } }] }
+    ]);
+    const call = responses.find((row) => row.type === "function_call") as { arguments: string };
+    expect(JSON.parse(call.arguments)).toEqual({});
   });
 });
 
@@ -176,12 +188,27 @@ describe("H2 credentials & model catalog discovery", () => {
 
     const pVercel = loadProvider("vercel", { VERCEL_API_KEY: "v-key" }, "gpt-5.6-luna");
     expect(pVercel).toMatchObject({ baseUrl: "https://ai-gateway.vercel.sh/v1", model: "openai/gpt-5.6-luna", apiKey: "v-key", vision: true });
+    expect(pVercel?.reasoning?.defaultEffort).toBe("high");
+    expect(pVercel?.wire?.usesMaxCompletionTokens).toBe(true);
+
+    const pGemini = loadProvider("gemini", { GEMINI_API_KEY: "k" }, "gemini-3.7-flash");
+    expect(pGemini?.wire?.requiresThoughtSignature).toBe(true);
+    expect(pGemini?.reasoning?.defaultEffort).toBe("medium");
 
     const pOpenCode = loadProvider("opencode-go", { OPENCODE_API_KEY: "sk-live" }, "glm-5.2");
     expect(pOpenCode).toMatchObject({ baseUrl: "https://opencode.ai/zen/go/v1", model: "glm-5.2", apiKey: "sk-live" });
+    expect(pOpenCode?.reasoning?.supported).toBe(false);
+
+    const pMuse = loadProvider("opencode-go", { OPENCODE_API_KEY: "sk-live" }, "muse-spark-1.2-contributor");
+    expect(pMuse).toMatchObject({ model: "muse-spark-1.2-contributor", api: "responses" });
+    expect(pMuse?.reasoning?.supported).toBe(false);
 
     expect(() => loadProvider("opencode-go", { OPENCODE_API_KEY: "k" }, "gpt-9-imaginary")).toThrow(UnknownModelError);
     expect(loadProvider("opencode-go", { OPENCODE_API_KEY: "k" })?.model).toBeTruthy();
+
+    expect(defaultEffortForModelChoice("vercel:anthropic/claude-opus-5")).toBe("low");
+    expect(defaultEffortForModelChoice("vercel:openai/gpt-5.6-luna")).toBe("high");
+    expect(defaultEffortForModelChoice("gemini:gemini-3.7-flash")).toBe("medium");
   });
 
   it("resolves vision model handoffs across providers (OpenCode, Gemini, xAI, Qwen)", () => {
@@ -598,33 +625,29 @@ describe("Icon catalog standalone resolution & subprocess verification", () => {
   });
 });
 
-describe("OpenCode Zen thinking effort", () => {
-  const zen: Provider = {
-    id: "opencode-zen",
-    baseUrl: "https://opencode.ai/zen/v1",
-    model: "x-preview-f-free",
-    apiKey: "k",
-    reasoningEffort: "medium"
-  };
-
-  it("does not send medium, which that model treats as thinking-off", () => {
-    expect(toWireReasoningEffort(zen)).toBe("high");
-    expect(toWireReasoningEffort({ ...zen, reasoningEffort: "high" })).toBe("high");
-    expect(toWireReasoningEffort({ ...zen, reasoningEffort: "low" })).toBe("low");
+describe("Reasoning effort wire behavior", () => {
+  it("omits reasoning_effort when reasoning.supported is false", () => {
+    const pMuse = loadProvider("opencode-go", { OPENCODE_API_KEY: "k" }, "muse-spark-1.2-contributor", "high")!;
+    expect(toWireReasoningEffort(pMuse)).toBeUndefined();
   });
 
-  it("leaves medium alone for providers that accept it", () => {
-    expect(toWireReasoningEffort({ ...echoProvider, reasoningEffort: "medium" })).toBe("medium");
+  it("sends reasoning effort directly for reasoning models", () => {
+    const pLuna = loadProvider("vercel", { VERCEL_API_KEY: "k" }, "openai/gpt-5.6-luna", "high")!;
+    expect(toWireReasoningEffort(pLuna)).toBe("high");
+    expect(toWireReasoningEffort({ ...pLuna, reasoningEffort: "medium" })).toBe("medium");
+    expect(toWireReasoningEffort({ ...pLuna, reasoningEffort: "low" })).toBe("low");
   });
 
-  it("steps high down to low, skipping medium", () => {
-    expect(stepDownEffort("high", zen)).toBe("low");
+  it("steps high down to medium, and medium down to low", () => {
     expect(stepDownEffort("high")).toBe("medium");
+    expect(stepDownEffort("medium")).toBe("low");
+    expect(stepDownEffort("low")).toBe("low");
   });
 
-  it("posts the remapped effort on the chat body", async () => {
+  it("posts reasoning_effort on the chat body for supported models", async () => {
+    const pLuna = loadProvider("vercel", { VERCEL_API_KEY: "k" }, "openai/gpt-5.6-luna", "high")!;
     let posted: { reasoning_effort?: string } = {};
-    for await (const _ of completeStream(zen, [{ role: "user", content: "hi" }], undefined, {
+    for await (const _ of completeStream(pLuna, [{ role: "user", content: "hi" }], undefined, {
       fetch: async (_i, init) => {
         posted = JSON.parse(String(init?.body));
         return streamed();

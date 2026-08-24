@@ -60,7 +60,9 @@ export function loadProvider(
     reasoningEffort,
     api: selected?.api || "chat",
     vision: selected ? modelSupportsVision(spec, selected) : false,
-    maxOutputTokens: selected?.maxOutputTokens ?? spec.maxOutputTokens
+    maxOutputTokens: selected?.maxOutputTokens ?? spec.maxOutputTokens,
+    reasoning: selected?.reasoning ?? { defaultEffort: "medium" },
+    wire: selected?.wire ?? {}
   };
 }
 

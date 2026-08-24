@@ -215,7 +215,7 @@ export async function* runSession(
           retriesLeft--;
           if (retriesLeft < 0) throw streamErr;
 
-          const lowered = stepDownEffort(currentProvider.reasoningEffort, currentProvider);
+          const lowered = stepDownEffort(currentProvider.reasoningEffort);
           console.warn(`[ddraft-agent] Upstream connection dropped on Turn ${turn + 1}. Retrying (${retriesLeft} left, stepping down effort from ${currentProvider.reasoningEffort ?? "default"} to ${lowered})...`);
           currentProvider = { ...currentProvider, reasoningEffort: lowered };
           trace(opts.trace, { type: "effort_step_down", turn: turn + 1, reasoningEffort: lowered });
@@ -239,7 +239,7 @@ export async function* runSession(
           return;
         }
         out.pop();
-        const lowered = stepDownEffort(currentProvider.reasoningEffort, currentProvider);
+        const lowered = stepDownEffort(currentProvider.reasoningEffort);
         if (lowered !== currentProvider.reasoningEffort) {
           currentProvider = { ...currentProvider, reasoningEffort: lowered };
           trace(opts.trace, { type: "effort_step_down", turn: turn + 1, reasoningEffort: lowered });

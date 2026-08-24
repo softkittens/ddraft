@@ -1,43 +1,27 @@
-export type ReasoningEffort = "none" | "low" | "medium" | "high";
+import type { ModelReasoningTraits, ModelWireTraits } from "./catalog";
 
-function usesLowHighMaxThinking(p: Pick<Provider, "id" | "model">): boolean {
-  return p.id === "opencode-zen" || p.model === "x-preview-f-free" || p.model === "ox-alpha-free";
-}
+export type ReasoningEffort = "none" | "low" | "medium" | "high";
 
 /**
  * The effort value this endpoint will actually accept.
  *
- * The selector already sends low / medium / high. OpenCode Zen's Console
- * models (Ox Alpha / GLM-5.3) only accept low, high, or max — `medium` is
- * rejected as "thinking disabled". Map at the wire, not in the UI, so the
- * rest of the app can keep one three-level control.
+ * Models with reasoning.supported === false never send reasoning_effort over the wire.
  */
 export function toWireReasoningEffort(
-  p: Pick<Provider, "id" | "model" | "reasoningEffort">
+  p: Pick<Provider, "reasoningEffort" | "reasoning">
 ): ReasoningEffort | undefined {
-  const effort = p.reasoningEffort;
-  if (!usesLowHighMaxThinking(p)) return effort === "none" ? undefined : effort;
-  if (effort === "high") return "high";
-  if (effort === "low") return "low";
-  return effort === "medium" ? "high" : "low";
+  if (p.reasoning?.supported === false || !p.reasoningEffort || p.reasoningEffort === "none") {
+    return undefined;
+  }
+  return p.reasoningEffort;
 }
 
 /**
  * One notch less deliberation, for a reply the provider cut off mid-thought.
  *
- * Asking the model to think less is advice, and advice is refusable — the run
- * that prompted this had already been told to act and spent another 17,914
- * characters deliberating instead. The effort setting is not refusable. An
- * undefined effort means the endpoint picked its own, so the step down states
- * one explicitly; "low" is the floor, because a reasoning model handed "none"
- * is a different model and the run did not ask for that.
+ * Steps high down to medium, and medium down to low (the floor).
  */
-export function stepDownEffort(
-  effort: ReasoningEffort | undefined,
-  p?: Pick<Provider, "id" | "model">
-): ReasoningEffort {
-  if (effort === "none") return "none";
-  if (p && usesLowHighMaxThinking(p)) return "low";
+export function stepDownEffort(effort: ReasoningEffort | undefined): ReasoningEffort {
   if (effort === "high") return "medium";
   return "low";
 }
@@ -52,6 +36,8 @@ export interface Provider {
   vision?: boolean;
   /** Output ceiling for one reply, when this provider caps below the default. */
   maxOutputTokens?: number;
+  reasoning?: ModelReasoningTraits;
+  wire?: ModelWireTraits;
 }
 
 export interface ToolCall {
@@ -96,8 +82,8 @@ export function isValidImageUrl(url: string | undefined | null): boolean {
 /** Gemini 3 rejects a follow-up tool turn unless each function call carries a thought signature. */
 export const GEMINI_SKIP_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
 
-export function isGeminiModel(p: Pick<Provider, "id" | "model">): boolean {
-  return p.id === "gemini" || /gemini/i.test(p.model);
+export function isGeminiModel(p: Pick<Provider, "wire">): boolean {
+  return Boolean(p.wire?.requiresThoughtSignature);
 }
 
 function withGeminiThoughtSignatures(calls: ToolCall[], p?: Provider): ToolCall[] {
@@ -112,6 +98,21 @@ function withGeminiThoughtSignatures(calls: ToolCall[], p?: Provider): ToolCall[
       }
     };
   });
+}
+
+/**
+ * OpenCode (and OpenAI) 400 the whole follow-up if any prior tool-call
+ * `arguments` fail JSON.parse. Streaming models often truncate mid-object;
+ * we still execute what we can, then this keeps the replay legal.
+ */
+export function jsonToolArguments(raw: string | undefined | null): string {
+  if (raw == null || raw === "") return "{}";
+  try {
+    JSON.parse(raw);
+    return raw;
+  } catch {
+    return "{}";
+  }
 }
 
 export function toApiMessages(messages: Message[], p?: Provider) {
@@ -140,7 +141,12 @@ export function toApiMessages(messages: Message[], p?: Provider) {
       content = null as any;
     }
     const row: Record<string, unknown> = { role: m.role, content };
-    if (m.tool_calls) row.tool_calls = withGeminiThoughtSignatures(m.tool_calls, p);
+    if (m.tool_calls) {
+      row.tool_calls = withGeminiThoughtSignatures(m.tool_calls, p).map((call) => ({
+        ...call,
+        function: { ...call.function, arguments: jsonToolArguments(call.function.arguments) }
+      }));
+    }
     if (m.tool_call_id) row.tool_call_id = m.tool_call_id;
     return row;
   });
@@ -177,7 +183,7 @@ export function toResponsesInput(messages: Message[]) {
         type: "function_call",
         call_id: call.id,
         name: call.function.name,
-        arguments: call.function.arguments
+        arguments: jsonToolArguments(call.function.arguments)
       });
     }
   }
@@ -215,10 +221,8 @@ function toMessagesInput(messages: Message[]) {
   return { system: system.join("\n\n"), messages: input };
 }
 
-export function usesMaxCompletionTokens(p: Provider): boolean {
-  return p.baseUrl.includes("api.openai.com") ||
-    Boolean(p.reasoningEffort) ||
-    /^(o[134]|gpt-5|gpt-4o)/i.test(p.model);
+export function usesMaxCompletionTokens(p: Pick<Provider, "wire">): boolean {
+  return Boolean(p.wire?.usesMaxCompletionTokens);
 }
 
 export async function complete(
