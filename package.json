@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "agent": "bun src/agent/server.ts",
+    "start": "bun src/server.ts",
+    "agent": "bun src/server.ts",
     "agreement": "vite --open /agreement.html",
     "build": "tsc && vite build",
     "preview": "vite preview",
