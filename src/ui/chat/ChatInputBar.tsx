@@ -10,6 +10,8 @@ export interface ChatInputBarProps {
   onStop: () => void;
   running: boolean;
   configured: boolean;
+  requiresAccessCode?: boolean;
+  authenticated?: boolean;
   providers: PublicProvider[];
   choice: string;
   onChoiceChange: (val: string) => void;
@@ -18,11 +20,14 @@ export interface ChatInputBarProps {
 }
 
 export const ChatInputBar: Component<ChatInputBarProps> = (props) => {
+  const isLocked = () => props.requiresAccessCode && !props.authenticated;
+  const isReady = () => props.configured && !isLocked();
+
   return (
     <div class="flex flex-col gap-1.5 px-3 pb-3 pt-1 shrink-0">
       <input
         type="text"
-        disabled={!props.configured || props.running}
+        disabled={!isReady() || props.running}
         value={props.inputPrompt}
         onInput={(e) => props.onInputChange(e.currentTarget.value)}
         onKeyDown={(e) => {
@@ -32,7 +37,9 @@ export const ChatInputBar: Component<ChatInputBarProps> = (props) => {
           }
         }}
         placeholder={
-          props.configured
+          isLocked()
+            ? "Enter access code above to unlock..."
+            : props.configured
             ? "What would you like to change or create?"
             : "Agent not connected..."
         }
@@ -41,10 +48,10 @@ export const ChatInputBar: Component<ChatInputBarProps> = (props) => {
 
       <div class="flex items-center justify-between gap-2 px-1">
         <Show
-          when={props.configured}
+          when={isReady()}
           fallback={
             <span class="text-[11px] text-amber-600 font-medium">
-              Set a provider key in .env
+              {isLocked() ? "Access code required" : "Set a provider key in .env"}
             </span>
           }
         >

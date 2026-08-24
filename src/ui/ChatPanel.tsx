@@ -1,7 +1,8 @@
 import { Component, Show, createSignal } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Minus, Maximize2, X, Layers, RotateCcw, Trash2 } from "lucide-solid";
-import { chatVisible, setChatVisible, chatExpanded, setChatExpanded } from "./store";
+import { chatVisible, setChatVisible, chatExpanded, setChatExpanded, selectedIds, nodeMap } from "./store";
+import { getComponentKind } from "../interaction/selection";
 import { useChatSession } from "./chat/useChatSession";
 import { TranscriptList } from "./chat/TranscriptList";
 import { ChatInputBar } from "./chat/ChatInputBar";
@@ -11,6 +12,13 @@ export const ChatPanel: Component = () => {
   const session = useChatSession();
   const [confirmingClearChat, setConfirmingClearChat] = createSignal(false);
 
+  const selectionColor = () => {
+    if (selectedIds().size === 0) return null;
+    const firstId = Array.from(selectedIds())[0];
+    const kind = getComponentKind(firstId, nodeMap());
+    return kind === "component" || kind === "instance" ? "#7b61ff" : "#0d99ff";
+  };
+
   const canClearChat = () => session.entries().length > 0 || session.running();
 
   const confirmClearChat = () => {
@@ -18,8 +26,11 @@ export const ChatPanel: Component = () => {
     session.clearChat();
   };
 
+  const isLocked = () => session.requiresAccessCode() && !session.authenticated();
+
   const panelHeight = () => {
     if (chatExpanded()) return "calc(100vh - 5.5rem)";
+    if (isLocked()) return "14rem";
     if (session.running()) return "5.75rem";
     return "8.5rem";
   };
@@ -30,7 +41,7 @@ export const ChatPanel: Component = () => {
         chatVisible()
           ? "opacity-100 translate-y-0 scale-100"
           : "opacity-0 translate-y-1.5 scale-[0.98] pointer-events-none"
-      } ${chatExpanded() ? "overflow-hidden" : session.running() ? "overflow-hidden" : "overflow-visible"}`}
+      } ${chatExpanded() || isLocked() ? "overflow-hidden" : session.running() ? "overflow-hidden" : "overflow-visible"}`}
       style={{
         width: "min(380px, calc(100vw - 6.5rem))",
         height: panelHeight(),
@@ -40,8 +51,15 @@ export const ChatPanel: Component = () => {
       inert={!chatVisible() ? true : undefined}
     >
       <div class="h-9 px-2.5 flex items-center justify-between shrink-0 select-none">
-        <div class="flex items-center gap-1 text-[11px] text-neutral-500 font-medium truncate max-w-[180px] rounded-full px-2 py-0.5">
-          <Layers size={11} class="text-neutral-400 shrink-0" />
+        <div
+          class="flex items-center gap-1 text-[11px] font-medium truncate max-w-[180px] rounded-full px-2 py-0.5 transition-colors"
+          style={{ color: selectionColor() ?? "rgb(115, 115, 115)" }}
+        >
+          <Layers
+            size={11}
+            class="shrink-0 transition-colors"
+            style={{ color: selectionColor() ?? "rgb(163, 163, 163)" }}
+          />
           <span class="truncate">{session.activeContextName()}</span>
         </div>
         <div class="flex items-center gap-0.5">
@@ -72,7 +90,7 @@ export const ChatPanel: Component = () => {
         </div>
       </div>
 
-      <Show when={chatExpanded()}>
+      <Show when={chatExpanded() || isLocked()}>
         <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-3 pb-3">
           <TranscriptList
             entries={session.entries()}
@@ -80,8 +98,11 @@ export const ChatPanel: Component = () => {
             streamText={session.streamText()}
             pending={session.pending()}
             configured={session.configured()}
+            requiresAccessCode={session.requiresAccessCode()}
+            authenticated={session.authenticated()}
+            onUnlock={session.unlockWithCode}
             providers={session.providers()}
-            expanded={chatExpanded()}
+            expanded={chatExpanded() || isLocked()}
             onSelectPrompt={(text) => void session.sendText(text)}
           />
         </div>
@@ -108,6 +129,8 @@ export const ChatPanel: Component = () => {
           onStop={session.stop}
           running={session.running()}
           configured={session.configured()}
+          requiresAccessCode={session.requiresAccessCode()}
+          authenticated={session.authenticated()}
           providers={session.providers()}
           choice={session.choice()}
           onChoiceChange={session.setChoice}

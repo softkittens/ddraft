@@ -37,20 +37,44 @@ export interface AgentReviewRequest {
   sessionId: string;
 }
 
-export async function fetchAgentStatus(): Promise<{
+export interface AgentStatusResult {
   configured: boolean;
   providers: PublicProvider[];
-}> {
+  requiresAccessCode?: boolean;
+  authenticated?: boolean;
+}
+
+export async function authenticateAccessCode(code: string): Promise<boolean> {
+  try {
+    const res = await fetch("/agent/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code })
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchAgentStatus(): Promise<AgentStatusResult> {
   try {
     const res = await fetch("/agent/status");
-    const body = (await res.json()) as { configured?: boolean; providers?: PublicProvider[] };
+    const body = (await res.json()) as {
+      configured?: boolean;
+      providers?: PublicProvider[];
+      requiresAccessCode?: boolean;
+      authenticated?: boolean;
+    };
     const list = body.providers ?? [];
     return {
       configured: body.configured === true && list.length > 0,
-      providers: list
+      providers: list,
+      requiresAccessCode: body.requiresAccessCode === true,
+      authenticated: body.authenticated !== false
     };
   } catch {
-    return { configured: false, providers: [] };
+    return { configured: false, providers: [], requiresAccessCode: false, authenticated: true };
   }
 }
 
@@ -69,8 +93,13 @@ export async function* streamAgentRun(
     let errMessage = SETUP_NOTICE;
     try {
       const errJson = await res.json();
-      if (errJson?.error) errMessage = errJson.error;
-      else if (errJson?.message) errMessage = errJson.message;
+      if (errJson?.error === "invalid_access_code") {
+        errMessage = "Invalid or expired access code session. Please re-enter your access code.";
+      } else if (errJson?.error) {
+        errMessage = errJson.error;
+      } else if (errJson?.message) {
+        errMessage = errJson.message;
+      }
     } catch {
       if (res.status !== 503) {
         errMessage = `Server error (${res.status}: ${res.statusText || "Request failed"})`;
@@ -96,7 +125,10 @@ export async function fetchAgentReview(
   });
 
   if (!res.ok) {
-    const body = ((await res.json().catch(() => null)) as { error?: unknown } | null);
+    const body = ((await res.json().catch(() => null)) as { error?: unknown; message?: unknown } | null);
+    if (body?.error === "invalid_access_code") {
+      throw new Error("Invalid or expired access code session");
+    }
     const errorText = typeof body?.error === "string" ? body.error : `request failed (${res.status})`;
     throw new Error(errorText);
   }

@@ -6,8 +6,12 @@ import {
   hoveredId,
   editingTextId,
   layoutTree,
-  nodeMap
+  nodeMap,
+  updateDoc,
+  resetZoom100
 } from "./store";
+import { parseDocument } from "../model/parse";
+import { walkNodes } from "../model/tree";
 import { setupCanvas, setImageInvalidator } from "../render/paint";
 import { hasActiveAnimations } from "../interaction/animate";
 import { telemetry } from "../telemetry/logger";
@@ -121,6 +125,30 @@ export const CanvasView: Component = () => {
     if (animFrameId) cancelAnimationFrame(animFrameId);
   });
 
+  const handleLoadDemo = async () => {
+    try {
+      const res = await fetch("/demo-project/web-qwen.pen");
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      const text = await res.text();
+      const parsed = parseDocument(text);
+      walkNodes(parsed.children, (node) => {
+        const fix = (f: any) => {
+          if (f && typeof f === "object" && f.type === "image" && typeof f.url === "string") {
+            const fileName = f.url.replace(/^\.\//, "").split("/").pop();
+            return { ...f, url: `/demo-project/images/${fileName}` };
+          }
+          return f;
+        };
+        if (node.fill) node.fill = Array.isArray(node.fill) ? node.fill.map(fix) : fix(node.fill);
+        if (node.fills && Array.isArray(node.fills)) node.fills = node.fills.map(fix);
+      });
+      updateDoc(parsed);
+      resetZoom100();
+    } catch (err: any) {
+      alert("Error loading demo project: " + (err?.message || err));
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -145,7 +173,17 @@ export const CanvasView: Component = () => {
         <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
           <div class="text-center text-neutral-400 max-w-xs">
             <div class="text-sm font-medium text-neutral-600 mb-1">Empty canvas</div>
-            <div class="text-xs leading-relaxed">Prompt the agent, or open a .pen file, to start a design.</div>
+            <div class="text-xs leading-relaxed">
+              Prompt the agent, or open a .pen file, or{" "}
+              <button
+                type="button"
+                onClick={handleLoadDemo}
+                class="pointer-events-auto text-neutral-700 hover:text-neutral-900 underline underline-offset-2 font-medium cursor-pointer transition"
+              >
+                load a demo project
+              </button>
+              .
+            </div>
           </div>
         </div>
       </Show>

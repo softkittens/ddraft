@@ -87,17 +87,32 @@ export interface CompleteOptions {
   signal?: AbortSignal;
 }
 
+export function isValidImageUrl(url: string | undefined | null): boolean {
+  if (!url || typeof url !== "string") return false;
+  const trimmed = url.trim();
+  return /^https?:\/\//i.test(trimmed) || /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(trimmed);
+}
+
 export function toApiMessages(messages: Message[], p?: Provider) {
   // The catalog decides this, once. Sniffing the model name for "gpt-4o" or
   // "vl" here disagreed with loadProvider on every model neither rule named,
   // so a request could carry an image the server believed it had stripped.
   return messages.map((m) => {
     let content = m.content;
-    if (Array.isArray(content) && !p?.vision) {
-      content = content
-        .filter((c) => c.type === "text")
-        .map((c) => (c as { type: "text"; text: string }).text)
-        .join("\n");
+    if (Array.isArray(content)) {
+      if (!p?.vision) {
+        content = content
+          .filter((c) => c.type === "text")
+          .map((c) => (c as { type: "text"; text: string }).text)
+          .join("\n");
+      } else {
+        content = content.map((c) => {
+          if (c.type === "image_url" && !isValidImageUrl(c.image_url.url)) {
+            return { type: "text", text: `[Image: ${c.image_url.url}]` };
+          }
+          return c;
+        });
+      }
     }
     const row: Record<string, unknown> = { role: m.role, content };
     if (m.tool_calls) row.tool_calls = m.tool_calls;
@@ -120,11 +135,16 @@ export function toResponsesInput(messages: Message[]) {
     const parts: MessageContentPart[] = Array.isArray(message.content)
       ? message.content
       : [{ type: "text", text: message.content }];
-    const content = parts
-      .map((part) => part.type === "text"
-        ? { type: message.role === "assistant" ? "output_text" : "input_text", text: part.text }
-        : { type: "input_image", image_url: part.image_url.url, detail: part.image_url.detail });
-    if (content.some((part) => part.type !== "output_text" || part.text)) {
+    const content = parts.map((part) => {
+      if (part.type === "text") {
+        return { type: message.role === "assistant" ? "output_text" : "input_text", text: part.text };
+      }
+      if (isValidImageUrl(part.image_url.url)) {
+        return { type: "input_image", image_url: part.image_url.url, detail: part.image_url.detail };
+      }
+      return { type: message.role === "assistant" ? "output_text" : "input_text", text: `[Image: ${part.image_url.url}]` };
+    });
+    if (content.some((part) => part.type !== "output_text" || (part as { text?: string }).text)) {
       input.push({ role: message.role, content });
     }
     for (const call of message.tool_calls ?? []) {
@@ -157,6 +177,9 @@ function toMessagesInput(messages: Message[]) {
       role: message.role === "assistant" ? "assistant" : "user",
       content: parts.map((part) => {
         if (part.type === "text") return { type: "text", text: part.text };
+        if (!isValidImageUrl(part.image_url.url)) {
+          return { type: "text", text: `[Image: ${part.image_url.url}]` };
+        }
         const match = part.image_url.url.match(/^data:([^;]+);base64,(.+)$/);
         return match
           ? { type: "image", source: { type: "base64", media_type: match[1], data: match[2] } }

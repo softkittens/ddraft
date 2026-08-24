@@ -212,7 +212,9 @@ describe("Prompt behaviour corpus", () => {
     "Revise the hero",
     "Add a checkout section",
     "Tighten the spacing",
-    "The footer feels weak"
+    "The footer feels weak",
+    "Redesign this in dark mode",
+    "Restyle with a warm editorial aesthetic"
   ])("treats %j on an existing canvas as a revision", (phrase) => {
     expect(resolvePromptContext(phrase, canvasWithContent()).lifecycle).toBe("revision_edit");
   });

@@ -25,8 +25,8 @@ export interface ResolvedContext {
   lifecycle: SessionLifecycle;
 }
 
-const MOBILE_PATTERNS = /\b(mobile|iphone|ios|android|phone|app|apps|swipe|tinder|bottom nav|tab bar|touch)\b/i;
-const DESKTOP_SITE_PATTERNS = /\b(landing page|website|site|sites|homepage|portfolio|company|storefront|coworking|hotel|retreat|spaces)\b/i;
+const MOBILE_PATTERNS = /\b(mobile|phone|ios|android|app screen|handheld)\b/i;
+const DESKTOP_SITE_PATTERNS = /\b(desktop|site|website|landing page|web page|homepage|web)\b/i;
 
 /**
  * Split deliberately, because these two used to be one list and the seam is

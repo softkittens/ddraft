@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
-import { resolve } from "path";
+import { resolve, extname } from "path";
+import { existsSync, createReadStream, cpSync } from "fs";
 import solidPlugin from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 import { handleAgentRequest, abortSignalFromNode } from "./src/agent/http";
@@ -8,7 +9,43 @@ import type { IncomingMessage, ServerResponse } from "http";
 function agentDevMiddleware(env: Record<string, string>): Plugin {
   return {
     name: "pen-agent-dev-middleware",
+    closeBundle() {
+      const srcDir = resolve(process.cwd(), "demo-project");
+      const destDir = resolve(process.cwd(), "dist/demo-project");
+      if (existsSync(srcDir)) {
+        cpSync(srcDir, destDir, { recursive: true });
+      }
+    },
     configureServer(server) {
+      server.middlewares.use((req: IncomingMessage, res: ServerResponse, next: () => void) => {
+        if (!req.url?.startsWith("/demo-project/")) {
+          return next();
+        }
+        const cleanPath = req.url.split("?")[0].split("#")[0];
+        const filePath = resolve(process.cwd(), "." + cleanPath);
+        if (existsSync(filePath)) {
+          const ext = extname(filePath).toLowerCase();
+          const mimeTypes: Record<string, string> = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+            ".svg": "image/svg+xml",
+            ".gif": "image/gif",
+            ".avif": "image/avif",
+            ".pen": "application/json",
+            ".json": "application/json"
+          };
+          const mime = mimeTypes[ext] || "application/octet-stream";
+          res.statusCode = 200;
+          res.setHeader("Content-Type", mime);
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          createReadStream(filePath).pipe(res);
+          return;
+        }
+        next();
+      });
+
       server.middlewares.use(async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
         if (!req.url?.startsWith("/agent")) {
           return next();
@@ -46,8 +83,13 @@ function agentDevMiddleware(env: Record<string, string>): Plugin {
             duplex: "half"
           });
 
+          const currentEnv = {
+            ...env,
+            ...process.env,
+            ...loadEnv(process.env.NODE_ENV || "development", process.cwd(), "")
+          };
           const webRes = await handleAgentRequest(webReq, {
-            env,
+            env: currentEnv,
             logDir: resolve(process.cwd(), "agent-logs")
           });
 

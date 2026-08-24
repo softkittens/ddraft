@@ -99,18 +99,39 @@ export async function* runSession(
           : undefined;
 
         if (imgFill && (imgFill.url || imgFill.data)) {
-          const imgUrl = imgFill.url || imgFill.data!;
+          const rawUrl = imgFill.url || imgFill.data!;
           const nodeName = node.name || node.id;
-          out.push({
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `[Selected Canvas Reference Image "${nodeName}" (id: ${node.id})]: Context for the user's request. Use it only when relevant.`
-              },
-              { type: "image_url", image_url: { url: imgUrl, detail: "high" } }
-            ]
-          });
+          const isFullUrl = /^https?:\/\//i.test(rawUrl);
+          const isDataUrl = /^data:image\//i.test(rawUrl);
+          const isBase64 = Boolean(imgFill.data && !imgFill.url && /^[A-Za-z0-9+/=]+$/.test(imgFill.data));
+          const validUrl = isFullUrl || isDataUrl
+            ? rawUrl
+            : isBase64
+            ? `data:image/png;base64,${imgFill.data}`
+            : null;
+
+          if (validUrl) {
+            out.push({
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: `[Selected Canvas Reference Image "${nodeName}" (id: ${node.id})]: Context for the user's request. Use it only when relevant.`
+                },
+                { type: "image_url", image_url: { url: validUrl, detail: "high" } }
+              ]
+            });
+          } else {
+            out.push({
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: `[Selected Canvas Image Node "${nodeName}" (id: ${node.id}, fill src: "${rawUrl}")]: Context for the user's request.`
+                }
+              ]
+            });
+          }
         }
       }
     }
@@ -213,7 +234,7 @@ export async function* runSession(
             yield { type: "done", messages: sanitizeSessionMessages(out, internal), doc: session.doc };
             return;
           }
-          const evalRes = watchdog.evaluateCompletion(session.doc, turn, maxTurns, false, reply);
+          const evalRes = watchdog.evaluateCompletion(session.doc, turn, maxTurns, false, reply, resolved.lifecycle);
           if (evalRes.action === "retry_empty") {
             out.pop();
             nudge(evalRes.nudge);
@@ -239,7 +260,14 @@ export async function* runSession(
 
       // 2. Handle completion when model makes no tool calls
       if (toolCalls.length === 0) {
-        const evalRes = watchdog.evaluateCompletion(session.doc, turn, maxTurns, session.doc === doc, content);
+        const evalRes = watchdog.evaluateCompletion(
+          session.doc,
+          turn,
+          maxTurns,
+          session.doc === doc,
+          content,
+          resolved.lifecycle
+        );
         if (evalRes.action === "retry_empty") {
           out.pop();
           nudge(evalRes.nudge);

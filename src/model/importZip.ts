@@ -92,18 +92,7 @@ export function importPenZip(buffer: Uint8Array): Document {
         url = `data:${mime};base64,${base64}`;
       }
 
-      const clean = filePath.replace(/^\.\//, "");
-      const fileName = clean.split("/").pop() || clean;
-
       imageMap.set(filePath, url);
-      imageMap.set(clean, url);
-      imageMap.set(`./${clean}`, url);
-      imageMap.set(fileName, url);
-      imageMap.set(`./${fileName}`, url);
-      imageMap.set(`images/${fileName}`, url);
-      imageMap.set(`./images/${fileName}`, url);
-      imageMap.set(`assets/${fileName}`, url);
-      imageMap.set(`./assets/${fileName}`, url);
     }
   }
 

@@ -89,12 +89,17 @@ const DisplayRow: Component<{
   );
 };
 
+import { AccessCodeCard } from "./AccessCodeCard";
+
 export const TranscriptList: Component<{
   entries: Entry[];
   streamReasoning?: string;
   streamText: string;
   pending: PendingStep | null;
   configured: boolean;
+  requiresAccessCode?: boolean;
+  authenticated?: boolean;
+  onUnlock?: (code: string) => Promise<boolean>;
   providers: PublicProvider[];
   expanded: boolean;
   onSelectPrompt: (text: string) => void;
@@ -121,8 +126,10 @@ export const TranscriptList: Component<{
     return null;
   });
 
+  const isLocked = () => props.requiresAccessCode && !props.authenticated;
+
   const isEmpty = () =>
-    props.configured && props.entries.length === 0 && doc().children.length === 0;
+    props.configured && !isLocked() && props.entries.length === 0 && doc().children.length === 0;
 
   const scrollToBottom = () => {
     const parent = containerRef?.parentElement;
@@ -144,7 +151,13 @@ export const TranscriptList: Component<{
       ref={containerRef}
       class="flex flex-col gap-2.5 select-text"
     >
-      <Show when={!props.configured}>
+      <Show when={isLocked()}>
+        <div class="shrink-0 pt-1">
+          <AccessCodeCard onUnlock={props.onUnlock || (async () => false)} />
+        </div>
+      </Show>
+
+      <Show when={!props.configured && !isLocked()}>
         <div class="shrink-0 pt-1">
           <DisconnectedNotice />
         </div>

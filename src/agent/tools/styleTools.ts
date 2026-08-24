@@ -12,7 +12,7 @@ import type { DocumentToolDefinition } from "./types";
 export const setStyleTool: DocumentToolDefinition = {
   name: "set_style",
   description:
-    "Commit to a design direction, then choose its palette, roundness, elevation and typefaces. Writes the colour and font tokens onto the document and returns the usage rules for the chosen style. Call this before building anything on an unstyled document. Every argument must name an option from the catalog in the system prompt.",
+    "Commit to a design direction, then choose its palette, roundness, elevation and typefaces. Writes the colour and font tokens onto the document and returns the usage rules for the chosen style. Call this before building on an unstyled document, or when the user explicitly requests a redesign, palette change, or theme update. Do not call this for localized element edits, copy changes, or image replacements.",
   parameters: {
     type: "object",
     properties: {

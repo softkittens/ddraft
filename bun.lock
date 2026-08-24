@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "pen-experiment",
+      "name": "ddraft",
       "dependencies": {
         "fflate": "^0.8.3",
         "lucide-solid": "^1.33.0",

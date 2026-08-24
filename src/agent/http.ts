@@ -83,18 +83,103 @@ export function abortSignalFromNode(
   return ac.signal;
 }
 
+import {
+  createSessionToken,
+  verifySessionToken,
+  parseCookie,
+  buildSessionCookie,
+  buildClearCookie,
+  SESSION_COOKIE_NAME
+} from "./auth";
+
+function isAccessAuthorized(req: Request, env: Record<string, string | undefined>): boolean {
+  const expectedCode = env.ACCESS_CODE?.trim();
+  if (!expectedCode) return true;
+
+  // 1. Check HttpOnly session cookie
+  const cookieHeader = req.headers.get("cookie");
+  const sessionToken = parseCookie(cookieHeader, SESSION_COOKIE_NAME);
+  if (sessionToken && verifySessionToken(sessionToken, expectedCode)) {
+    return true;
+  }
+
+  // 2. Check Authorization Bearer token (session token or direct access code)
+  const authHeader = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  if (authHeader) {
+    if (authHeader === expectedCode || verifySessionToken(authHeader, expectedCode)) {
+      return true;
+    }
+  }
+
+  // 3. Check x-access-code header (fallback for CLI/scripts)
+  const codeHeader = req.headers.get("x-access-code")?.trim();
+  if (codeHeader && (codeHeader === expectedCode || verifySessionToken(codeHeader, expectedCode))) {
+    return true;
+  }
+
+  return false;
+}
+
 export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {}): Promise<Response> {
   const url = new URL(req.url);
   const env = deps.env ?? (process.env as Record<string, string | undefined>);
   const path = url.pathname.replace(/\/$/, "");
+  const expectedCode = env.ACCESS_CODE?.trim();
 
   if (!originAllowed(req)) {
     return Response.json({ error: "origin not allowed" }, { status: 403 });
   }
 
+  if (req.method === "POST" && path.endsWith("/auth")) {
+    if (!expectedCode) {
+      return Response.json({ ok: true, requiresAccessCode: false, authenticated: true });
+    }
+
+    let body: { code?: unknown } = {};
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return Response.json({ error: "invalid_json" }, { status: 400 });
+    }
+
+    const providedCode = typeof body.code === "string" ? body.code.trim() : "";
+    if (providedCode !== expectedCode) {
+      return Response.json({ error: "invalid_code", message: "Incorrect access code" }, { status: 401 });
+    }
+
+    const token = createSessionToken(expectedCode);
+    const isSecure = url.protocol === "https:";
+    const cookie = buildSessionCookie(token, undefined, isSecure);
+
+    return Response.json(
+      { ok: true, requiresAccessCode: true, authenticated: true },
+      { headers: { "Set-Cookie": cookie } }
+    );
+  }
+
+  if (req.method === "POST" && path.endsWith("/logout")) {
+    const isSecure = url.protocol === "https:";
+    const cookie = buildClearCookie(isSecure);
+    return Response.json({ ok: true }, { headers: { "Set-Cookie": cookie } });
+  }
+
   if (req.method === "GET" && path.endsWith("/status")) {
+    const requiresAccessCode = Boolean(expectedCode);
+    const authenticated = isAccessAuthorized(req, env);
     const providers = listConfiguredProviders(env);
-    return Response.json({ configured: providers.length > 0, providers });
+    const res: Record<string, unknown> = {
+      configured: providers.length > 0 && (!requiresAccessCode || authenticated),
+      providers: requiresAccessCode && !authenticated ? [] : providers
+    };
+    if (requiresAccessCode) {
+      res.requiresAccessCode = true;
+      res.authenticated = authenticated;
+    }
+    return Response.json(res);
+  }
+
+  if (!isAccessAuthorized(req, env)) {
+    return Response.json({ error: "invalid_access_code", message: "Invalid or missing access code" }, { status: 401 });
   }
 
   if (req.method === "POST" && path.endsWith("/review")) {

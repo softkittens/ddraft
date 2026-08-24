@@ -115,6 +115,8 @@ export type TurnEvaluation =
   | { action: "nudge"; text: string }
   | { action: "error"; reason: "thrashing" | "stalled" | "truncated"; message: string };
 
+import type { SessionLifecycle } from "./context";
+
 export class SessionWatchdog {
   turnsUsed = 0;
   corrections = 0;
@@ -227,9 +229,14 @@ export class SessionWatchdog {
     turn: number,
     maxTurns: number,
     docUnchanged: boolean,
-    replyText = ""
+    replyText = "",
+    lifecycle?: SessionLifecycle
   ): CompletionEvaluation {
     if (docUnchanged && doc.children.length > 0) {
+      return { action: "finish" };
+    }
+
+    if (lifecycle === "revision_edit") {
       return { action: "finish" };
     }
 

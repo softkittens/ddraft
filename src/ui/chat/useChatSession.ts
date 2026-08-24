@@ -45,7 +45,7 @@ import {
   createThumbnail,
   commitAgentPass
 } from "./types";
-import { fetchAgentStatus, streamAgentRun, fetchAgentReview } from "./chatClient";
+import { fetchAgentStatus, streamAgentRun, fetchAgentReview, authenticateAccessCode } from "./chatClient";
 import { reviewLoopNext } from "./reviewLoop";
 
 function isAbortError(err: unknown): boolean {
@@ -118,6 +118,8 @@ function rememberStyle(doc: Document, brief: string) {
 export function useChatSession() {
   const [configured, setConfigured] = createSignal(false);
   const [providers, setProviders] = createSignal<PublicProvider[]>([]);
+  const [requiresAccessCode, setRequiresAccessCode] = createSignal(false);
+  const [authenticated, setAuthenticated] = createSignal(true);
   const saved = restoredChat();
   const defaultChoice = choiceValue("vercel", "gpt-5.6-luna");
   const initialChoice =
@@ -205,10 +207,25 @@ export function useChatSession() {
     }
   });
 
+  const unlockWithCode = async (code: string): Promise<boolean> => {
+    const success = await authenticateAccessCode(code);
+    if (success) {
+      const status = await fetchAgentStatus();
+      setProviders(status.providers);
+      setConfigured(status.configured);
+      setRequiresAccessCode(status.requiresAccessCode === true);
+      setAuthenticated(true);
+      return true;
+    }
+    return false;
+  };
+
   onMount(async () => {
     const status = await fetchAgentStatus();
     setProviders(status.providers);
     setConfigured(status.configured);
+    setRequiresAccessCode(status.requiresAccessCode === true);
+    setAuthenticated(status.authenticated !== false);
   });
 
   createEffect(
@@ -237,10 +254,11 @@ export function useChatSession() {
     abort = controller;
     const selected = parseChoice(choice());
     let expectedDoc = doc();
-    let finished = false;
     let edited = false;
-    let finalMessages = next;
+    let finished = false;
     let failure: string | undefined;
+    let finalMessages = next;
+    const toolsCalled: string[] = [];
 
     try {
       const stream = streamAgentRun(
@@ -286,6 +304,7 @@ export function useChatSession() {
             );
             break;
           case "tool":
+            toolsCalled.push(event.name);
             setStreamReasoning("");
             setStreamText("");
             setPending(null);
@@ -299,7 +318,7 @@ export function useChatSession() {
               controller.abort();
               failure = "The canvas changed, so the agent stopped before overwriting it.";
               note(failure, "error");
-              return { finished, edited, messages: finalMessages, failure };
+              return { finished, edited, messages: finalMessages, failure, toolsCalled };
             }
             if (decision.action === "accept") {
               edited = true;
@@ -327,11 +346,6 @@ export function useChatSession() {
               return nextSel;
             });
             finished = true;
-            if (context.length <= 1 && edited) {
-              setTimeout(() => {
-                zoomToFit({ animate: true });
-              }, 120);
-            }
             break;
           case "error":
             failure = event.message;
@@ -350,7 +364,7 @@ export function useChatSession() {
       if (abort === controller) abort = null;
     }
 
-    return { finished, edited, messages: finalMessages, failure };
+    return { finished, edited, messages: finalMessages, failure, toolsCalled };
   }
 
   async function runReview(
@@ -361,6 +375,7 @@ export function useChatSession() {
     thumbnail?: string;
     sectionThumbnails?: { name: string; url: string }[];
   }> {
+    zoomToFit({ animate: true });
     const selected = parseChoice(choice());
     reviewAbort?.abort();
     reviewAbort = new AbortController();
@@ -453,6 +468,8 @@ export function useChatSession() {
     let producedDesign = false;
     const sessionId = crypto.randomUUID();
 
+    const initialScreenCount = doc().children.length;
+
     try {
       let reviewNumber = 0;
       for (let pass = 0; pass <= AUTO_REVIEW_REVISIONS; pass++) {
@@ -463,6 +480,16 @@ export function useChatSession() {
         if (result.failure) break;
         if (!result.finished || !result.edited) break;
         producedDesign = true;
+
+        // Action-based decision: Only run visual review for major changes (empty canvas build, new screen created, or set_style called)
+        const isMajorDesignChange =
+          initialScreenCount === 0 ||
+          result.toolsCalled.includes("create_screen") ||
+          result.toolsCalled.includes("set_style");
+
+        if (!isMajorDesignChange) {
+          break;
+        }
 
         let reviewed = await runReview(sessionId);
         if (reviewed.error) {
@@ -615,6 +642,9 @@ export function useChatSession() {
   return {
     configured,
     providers,
+    requiresAccessCode,
+    authenticated,
+    unlockWithCode,
     choice,
     setChoice,
     effort,

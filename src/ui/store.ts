@@ -463,8 +463,15 @@ export function zoomOut() {
   setCamera((c) => zoomAtScreenPoint(c, { x: window.innerWidth / 2, y: window.innerHeight / 2 }, c.zoom / 1.25));
 }
 
-export function resetZoom100() {
-  setCamera((c) => zoomAtScreenPoint(c, { x: window.innerWidth / 2, y: window.innerHeight / 2 }, 1));
+export function resetZoom100(options: { animate?: boolean } = {}) {
+  const cx = typeof window !== "undefined" ? window.innerWidth / 2 : 720;
+  const cy = typeof window !== "undefined" ? window.innerHeight / 2 : 450;
+  const target = zoomAtScreenPoint(camera(), { x: cx, y: cy }, 1);
+  if (options.animate) {
+    animateCameraTo(target);
+  } else {
+    setCamera(target);
+  }
 }
 
 /* ------------------------------------------------------------------ *

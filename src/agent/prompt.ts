@@ -109,7 +109,8 @@ function orderOfWork(ctx: ResolvedContext): string[] {
       "  1. Inspect the selection and document digest to locate target nodes.",
       "  2. Apply precise edits with batch_set_properties, set_property, or insert_node.",
       "  3. Maintain existing style tokens ($surface-*, $foreground-*, $accent-*, $radius-*) and alignment.",
-      "  4. Keep edits focused directly on the user request without rebuilding unrelated screens."
+      "  4. Only call set_style if the user explicitly requested a redesign, new color palette, or theme change. Otherwise, keep existing styles.",
+      "  5. Keep edits focused directly on the user request without rebuilding unrelated screens."
     ];
   }
   return [
@@ -148,13 +149,33 @@ export function agentSystemPrompt(
       )
     : [];
 
+  const hasCanvasContent = doc && Array.isArray(doc.children) && doc.children.length > 0;
+
   const styleSection = style
     ? [
         "The document already has a style. Keep it for normal edits.",
-        "For a new product, redesign or visual exploration, call set_style and",
-        "choose a materially different direction.",
+        "If the user explicitly asks for a redesign, new color palette, or visual exploration, call set_style and choose a materially different direction.",
         "",
-        styleGuidelines(style)
+        styleGuidelines(style),
+        "",
+        styleCatalog(paletteSeed, PALETTE_HAND_SIZE, {
+          palettes: repeatedRuns.map((run) => run.palette),
+          headings: repeatedRuns.map((run) => run.headings),
+          roundness: repeatedRuns.flatMap((run) => run.roundness ? [run.roundness] : []),
+          elevation: repeatedRuns.map((run) => run.elevation)
+        }, { brief: userPrompt })
+      ]
+    : hasCanvasContent
+    ? [
+        "The canvas already has existing elements and structure. Reuse the document tokens ($surface-*, $foreground-*, $accent-*, $radius-*) from the digest.",
+        "If the user explicitly asks for a redesign or new visual direction, you may call set_style.",
+        "",
+        styleCatalog(paletteSeed, PALETTE_HAND_SIZE, {
+          palettes: repeatedRuns.map((run) => run.palette),
+          headings: repeatedRuns.map((run) => run.headings),
+          roundness: repeatedRuns.flatMap((run) => run.roundness ? [run.roundness] : []),
+          elevation: repeatedRuns.map((run) => run.elevation)
+        }, { brief: userPrompt })
       ]
     : [
         "No style is set on this document yet.",

@@ -6,7 +6,7 @@ import {
   Frame,
   FolderOpen,
   Layers,
-  BotMessageSquare,
+  Bot,
   Trash2
 } from "lucide-solid";
 import {
@@ -14,6 +14,7 @@ import {
   setToolMode,
   camera,
   resetZoom100,
+  zoomToFit,
   layersVisible,
   setLayersVisible,
   chatVisible,
@@ -109,7 +110,7 @@ export const Toolbar: Component = () => {
         tabindex={chatVisible() ? -1 : 0}
         aria-hidden={chatVisible()}
       >
-        <BotMessageSquare size={22} stroke-width={1.8} />
+        <Bot size={22} stroke-width={1.8} />
       </button>
 
       <Show when={confirmingClear()}>
@@ -207,12 +208,21 @@ export const ToolRail: Component = () => {
 };
 
 export const ZoomControls: Component = () => {
+  const handleZoomClick = () => {
+    const isAt100 = Math.round(camera().zoom * 100) === 100;
+    if (isAt100) {
+      zoomToFit({ animate: true });
+    } else {
+      resetZoom100({ animate: true });
+    }
+  };
+
   return (
     <div class="absolute bottom-4 right-3 z-30 flex items-center gap-2 select-none">
       <ShareButton />
       <button
-        onClick={resetZoom100}
-        title="Reset zoom to 100% (Cmd+0)"
+        onClick={handleZoomClick}
+        title={Math.round(camera().zoom * 100) === 100 ? "Zoom to fit" : "Reset zoom to 100% (Cmd+0)"}
         class="chrome-surface h-10 min-w-[56px] px-3 rounded-full text-xs font-semibold text-neutral-800 hover:bg-white/90 transition"
       >
         {Math.round(camera().zoom * 100)}%
