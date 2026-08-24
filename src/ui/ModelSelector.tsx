@@ -24,10 +24,17 @@ export function parseChoice(value: string): { providerId: string; model: string 
   return { providerId: value.slice(0, split), model: value.slice(split + 1) };
 }
 
-function modelBlurb(modelId: string): string {
-  const id = modelId.toLowerCase();
-  if (id.includes("flash") || id.includes("turbo") || id.includes("mini")) {
-    return "Faster edits.";
+function modelBlurb(model: { id: string; description?: string }): string {
+  if (model.description) return model.description;
+  const id = model.id.toLowerCase();
+  if (id.includes("luna")) {
+    return "Cheap & fast.";
+  }
+  if (id.includes("flash") || id.includes("turbo") || id.includes("mini") || id.includes("free")) {
+    return "Fast and efficient.";
+  }
+  if (id.includes("opus") || id.includes("sol")) {
+    return "Expensive, frontier intelligence.";
   }
   if (id.includes("pro") || id.includes("max") || id.startsWith("o") || id.includes("codex")) {
     return "Prioritizes quality and reasoning.";
@@ -250,7 +257,7 @@ export const ModelSelector: Component<ModelSelectorProps> = (props) => {
                                 {m.label}
                               </div>
                               <div class="text-[11px] text-neutral-500 leading-snug mt-0.5">
-                                {modelBlurb(m.id)}
+                                {modelBlurb(m)}
                               </div>
                             </div>
                             <Show when={selected()}>

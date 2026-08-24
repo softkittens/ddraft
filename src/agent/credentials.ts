@@ -11,7 +11,7 @@ import {
 export interface PublicProvider {
   id: CatalogProvider["id"];
   label: string;
-  models: { id: string; label: string }[];
+  models: { id: string; label: string; description?: string }[];
 }
 
 function envBag(env?: Record<string, string | undefined>): Record<string, string | undefined> {
@@ -23,7 +23,7 @@ export function listConfiguredProviders(env?: Record<string, string | undefined>
   return PROVIDER_CATALOG.filter((p) => readEnvKey(bag, p.envKeys)).map((p) => ({
     id: p.id,
     label: p.label,
-    models: p.models
+    models: p.models.map((m) => ({ id: m.id, label: m.label, description: m.description }))
   }));
 }
 
