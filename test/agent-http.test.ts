@@ -44,7 +44,7 @@ describe("H2 key configuration & /agent/status", () => {
 
 describe("H5 agent HTTP run endpoint & session logging", () => {
   it("redacts credentials and images in session log traces", async () => {
-    const logDir = mkdtempSync(join(tmpdir(), "pen-agent-log-"));
+    const logDir = mkdtempSync(join(tmpdir(), "ddraft-agent-log-"));
     const log = createSessionLog(logDir, "redaction");
     log?.write({ authorization: "Bearer secret", screenshot: "data:image/png;base64,aVZCT1J3MEs=" });
     await log?.close();
@@ -56,7 +56,7 @@ describe("H5 agent HTTP run endpoint & session logging", () => {
   });
 
   it("streams status, deltas, tool results, and records JSONL traces", async () => {
-    const logDir = mkdtempSync(join(tmpdir(), "pen-agent-log-"));
+    const logDir = mkdtempSync(join(tmpdir(), "ddraft-agent-log-"));
     let calls = 0;
     const fakeFetch: FetchFn = async () => {
       calls++;

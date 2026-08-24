@@ -8,7 +8,7 @@ import type { IncomingMessage, ServerResponse } from "http";
 
 function agentDevMiddleware(env: Record<string, string>): Plugin {
   return {
-    name: "pen-agent-dev-middleware",
+    name: "ddraft-agent-dev-middleware",
     closeBundle() {
       const srcDir = resolve(process.cwd(), "demo-project");
       const destDir = resolve(process.cwd(), "dist/demo-project");
@@ -112,7 +112,7 @@ function agentDevMiddleware(env: Record<string, string>): Plugin {
           }
           res.end();
         } catch (err) {
-          console.error("[pen-agent middleware error]", err);
+          console.error("[ddraft-agent middleware error]", err);
           if (!res.headersSent) {
             res.statusCode = 500;
             res.setHeader("Content-Type", "application/json");

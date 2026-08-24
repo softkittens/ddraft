@@ -123,13 +123,13 @@ export function useChatSession() {
   const saved = restoredChat();
   const defaultChoice = choiceValue("vercel", "gpt-5.6-luna");
   const initialChoice =
-    (typeof localStorage !== "undefined" && localStorage.getItem("pen_selected_model")) ||
+    (typeof localStorage !== "undefined" && localStorage.getItem("ddraft_selected_model")) ||
     saved?.choice ||
     defaultChoice;
   const [choice, setChoice] = createSignal(initialChoice);
 
   const initialEffort =
-    (typeof localStorage !== "undefined" && (localStorage.getItem("pen_selected_effort") as "low" | "medium" | "high")) ||
+    (typeof localStorage !== "undefined" && (localStorage.getItem("ddraft_selected_effort") as "low" | "medium" | "high")) ||
     saved?.effort ||
     "high";
   const [effort, setEffort] = createSignal<"low" | "medium" | "high">(initialEffort);
@@ -148,8 +148,8 @@ export function useChatSession() {
     on([entries, agentMessages, lastBrief, choice, effort], ([e, messages, brief, c, eff]) => {
       persistChat({ entries: e, agentMessages: messages, lastBrief: brief, choice: c, effort: eff });
       if (typeof localStorage !== "undefined") {
-        if (c) localStorage.setItem("pen_selected_model", c);
-        if (eff) localStorage.setItem("pen_selected_effort", eff);
+        if (c) localStorage.setItem("ddraft_selected_model", c);
+        if (eff) localStorage.setItem("ddraft_selected_effort", eff);
       }
     }, { defer: true })
   );
@@ -197,7 +197,8 @@ export function useChatSession() {
     if (list.length === 0) return;
     const current = choice();
     if (list.includes(current)) return;
-    const savedModel = typeof localStorage !== "undefined" ? localStorage.getItem("pen_selected_model") : null;
+    const savedModel =
+      typeof localStorage !== "undefined" ? localStorage.getItem("ddraft_selected_model") : null;
     if (savedModel && list.includes(savedModel)) {
       setChoice(savedModel);
     } else if (list.includes(defaultChoice)) {

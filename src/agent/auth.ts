@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
-export const SESSION_COOKIE_NAME = "pen_session";
+export const SESSION_COOKIE_NAME = "ddraft_session";
 
 export interface SessionPayload {
   iat: number;

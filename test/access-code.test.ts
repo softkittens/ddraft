@@ -48,18 +48,18 @@ describe("ACCESS_CODE security gating & HttpOnly session cookie", () => {
     );
     expect(authRes.status).toBe(200);
     const setCookie = authRes.headers.get("Set-Cookie");
-    expect(setCookie).toContain("pen_session=");
+    expect(setCookie).toContain("ddraft_session=");
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("SameSite=Lax");
 
     // Extract cookie value
-    const match = setCookie?.match(/pen_session=([^;]+)/);
+    const match = setCookie?.match(/ddraft_session=([^;]+)/);
     expect(match).toBeTruthy();
-    const sessionCookie = `pen_session=${match![1]}`;
+    const sessionCookie = `ddraft_session=${match![1]}`;
 
     // 3. Status request with HttpOnly session cookie
     const statusRes = await handleAgentRequest(
-      new Request("http://pen.test/agent/status", {
+      new Request("http://ddraft.test/agent/status", {
         headers: { cookie: sessionCookie }
       }),
       { env }
@@ -77,11 +77,11 @@ describe("ACCESS_CODE security gating & HttpOnly session cookie", () => {
 
     // 4. Run request with tampered session cookie fails
     const tamperedRes = await handleAgentRequest(
-      new Request("http://pen.test/agent/run", {
+      new Request("http://ddraft.test/agent/run", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          cookie: "pen_session=tampered.signature"
+          cookie: "ddraft_session=tampered.signature"
         },
         body: JSON.stringify({
           messages: [{ role: "user", content: "test" }],
@@ -94,11 +94,11 @@ describe("ACCESS_CODE security gating & HttpOnly session cookie", () => {
 
     // 5. Logout clears the cookie
     const logoutRes = await handleAgentRequest(
-      new Request("http://pen.test/agent/logout", { method: "POST" }),
+      new Request("http://ddraft.test/agent/logout", { method: "POST" }),
       { env }
     );
     expect(logoutRes.status).toBe(200);
-    expect(logoutRes.headers.get("Set-Cookie")).toContain("pen_session=;");
+    expect(logoutRes.headers.get("Set-Cookie")).toContain("ddraft_session=;");
   });
 
   it("blocks /run and /review with 401 when session cookie is missing", async () => {
@@ -109,7 +109,7 @@ describe("ACCESS_CODE security gating & HttpOnly session cookie", () => {
 
     // Unauthorized /run
     const runRes = await handleAgentRequest(
-      new Request("http://pen.test/agent/run", {
+      new Request("http://ddraft.test/agent/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -125,7 +125,7 @@ describe("ACCESS_CODE security gating & HttpOnly session cookie", () => {
 
     // Unauthorized /review
     const reviewRes = await handleAgentRequest(
-      new Request("http://pen.test/agent/review", {
+      new Request("http://ddraft.test/agent/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
