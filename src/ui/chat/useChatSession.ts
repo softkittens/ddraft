@@ -131,8 +131,16 @@ export function useChatSession() {
   const initialEffort =
     (typeof localStorage !== "undefined" && (localStorage.getItem("ddraft_selected_effort") as "low" | "medium" | "high")) ||
     saved?.effort ||
-    "high";
+    (initialChoice.toLowerCase().includes("opus") || initialChoice.toLowerCase().includes("sol") ? "low" : "medium");
   const [effort, setEffort] = createSignal<"low" | "medium" | "high">(initialEffort);
+
+  const handleChoiceChange = (newChoice: string) => {
+    setChoice(newChoice);
+    const lower = newChoice.toLowerCase();
+    if (lower.includes("opus") || lower.includes("sol")) {
+      setEffort("low");
+    }
+  };
 
   const [entries, setEntries] = createSignal<Entry[]>(saved?.entries ?? []);
   const [agentMessages, setAgentMessages] = createSignal<Message[]>(saved?.agentMessages ?? []);
@@ -647,7 +655,7 @@ export function useChatSession() {
     authenticated,
     unlockWithCode,
     choice,
-    setChoice,
+    setChoice: handleChoiceChange,
     effort,
     setEffort,
     entries,

@@ -51,8 +51,6 @@ export const PROVIDER_CATALOG: CatalogProvider[] = [
     models: [
       { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna (Recommended)", description: "Cheap & fast", vision: true },
       { id: "deepseek/deepseek-v4-flash-vision-exp", label: "DeepSeek Flash Vision", description: "Cheap & decent", vision: true },
-      { id: "minimax/minimax-m3", label: "MiniMax M3", description: "Fast & creative with vision", vision: true },
-      { id: "xiaomi/mimo-v2.5-pro", label: "MiMo V2.5 Pro", description: "Balanced quality & reasoning", vision: true },
       { id: "google/gemini-3.7-flash", label: "Gemini 3.7 Flash", description: "Fast & best value", vision: true },
       { id: "anthropic/claude-opus-5", label: "Claude Opus 5", description: "Expensive & highly capable", vision: true },
       { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", description: "Expensive, frontier intelligence", vision: true }
