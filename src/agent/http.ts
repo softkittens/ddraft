@@ -371,6 +371,26 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
+        let isClosed = false;
+        const safeEnqueue = (chunk: Uint8Array) => {
+          if (isClosed) return;
+          try {
+            controller.enqueue(chunk);
+          } catch {
+            isClosed = true;
+          }
+        };
+
+        const safeClose = () => {
+          if (isClosed) return;
+          isClosed = true;
+          try {
+            controller.close();
+          } catch {
+            // Already closed or aborted
+          }
+        };
+
         void (async () => {
           try {
             for await (const event of runSession(provider, body.messages as never, body.doc as never, {
@@ -389,12 +409,12 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
               if (event.type === "error") {
                 log?.write({ type: "session_error", code: event.code, message: event.message });
               }
-              controller.enqueue(encodeEvent(event));
+              safeEnqueue(encodeEvent(event));
             }
           } catch (err) {
             if (!isAbortError(err, req.signal)) {
               log?.write({ type: "session_error", code: "provider", message: err instanceof Error ? err.message : String(err) });
-              controller.enqueue(encodeEvent({
+              safeEnqueue(encodeEvent({
                 type: "error",
                 code: "provider",
                 message: err instanceof Error ? err.message : String(err)
@@ -402,10 +422,18 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
             }
           } finally {
             log?.write({ type: "session_end" });
-            await log?.close();
-            controller.close();
+            try {
+              await log?.close();
+            } catch {
+              // Ignore log close errors
+            }
+            safeClose();
           }
-        })();
+        })().catch((err) => {
+          if (!isAbortError(err, req.signal)) {
+            console.error("[ddraft-agent stream unhandled]", err);
+          }
+        });
       }
     });
 
