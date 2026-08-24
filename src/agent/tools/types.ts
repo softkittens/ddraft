@@ -9,6 +9,7 @@ import { getLucideIconPath } from "../../model/icons";
 import { viewportFor, MAX_SCREEN_HEIGHT } from "../../design/scaffold";
 import { ALLOWED_PROPERTIES } from "../../model/vocabulary";
 import type { FetchFn, Tool } from "../provider";
+import type { ChromeArchetype } from "../../design/chrome";
 
 export interface ToolContext {
   /** The whole document. Writes land here, because a page is a view, not a store. */
@@ -33,6 +34,11 @@ export interface ToolContext {
   offPage(id: string | undefined): string | undefined;
   image: { providerId?: string; apiKey?: string; fetch?: FetchFn };
   recordWrite(id: string, property: string, value: unknown): string;
+  /**
+   * Product type this run resolved. create_screen reads it so a site never
+   * grows rails and a tool always does — the model is not asked to remember.
+   */
+  readonly archetype: ChromeArchetype;
 }
 
 export interface DocumentToolDefinition {
@@ -211,6 +217,42 @@ export function parentIdOf(doc: Document, id: string): string | undefined {
     return undefined;
   }
   return walk(doc.children);
+}
+
+/**
+ * Writes into stamped chrome (status bar, tab bar, header divider) are not a
+ * design decision. The prompt used to say so; the digest still offered the ids.
+ */
+export function chromeWriteError(doc: Document, id: string | undefined): string | undefined {
+  if (!id) return undefined;
+  let current: string | undefined = id;
+  while (current) {
+    const node = findNode(doc.children, current);
+    if (node && (node as { metadata?: { scaffold?: string } }).metadata?.scaffold === "chrome") {
+      return `error: ${id} is screen chrome, not a content slot. Fill the slots create_screen returned.`;
+    }
+    current = parentIdOf(doc, current);
+  }
+  return undefined;
+}
+
+/**
+ * Deleting Main, Top Bar, or chrome is how a revision wipes a finished page.
+ * 9aa7670e deleted n3 (Main) after a 5/5 visual pass; the close-ups went cream.
+ */
+export function scaffoldDeleteError(doc: Document, id: string | undefined): string | undefined {
+  if (!id) return undefined;
+  const node = findNode(doc.children, id);
+  if (!node) return undefined;
+  const role = (node as { metadata?: { scaffold?: string } }).metadata?.scaffold;
+  if (role === "slot") {
+    const name = node.name ? ` ("${node.name}")` : "";
+    return `error: ${id}${name} is a create_screen slot. Delete or edit its children, not the slot.`;
+  }
+  if (role === "chrome") {
+    return `error: ${id} is screen chrome. Leave it in place.`;
+  }
+  return undefined;
 }
 
 export function screenSizeError(

@@ -55,6 +55,7 @@ import {
   checkScaffoldOnlyScreens,
   checkUncenteredIconButtons,
   checkEyebrowKicker,
+  checkHeadingContentGap,
   checkTextBoundaryCollisions,
   checkChromeCollisions,
   checkTextOnTextCollisions,
@@ -118,6 +119,7 @@ const AUDIT_RULES: AuditRuleRunner[] = [
   checkScaffoldOnlyScreens,
   checkUncenteredIconButtons,
   checkEyebrowKicker,
+  checkHeadingContentGap,
   checkTextBoundaryCollisions,
   checkChromeCollisions,
   checkTextOnTextCollisions,
@@ -198,7 +200,9 @@ export const FINISHING_RULES: ReadonlySet<AuditRule> = new Set<AuditRule>([
   "cloned_content",
   "missed_bleed",
   "undersized_subject",
-  "catalog_row"
+  "catalog_row",
+  "eyebrow_kicker",
+  "heading_content_gap"
 ]);
 
 const IMMEDIATE_RULES: ReadonlySet<AuditRule> = new Set<AuditRule>([

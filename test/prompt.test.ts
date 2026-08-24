@@ -45,6 +45,16 @@ describe("System prompt carries rules, not a design", () => {
   it("states the tool budget instead of enforcing one it never mentioned", () => {
     expect(prompt).toContain("BUDGET");
     expect(prompt).toContain("Reuse ids from earlier tool results");
+    expect(prompt).toContain("100 rounds");
+  });
+
+  it("states the round cap this run will actually enforce", () => {
+    // eval/run.ts cuts at 14 while the prompt printed MAX_MODEL_ROUNDS (100).
+    // Wrap-up uses the real cap, so the model was told it had 100 rounds and
+    // then heard "4 rounds left" at turn 10.
+    const evalPrompt = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "", "", 14);
+    expect(evalPrompt).toContain("14 rounds");
+    expect(evalPrompt).not.toContain("100 rounds");
   });
 
   it("states the style rules once a style is chosen, and drops the catalog", () => {
@@ -85,12 +95,28 @@ describe("System prompt carries rules, not a design", () => {
     const styled = agentSystemPrompt(doc, [], "test-model");
     expect(styled).toContain("RECORDED DIRECTION CONTRACT");
     expect(styled).toContain("THESIS: A command surface, not a card dashboard");
-    // The contract is intent, not geometry: set_style, the builder prompt and
-    // the critic all have to say the same thing about it, or the builder and
-    // the reviewer thrash a hero between left and right across passes.
-    expect(styled).toContain("They are not a geometry specification");
-    expect(styled).toContain("keep the");
+    // 8ca10dd0: "not a geometry specification" plus "don't lock left/right"
+    // licensed a rail collage the critic then blessed. Subject, hierarchy,
+    // first action, static canvas — not a permission to invent a topology.
+    expect(styled).not.toContain("geometry specification");
+    expect(styled).not.toContain("left/right");
+    expect(styled).toContain("static canvas");
     expect(styled).not.toContain("A claim not visible on the canvas is unfinished");
+  });
+
+  it("tells a site run the slots create_screen will actually return, not rails to leave empty", () => {
+    // 8ca10dd0: "leave rail empty" next to create_screen returning rail ids
+    // taught the model the slots existed. Interpolate the real list instead.
+    const site = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Landing page for Lisbon coworking space");
+    expect(site).toContain("returns topBar, main");
+    expect(site).not.toContain("returns topBar, rail, main, aside");
+    expect(site).not.toContain("never insert_node or generate_image");
+    expect(site).not.toContain("left/right");
+  });
+
+  it("tells a tool run that desktop chrome includes the rails", () => {
+    const tool = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Kubernetes cluster monitoring dashboard");
+    expect(tool).toContain("returns topBar, rail, main, aside");
   });
 
   it("costs less than the template it replaced", () => {
@@ -151,6 +177,8 @@ describe("System prompt carries rules, not a design", () => {
     const editPrompt = agentSystemPrompt(doc, [], "test-model", 0, [], "change the title text to italic and fix padding");
     expect(editPrompt).toContain("ORDER OF WORK — REVISION & INCREMENTAL EDITS");
     expect(editPrompt).not.toContain("ORDER OF WORK — DESIGN REQUESTS ONLY");
+    expect(editPrompt).toContain("batch_set_properties, set_property, or insert_node");
+    expect(editPrompt).not.toContain(", set_properties");
 
     // A focused revision instruction loses to a blueprint telling the model to
     // stack eight narrative bands, so the blueprints do not ship with it.
@@ -172,5 +200,20 @@ describe("System prompt carries rules, not a design", () => {
     const p = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Landing page for an analytics dashboard product");
     expect(p).toContain("SITE & LANDING PAGE COMPOSITION");
     expect(p).not.toContain("OPERATIONAL TOOL & DASHBOARD COMPOSITION");
+  });
+
+  it("deals the style hand from the brief, not a generic costume table", () => {
+    const p = agentSystemPrompt(
+      makeDoc(),
+      [],
+      "test-model",
+      7,
+      [],
+      "Warm minimal booking site for a Lisbon coworking space"
+    );
+    expect(p).not.toContain("If the look is guessable");
+    expect(p).not.toContain("Neobrutalism");
+    expect(p).toContain("First Viewport: bold display title");
+    expect(p).toContain("How those pieces are arranged is a design choice");
   });
 });

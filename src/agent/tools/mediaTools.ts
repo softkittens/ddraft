@@ -14,7 +14,8 @@ import {
 } from "../../design/photography";
 import {
   type DocumentToolDefinition,
-  digestId
+  digestId,
+  chromeWriteError
 } from "./types";
 
 export const searchIconsTool: DocumentToolDefinition = {
@@ -109,6 +110,8 @@ export const insertIconTool: DocumentToolDefinition = {
     const offParent = ctx.offPage(typeof a.parentId === "string" ? a.parentId.trim() : undefined);
     if (offParent) return offParent;
     const targetParent = digestId(doc, a.parentId);
+    const chrome = chromeWriteError(doc, targetParent);
+    if (chrome) return chrome;
     doc = insertChild(doc, targetParent, iconNode as PenNode, typeof a.index === "number" ? a.index : undefined);
     ctx.setDoc(doc);
     return `ok: inserted Lucide icon "${a.icon}" (${size}x${size}px) into ${a.parentId}\n${digestSubtree(doc, targetParent)}`;
@@ -142,6 +145,8 @@ export const generateImageTool: DocumentToolDefinition = {
     if (offTarget) return offTarget;
     const targetId = digestId(doc, a.nodeId);
     if (!targetId) return "error: existing nodeId is required for image generation";
+    const chrome = chromeWriteError(doc, targetId);
+    if (chrome) return chrome;
 
     const instanceTarget = findNode(doc.children, targetId) ? undefined : splitInstanceId(doc, targetId);
     if (!findNode(doc.children, targetId) && !instanceTarget) {

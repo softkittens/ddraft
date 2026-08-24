@@ -15,7 +15,14 @@ import {
   formatLayout,
   resolvePercentSizes
 } from "./types";
-import { normalizePropertyValue } from "./normalize";
+import { normalizePropertyValue, childrenWouldStackAtOrigin } from "./normalize";
+
+function stackedAbsoluteLayoutError(node: ReturnType<typeof findNode>, value: unknown): string | undefined {
+  if (!node || value !== "none") return undefined;
+  if (!childrenWouldStackAtOrigin(node)) return undefined;
+  const count = childrenOf(node).filter((c) => c.enabled !== false).length;
+  return `error: layout 'none' on "${node.name ?? node.id}" would stack ${count} children at the origin. Use vertical or horizontal auto-layout, or give children distinct x/y first.`;
+}
 
 function checkLayoutTransition(
   beforeDoc: Document,
@@ -115,6 +122,8 @@ export const setPropertyTool: DocumentToolDefinition = {
     }
     const sizeError = screenSizeError(doc, a.id, a.property, a.value);
     if (sizeError) return sizeError;
+    const stackError = stackedAbsoluteLayoutError(findNode(doc.children, a.id), a.property === "layout" ? a.value : undefined);
+    if (stackError) return stackError;
     const beforeWrite = doc;
     doc = setProperty(doc, a.id, a.property, a.value);
     doc = applyIconRename(doc, a.id, a.property, a.value);
@@ -187,6 +196,14 @@ export const batchSetPropertiesTool: DocumentToolDefinition = {
     });
     if (blocked) {
       return screenSizeError(doc, blocked.id as string, blocked.property as string, blocked.value)!;
+    }
+
+    const stacked = updates.find((u) => {
+      if (!u || typeof u.id !== "string" || u.property !== "layout") return false;
+      return Boolean(stackedAbsoluteLayoutError(findNode(doc.children, u.id), u.value));
+    });
+    if (stacked) {
+      return stackedAbsoluteLayoutError(findNode(doc.children, stacked.id as string), stacked.value)!;
     }
 
     let newDoc = doc;

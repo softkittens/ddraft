@@ -23,16 +23,21 @@ export const WorkingFrameIndicator: Component = () => {
             const pad = 2;
             const name = nodeMap().get(id)?.name || id;
             const selected = selectedIds().has(id);
+            const left = box.x * cam.zoom + cam.x - pad;
+            const top = box.y * cam.zoom + cam.y - pad;
+            const width = Math.max(8, box.width * cam.zoom) + pad * 2;
             return {
               name,
               selected,
-              left: box.x * cam.zoom + cam.x - pad,
-              top: box.y * cam.zoom + cam.y - pad,
-              width: Math.max(8, box.width * cam.zoom) + pad * 2,
+              left,
+              top,
+              width,
               height: Math.max(8, box.height * cam.zoom) + pad * 2,
               radius: frameCornerRadius(id, cam.zoom) + pad,
               labelLeft: box.x * cam.zoom + cam.x,
-              labelTop: box.y * cam.zoom + cam.y - 20
+              labelTop: box.y * cam.zoom + cam.y - 20,
+              dotLeft: (box.x + box.width) * cam.zoom + cam.x - 10,
+              dotTop: box.y * cam.zoom + cam.y - 18
             };
           };
 
@@ -50,7 +55,7 @@ export const WorkingFrameIndicator: Component = () => {
                     }}
                   />
                   <div
-                    class="absolute left-0 top-0 flex items-center gap-1.5"
+                    class="absolute left-0 top-0"
                     style={{
                       transform: `translate3d(${item().labelLeft}px, ${item().labelTop}px, 0)`,
                       color: item().selected ? "#0d99ff" : "rgba(0, 0, 0, 0.45)",
@@ -59,7 +64,14 @@ export const WorkingFrameIndicator: Component = () => {
                     }}
                   >
                     <span class="whitespace-nowrap">{item().name}</span>
-                    <span class="agent-work-dot shrink-0" />
+                  </div>
+                  <div
+                    class="absolute left-0 top-0"
+                    style={{
+                      transform: `translate3d(${item().dotLeft}px, ${item().dotTop}px, 0)`
+                    }}
+                  >
+                    <span class="agent-work-dot" />
                   </div>
                 </>
               )}

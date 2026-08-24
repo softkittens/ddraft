@@ -247,6 +247,13 @@ function findByName<T extends { name: string }>(list: T[], name: unknown): T | u
   return list.find((item) => item.name.toLowerCase() === wanted);
 }
 
+/** The hand used to print `Publication (light)`. Models copied the whole token. */
+function findPalette(name: unknown): Palette | undefined {
+  if (typeof name !== "string") return undefined;
+  const stripped = name.trim().replace(/\s*\((light|dark)\)\s*$/i, "").trim();
+  return findByName(PALETTES, stripped);
+}
+
 function findFont(name: unknown): FontFamily | undefined {
   if (typeof name !== "string") return undefined;
   const wanted = name.trim().toLowerCase();
@@ -261,7 +268,7 @@ export class StyleChoiceError extends Error {}
  * substituted palette is a design decision made by a typo.
  */
 export function resolveStyle(input: Partial<StyleChoice>): ResolvedStyle {
-  const palette = findByName(PALETTES, input.palette);
+  const palette = findPalette(input.palette);
   const roundness = findByName(ROUNDNESS, input.roundness);
   const elevation = findByName(ELEVATION, input.elevation);
   const headings = findFont(input.headings);
@@ -354,6 +361,12 @@ export const PALETTE_HAND_SIZE = 8;
  * Light and dark are dealt separately. Whether a product is dark is a question
  * about where it is used, and a hand drawn from the whole list would be light
  * almost every time.
+ *
+ * When a brief is present, two seats are reserved for palettes whose name or
+ * mood overlap it, and costume worlds (brutal, terminal, dithered) stay out
+ * of a quiet editorial deal. The rest of the hand stays seeded-random, so
+ * the product can still look like itself without Luna skipping Refined
+ * because cream was "guessable".
  */
 export interface StyleAvoidance {
   palettes?: readonly string[];
@@ -362,33 +375,117 @@ export interface StyleAvoidance {
   elevation?: readonly string[];
 }
 
+/**
+ * Optional brief so the hand can hold palettes that overlap the product's
+ * atmosphere without printing the whole catalog. Empty keeps the seeded
+ * random deal unchanged — eval and neighbouring briefs still fan out.
+ */
+export interface StyleDeal {
+  brief?: string;
+}
+
+const ATMOSPHERE_SEATS = 2;
+
+/** Worlds that are a costume unless the brief asks for them. */
+const COSTUME_WORLD =
+  /brutal|dither|skeuomorph|neumorph|cosmic|trading terminal|\bterminal\b|\bhud\b|mission control/i;
+
+const QUIET_EDITORIAL =
+  /\b(warm|minimal|quiet|paper|linen|editorial|booking|house|coworking|cafe|magazine|hospitality|studio)\b/i;
+
+const ASKS_COSTUME =
+  /\b(brutal|neobrutal|dither|terminal|dashboard|telemetry|ops|trading|console|hud|brutalist)\b/i;
+
+const AFFINITY_STOP = new Set([
+  "with", "from", "that", "this", "have", "your", "their", "about",
+  "site", "page", "for", "style", "space"
+]);
+
+function isCostumePalette(palette: Palette): boolean {
+  return COSTUME_WORLD.test(`${palette.name} ${palette.mood}`);
+}
+
+function isQuietEditorialBrief(brief: string): boolean {
+  return QUIET_EDITORIAL.test(brief) && !ASKS_COSTUME.test(brief);
+}
+
+function isBlockWorld(palette: Palette): boolean {
+  return /brutal|dither/i.test(palette.name);
+}
+
+function briefTokens(brief: string): string[] {
+  return (brief.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter((t) => !AFFINITY_STOP.has(t));
+}
+
+function tokenHits(hay: string, token: string): boolean {
+  if (hay.includes(token) || (hay.length >= 5 && token.includes(hay))) return true;
+  const stem = token.replace(/(?:ism|ist|istic|al|ed|ing)$/i, "");
+  return stem.length >= 5 && hay.includes(stem);
+}
+
+function paletteAffinity(palette: Palette, tokens: string[]): number {
+  const name = palette.name.toLowerCase();
+  const mood = palette.mood.toLowerCase();
+  let score = 0;
+  for (const token of tokens) {
+    if (tokenHits(name, token)) score += 4;
+    if (tokenHits(mood, token)) score += 1;
+  }
+  return score;
+}
+
+function reservedPalettes(pool: Palette[], brief: string, seats: number): Palette[] {
+  const tokens = briefTokens(brief);
+  if (tokens.length === 0 || seats <= 0) return [];
+  return pool
+    .map((palette) => ({ palette, score: paletteAffinity(palette, tokens) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.palette.name.localeCompare(b.palette.name))
+    .slice(0, seats)
+    .map((entry) => entry.palette);
+}
+
 export function styleCatalog(
   seed: number,
   handSize = PALETTE_HAND_SIZE,
-  avoidance: StyleAvoidance = {}
+  avoidance: StyleAvoidance = {},
+  dealOpts: StyleDeal = {}
 ): string {
   const next = dealer(seed);
   const avoidedPalettes = new Set((avoidance.palettes ?? []).map((name) => name.toLowerCase()));
   const freshPalettes = PALETTES.filter((p) => !avoidedPalettes.has(p.name.toLowerCase()));
-  const palettePool = freshPalettes.length >= handSize ? freshPalettes : PALETTES;
-  const dark = palettePool.filter((p) => p.scheme === "dark");
-  const light = palettePool.filter((p) => p.scheme === "light");
+  let palettePool = freshPalettes.length >= handSize ? freshPalettes : PALETTES;
+  const brief = dealOpts.brief?.trim() ?? "";
+  if (brief && isQuietEditorialBrief(brief)) {
+    const withoutCostume = palettePool.filter((p) => !isCostumePalette(p));
+    if (withoutCostume.length >= handSize) palettePool = withoutCostume;
+  }
+
+  const reserved = brief ? reservedPalettes(palettePool, brief, ATMOSPHERE_SEATS) : [];
+  const leftover = palettePool.filter((p) => !reserved.includes(p));
+  const remainingSlots = Math.max(0, handSize - reserved.length);
+  const dark = leftover.filter((p) => p.scheme === "dark");
+  const light = leftover.filter((p) => p.scheme === "light");
   // Proportional to the catalog, with a floor of two so neither scheme can be
-  // absent. An even split would deal dark far above its share and trade one
-  // monoculture for another.
-  const share = Math.round((handSize * dark.length) / PALETTES.length);
-  const darkCount = Math.min(handSize - 2, Math.max(2, share));
-  const hand = deal(
-    [...deal(dark, darkCount, next), ...deal(light, handSize - darkCount, next)],
-    handSize,
-    next
-  );
+  // absent — unless reserved seats already brought a dark in. An even split
+  // would deal dark far above its share and trade one monoculture for another.
+  const share = Math.round((remainingSlots * dark.length) / Math.max(PALETTES.length, 1));
+  const minDark = reserved.some((p) => p.scheme === "dark") ? 0 : Math.min(2, remainingSlots);
+  const darkCount = Math.min(remainingSlots, Math.max(minDark, share));
+  const rest = remainingSlots === 0
+    ? []
+    : deal(
+        [...deal(dark, darkCount, next), ...deal(light, remainingSlots - darkCount, next)],
+        remainingSlots,
+        next
+      );
+  const hand = deal([...reserved, ...rest], handSize, next);
 
   const lines: string[] = [];
   lines.push("PALETTES (name — world). These are the palettes offered this run.");
+  lines.push("  Pass the name to set_style, not the light/dark label.");
   lines.push("  Take light or dark from where the product is used, not from its category.");
-  lines.push("  If the look is guessable from the category, pick again.");
-  for (const p of hand) lines.push(`  ${p.name} (${p.scheme}) — ${p.mood}`);
+  for (const p of hand) lines.push(`  ${p.name} — ${p.scheme}. ${p.mood}`);
   lines.push("");
   lines.push("ROUNDNESS");
   const avoidedRoundness = new Set((avoidance.roundness ?? []).map((name) => name.toLowerCase()));
@@ -400,7 +497,11 @@ export function styleCatalog(
   lines.push("ELEVATION");
   const avoidedElevation = new Set((avoidance.elevation ?? []).map((name) => name.toLowerCase()));
   const freshElevation = ELEVATION.filter((e) => !avoidedElevation.has(e.name.toLowerCase()));
-  for (const e of freshElevation.length >= 2 ? freshElevation : ELEVATION) {
+  const elevations = (freshElevation.length >= 2 ? freshElevation : ELEVATION).filter((e) => {
+    if (e.name !== HARD_SHADOW_ELEVATION) return true;
+    return hand.some(isBlockWorld);
+  });
+  for (const e of elevations) {
     lines.push(`  ${e.name} — ${e.mood}`);
   }
   lines.push("");

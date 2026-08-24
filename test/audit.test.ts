@@ -6,6 +6,7 @@ import {
   auditDocument,
   auditInsertion,
   formatAudit,
+  FINISHING_RULES,
   type AuditRule,
   type AuditSeverity,
   type AuditFinding
@@ -892,6 +893,70 @@ describe("Scoping, Triage & Tool Integration", () => {
     });
   });
 
+  it("flags a section heading glued to the card grid below it", () => {
+    const card = (id: string) =>
+      frame(id, 220, 280, [
+        frame(`${id}img`, 220, 140, [], { fill: { type: "image", url: "room.jpg" } }),
+        txt(`${id}t`, "The Focus Room", 22),
+        txt(`${id}d`, "Twelve desks, north light.", 13)
+      ], { layout: "vertical", gap: 8 });
+
+    const glued = makeDoc(
+      screen("desktop", [
+        frame("spacesBand", 1312, "fit_content", [
+          frame("spacesHead", "fill_container", "fit_content", [
+            txt("spacesOverline", "THE SPACES", 12),
+            txt("spacesTitle", "Four rooms, one unhurried pace.", 28),
+            txt("spacesSub", "Each corner of the house holds a different kind of work.", 14)
+          ], { layout: "vertical", gap: 10 }),
+          frame("spacesRow", "fill_container", "fit_content", [
+            card("c1"), card("c2"), card("c3"), card("c4")
+          ], { layout: "horizontal", gap: 20 })
+        ], { layout: "vertical", padding: [80, 64] })
+      ], { width: 1440, height: 1800 })
+    );
+    expectFinding(glued, "heading_content_gap", {
+      nodeId: "spacesBand",
+      severity: "warning",
+      message: /heading.*grid|grid.*heading/i
+    });
+
+    const spaced = makeDoc(
+      screen("desktop", [
+        frame("spacesBand", 1312, "fit_content", [
+          frame("spacesHead", "fill_container", "fit_content", [
+            txt("spacesOverline", "THE SPACES", 12),
+            txt("spacesTitle", "Four rooms, one unhurried pace.", 28)
+          ], { layout: "vertical", gap: 10 }),
+          frame("spacesRow", "fill_container", "fit_content", [
+            card("c1"), card("c2"), card("c3"), card("c4")
+          ], { layout: "horizontal", gap: 20 })
+        ], { layout: "vertical", gap: 32, padding: [80, 64] })
+      ], { width: 1440, height: 1800 })
+    );
+    expect(rules(spaced)).not.toContain("heading_content_gap");
+  });
+
+  it("does not treat a hero title above a compact booking control as a glued section", () => {
+    const hero = makeDoc(
+      screen("desktop", [
+        frame("heroLeft", 480, "fit_content", [
+          txt("title", "A slower workday, held in a tiled house.", 44),
+          frame("ctaRow", "fill_container", 48, [
+            frame("b1", 140, 44, [txt("b1t", "Reserve", 14)], { layout: "horizontal" }),
+            frame("b2", 140, 44, [txt("b2t", "View", 14)], { layout: "horizontal" })
+          ], { layout: "horizontal", gap: 12 })
+        ], { layout: "vertical", gap: 16 })
+      ], { width: 1440, height: 900 })
+    );
+    expect(rules(hero)).not.toContain("heading_content_gap");
+  });
+
+  it("holds eyebrow kickers and glued section headings for the finishing pass", () => {
+    expect(FINISHING_RULES.has("eyebrow_kicker")).toBe(true);
+    expect(FINISHING_RULES.has("heading_content_gap")).toBe(true);
+  });
+
   it("flags text colliding across image boundaries", () => {
     const collisionDoc = makeDoc(
       frame("screen", 390, 844, [
@@ -1102,6 +1167,32 @@ describe("Scoping, Triage & Tool Integration", () => {
     });
   });
 
+  it("does not treat a thin quote bar as the fold peek on a desktop site", () => {
+    // 3fbe82f2: an 80px black quote peeked above 900px while rooms sat below.
+    const site = makeDoc(
+      screen("desktop", [
+        frame("main", 1440, "fit_content", [
+          frame("hero", 1440, 800, [txt("h", "Make room for your best work in Lisbon", 48)], {
+            name: "Hero",
+            layout: "vertical"
+          }),
+          frame("quote", 1440, 80, [txt("q", "The best workday leaves a little room for the city", 18)], {
+            name: "Quote",
+            layout: "vertical"
+          }),
+          frame("rooms", 1440, 420, [
+            frame("card1", 400, 380, [txt("c1", "The Quiet Desk", 22)]),
+            frame("card2", 400, 380, [txt("c2", "The Courtyard Table", 22)])
+          ], { name: "Rooms", layout: "horizontal" })
+        ], { name: "Main", layout: "vertical", metadata: { scaffold: "slot" } as any })
+      ], { width: 1440, height: 2200 })
+    );
+    expectFinding(site, "false_floor", {
+      severity: "blocker",
+      message: /900px fold|do not delete Main/i
+    });
+  });
+
   it("blocks oversized hero and false floor inside scaffolded Inset Content", () => {
     const scaffoldedDoc = makeDoc(
       frame("screen", 390, 1600, [
@@ -1173,6 +1264,23 @@ describe("Scoping, Triage & Tool Integration", () => {
       nodeId: "hero",
       severity: "blocker"
     });
+  });
+
+  it("does not treat a 650px photo story on a scrolling desktop site as an oversized card", () => {
+    const site = makeDoc(
+      screen("desktop", [
+        frame("main", 1440, "fit_content", [
+          frame("hero", 1440, 520, [txt("h", "Work at Lisbon's pace", 48)], { name: "Hero", layout: "vertical" }),
+          frame("story", 1440, 680, [
+            txt("st", "A day at Calma", 28),
+            frame("p1", 400, 480, [], { fill: { type: "image", url: "a.jpg" } }),
+            frame("p2", 400, 480, [], { fill: { type: "image", url: "b.jpg" } })
+          ], { name: "Story", layout: "vertical" }),
+          frame("pricing", 1440, 400, [txt("pr", "Day pass", 22)], { name: "Pricing" })
+        ], { name: "Main", layout: "vertical" })
+      ], { width: 1440, height: 2200 })
+    );
+    expect(rules(site)).not.toContain("oversized_section_height");
   });
 
   it("blocks inconsistent action styles across sibling cards in a row", () => {

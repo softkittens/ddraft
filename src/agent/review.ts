@@ -357,6 +357,8 @@ export function applyReviewMessage(
     "canvas tools. Recompose the regions it names instead of only adding",
     "decoration, and leave the rest of the canvas alone — this is a revision, not",
     "a second design pass.",
+    "Never delete a create_screen slot (Main, Top Bar, rails, Inset, Bleed) or the",
+    "screen itself. Edit or replace children inside the slot.",
     "When you finish, say in one sentence what you changed. What the product is",
     "has already been said."
   ];
@@ -391,13 +393,10 @@ export function enforceAuditFindings(
 ): DesignReview {
   const reviewBlockingRules = new Set<AuditFinding["rule"]>([
     "cropped_photography",
-    "oversized_section_height",
     "empty_tail",
     "icon_alignment",
-    "uneven_card_heights",
     "misaligned_buttons",
     "inconsistent_card_actions",
-    "accent_overuse",
     "false_floor",
     "missing_product_image",
     "undersized_subject",

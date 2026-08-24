@@ -20,20 +20,44 @@ import {
 import { deriveStatusTokens, hexToHsl } from "../src/design/statusTokens";
 import { effectSchema } from "../src/model/parse";
 import { agentSystemPrompt } from "../src/agent/prompt";
-import { createDocumentTools } from "../src/agent/tools";
+import { createDocumentTools, TOOL_DEFS } from "../src/agent/tools";
 
 describe("Style system", () => {
   it("deals a hand of palettes instead of printing the whole catalog", () => {
     const catalog = styleCatalog(12345);
-    const offered = PALETTES.filter((p) => catalog.includes(`  ${p.name} (`));
+    const offered = PALETTES.filter((p) => catalog.includes(`  ${p.name} — ${p.scheme}.`));
     expect(offered).toHaveLength(PALETTE_HAND_SIZE);
     expect(PALETTES.length).toBeGreaterThan(PALETTE_HAND_SIZE * 3);
+  });
+
+  it("lists the palette name as the set_style argument, not glued to light/dark", () => {
+    // de275003: first call was set_style palette "Publication (light)" because
+    // the hand printed `Publication (light) — …`. The catalog name is Publication.
+    const catalog = styleCatalog(12345);
+    for (const p of PALETTES) {
+      expect(catalog).not.toContain(`  ${p.name} (${p.scheme})`);
+    }
+    const offered = PALETTES.filter((p) => catalog.includes(`  ${p.name} — ${p.scheme}.`));
+    expect(offered).toHaveLength(PALETTE_HAND_SIZE);
+  });
+
+  it("resolves a palette name copied with the scheme parenthetical the old hand printed", () => {
+    const p = PALETTES.find((entry) => entry.scheme === "light")!;
+    const style = resolveStyle({
+      palette: `${p.name} (${p.scheme})`,
+      roundness: "Basic",
+      elevation: "Soft Lift",
+      headings: "Inter",
+      body: "Inter",
+      captions: "Inter"
+    });
+    expect(style.choice.palette).toBe(p.name);
   });
 
   it("puts both light and dark on the table in every hand", () => {
     for (const seed of [1, 2, 7, 99, 1234, -5000]) {
       const catalog = styleCatalog(seed);
-      const offered = PALETTES.filter((p) => catalog.includes(`  ${p.name} (`));
+      const offered = PALETTES.filter((p) => catalog.includes(`  ${p.name} — ${p.scheme}.`));
       expect(offered.some((p) => p.scheme === "dark")).toBe(true);
       expect(offered.some((p) => p.scheme === "light")).toBe(true);
     }
@@ -111,6 +135,16 @@ describe("Style system", () => {
     const guidance = styleGuidelines(style);
     expect(guidance).toContain("44-64 display");
     expect(guidance).toContain("Compact mobile apps may use 32-40 instead");
+  });
+
+  it("asks firstViewport for subject and hierarchy, not a left/right lock", () => {
+    // 8ca10dd0: the hedge in this description, the builder prompt, and the
+    // critic all licensed filling the desktop rails as a "split composition".
+    const setStyle = TOOL_DEFS.find((t) => t.name === "set_style")!;
+    const desc = (setStyle.parameters as any).properties.firstViewport.description as string;
+    expect(desc).toContain("focal subject");
+    expect(desc).toContain("static canvas");
+    expect(desc).not.toContain("left/right");
   });
 
   it("set_style writes tokens and the guidelines restate them on later turns", async () => {
@@ -316,7 +350,7 @@ describe("Dealing", () => {
     for (let s = 1; s <= N; s++) {
       const catalog = styleCatalog(s);
       for (const p of PALETTES) {
-        if (catalog.includes(`  ${p.name} (`)) {
+        if (catalog.includes(`  ${p.name} — ${p.scheme}.`)) {
           seen.set(p.name, (seen.get(p.name) ?? 0) + 1);
         }
       }
@@ -324,5 +358,59 @@ describe("Dealing", () => {
     expect(seen.size).toBe(PALETTES.length);
     const worst = Math.max(...seen.values()) / N;
     expect(worst).toBeLessThan(0.3);
+  });
+
+  it("does not tell the model to skip a look that fits the brief", () => {
+    // Luna had Refined in the hand for a warm-minimal house and picked
+    // Neobrutalism because this line said a guessable look is the wrong one.
+    expect(styleCatalog(1)).not.toContain("If the look is guessable");
+  });
+
+  it("holds two palettes whose world overlaps a warm-minimal brief, and keeps costumes off that table", () => {
+    const brief = "Warm minimal booking site for a Lisbon coworking space";
+    for (const seed of [1, 2, 3, 7, 99, 1234, -5000]) {
+      const catalog = styleCatalog(seed, PALETTE_HAND_SIZE, {}, { brief });
+      const offered = PALETTES.filter((p) => catalog.includes(`  ${p.name} — ${p.scheme}.`));
+      expect(offered).toHaveLength(PALETTE_HAND_SIZE);
+      const matching = offered.filter((p) =>
+        /warm|minimal|paper|linen|editorial|refined|modern|cafe/i.test(`${p.name} ${p.mood}`)
+      );
+      expect(matching.length).toBeGreaterThanOrEqual(2);
+      expect(offered.map((p) => p.name)).not.toContain("Neobrutalism");
+      expect(offered.map((p) => p.name)).not.toContain("Trading Terminal");
+      expect(offered.map((p) => p.name)).not.toContain("Dithered");
+      expect(catalog).not.toContain("Hard Block");
+    }
+  });
+
+  it("still deals a costume world when the brief asks for that world", () => {
+    for (const seed of [1, 7, 99]) {
+      const catalog = styleCatalog(seed, PALETTE_HAND_SIZE, {}, {
+        brief: "Bloomberg-style trading terminal for futures desks"
+      });
+      expect(catalog).toContain("Trading Terminal");
+    }
+  });
+
+  it("offers Hard Block only when a block-world palette is in the hand", () => {
+    const brutal = styleCatalog(3, PALETTE_HAND_SIZE, {}, {
+      brief: "Neobrutalist poster site with bold borders and offset block shadows"
+    });
+    expect(brutal).toContain("Neobrutalism");
+    expect(brutal).toContain("Hard Block");
+
+    const quiet = styleCatalog(3, PALETTE_HAND_SIZE, {}, {
+      brief: "Warm minimal booking site for a Lisbon coworking space"
+    });
+    expect(quiet).not.toContain("Neobrutalism");
+    expect(quiet).not.toContain("Hard Block");
+  });
+
+  it("keeps one brief plus seed on the same hand", () => {
+    const brief = "Warm minimal booking site for a Lisbon coworking space";
+    const opts = { brief } as const;
+    expect(styleCatalog(11, PALETTE_HAND_SIZE, {}, opts)).toBe(
+      styleCatalog(11, PALETTE_HAND_SIZE, {}, opts)
+    );
   });
 });

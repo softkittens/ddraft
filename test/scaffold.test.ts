@@ -117,12 +117,28 @@ describe("screen scaffold", () => {
     expect(auditDocument(withAccents).filter((f: any) => f.rule === "accent_overuse").length).toBe(1);
   });
 
-  it("gives the desktop dominant region the remaining width and the rails a fixed one", () => {
-    const { node, slots } = buildScreen({ name: "Board", kind: "desktop" }, ids());
+  it("gives a tool desktop the remaining width on main and a fixed width on the rails", () => {
+    const { node, slots } = buildScreen({ name: "Board", kind: "desktop", archetype: "tool" }, ids());
     expect(find(node, "Main")?.width).toBe("fill_container");
     expect(find(node, "Left Rail")?.width).toBe(260);
     expect(find(node, "Right Rail")?.width).toBe(320);
     expect(Object.keys(slots).sort()).toEqual(["aside", "main", "rail", "screen", "topBar"]);
+  });
+
+  it("does not build rails on a site desktop — those slots are how photography leaked into chrome", () => {
+    // 8ca10dd0: create_screen always stamped Left/Right Rail, then the prompt
+    // asked the model not to fill them. Asking lost to the digest. Site chrome
+    // is topBar + main; the rails are not there to fill.
+    const { node, slots } = buildScreen({ name: "Landing", kind: "desktop", archetype: "site" }, ids());
+    expect(find(node, "Left Rail")).toBeUndefined();
+    expect(find(node, "Right Rail")).toBeUndefined();
+    expect(find(node, "Main")?.width).toBe("fill_container");
+    expect(Object.keys(slots).sort()).toEqual(["main", "screen", "topBar"]);
+  });
+
+  it("defaults a desktop screen without an archetype to site chrome", () => {
+    const { slots } = buildScreen({ name: "Board", kind: "desktop" }, ids());
+    expect(Object.keys(slots).sort()).toEqual(["main", "screen", "topBar"]);
   });
 
   it("produces a screen the auditor passes, so the floor is clean before content", () => {
@@ -252,6 +268,44 @@ describe("create_screen tool", () => {
     expect(out).not.toContain("error:");
     expect(session.doc.children[0].height).toBe(2200);
     expect(session.doc.children[0].width).toBe(1440);
+  });
+
+  it("returns tool rails only when the session resolved a tool, not because desktop always has them", async () => {
+    const site = createDocumentTools(empty(), {}, undefined, "site");
+    const siteOut = await site.execute("create_screen", { name: "Landing", kind: "desktop" });
+    expect(siteOut).toContain("main:");
+    expect(siteOut).toContain("topBar:");
+    expect(siteOut).not.toContain("rail:");
+    expect(siteOut).not.toContain("aside:");
+
+    const tool = createDocumentTools(empty(), {}, undefined, "tool");
+    const toolOut = await tool.execute("create_screen", { name: "Console", kind: "desktop" });
+    expect(toolOut).toContain("rail:");
+    expect(toolOut).toContain("aside:");
+  });
+
+  it("refuses to insert into scaffold chrome", async () => {
+    const session = createDocumentTools(empty());
+    await session.execute("create_screen", { name: "Home", kind: "mobile" });
+    const status = find(session.doc.children[0], "Status Bar")!;
+    const out = await session.execute("insert_node", {
+      parentId: status.id,
+      node: { type: "text", id: "leak", content: "not chrome", fontSize: 12 }
+    });
+    expect(out).toMatch(/error:.*chrome/i);
+    expect(find(status, "leak")).toBeUndefined();
+  });
+
+  it("refuses to delete a create_screen slot", async () => {
+    // 9aa7670e: after a visual pass, the audit asked DeepSeek to shrink four
+    // site bands. It deleted Main (n3) and the page below the hero vanished.
+    const session = createDocumentTools(empty(), {}, undefined, "site");
+    await session.execute("create_screen", { name: "Landing", kind: "desktop" });
+    const main = find(session.doc.children[0], "Main")!;
+    expect(main.metadata?.scaffold).toBe("slot");
+    const out = await session.execute("delete_node", { id: main.id });
+    expect(out).toMatch(/error:.*slot/i);
+    expect(find(session.doc.children[0], "Main")?.id).toBe(main.id);
   });
 
   it("raises a too-short create_screen height to the viewport", async () => {

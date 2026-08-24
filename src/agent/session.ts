@@ -4,7 +4,8 @@ import { stepDownEffort, type Message, type Provider, type FetchFn, type Tool } 
 import { completeStream, assembleToolCalls } from "./stream";
 import { TOOL_DEFS, createDocumentTools } from "./tools";
 import { pageScopedDocument } from "../model/pages";
-import { withSystemPrompt, MAX_MODEL_ROUNDS } from "./prompt";
+import { withSystemPrompt, extractUserPrompts, MAX_MODEL_ROUNDS } from "./prompt";
+import { resolvePromptContext } from "./context";
 import type { StyleRun } from "../design/history";
 import {
   SessionWatchdog,
@@ -74,16 +75,16 @@ export async function* runSession(
     trace?: AgentTrace;
   } = {}
 ): AsyncGenerator<AgentEvent> {
+  const promptDoc = pageScopedDocument(doc, opts.pageId);
+  const { latest, all } = extractUserPrompts(messages);
+  const resolved = resolvePromptContext(latest, promptDoc, opts.selection ?? [], all);
   const session = createDocumentTools(doc, {
     providerId: provider.id,
     apiKey: provider.apiKey,
     fetch: opts.fetch
-  }, opts.pageId);
-  // The prompt describes the page, not the canvas. Everything downstream of
-  // this — the digest, the selection lines, the resolved context that picks
-  // the blueprints — narrows with it.
-  const promptDoc = pageScopedDocument(doc, opts.pageId);
-  const out = withSystemPrompt(messages, promptDoc, opts.selection ?? [], provider.model, opts.recentStyles ?? []);
+  }, opts.pageId, resolved.archetype);
+  const maxTurns = opts.maxTurns ?? MAX_MODEL_ROUNDS;
+  const out = withSystemPrompt(messages, promptDoc, opts.selection ?? [], provider.model, opts.recentStyles ?? [], maxTurns);
 
   // Attach canvas reference image if selected
   if (opts.selection && opts.selection.length > 0) {
@@ -119,7 +120,6 @@ export async function* runSession(
 
   let tracedMessages = out.length;
   const watchdog = new SessionWatchdog();
-  const maxTurns = opts.maxTurns ?? MAX_MODEL_ROUNDS;
   const internal = new Set<Message>();
 
   let currentProvider: Provider = provider;
@@ -203,7 +203,27 @@ export async function* runSession(
 
         if (toolCalls.length === 1 && reply) {
           out[out.length - 1] = { role: "assistant", content: reply };
-          recordOutcome(opts.trace, session.doc, watchdog.getMetrics("answered without designing"));
+          // An empty canvas plus answer_user is a chat reply. A canvas this
+          // session already changed is a wrap-up: 1d2d9f50 built 159 nodes,
+          // then called this, and the loop recorded "answered without designing"
+          // while 33 blockers sat on the canvas.
+          if (session.doc === doc) {
+            recordOutcome(opts.trace, session.doc, watchdog.getMetrics("answered without designing"));
+            yield { type: "delta", content: reply };
+            yield { type: "done", messages: sanitizeSessionMessages(out, internal), doc: session.doc };
+            return;
+          }
+          const evalRes = watchdog.evaluateCompletion(session.doc, turn, maxTurns, false, reply);
+          if (evalRes.action === "retry_empty") {
+            out.pop();
+            nudge(evalRes.nudge);
+            continue;
+          }
+          if (evalRes.action === "correct_unfinished") {
+            nudge(evalRes.nudge);
+            continue;
+          }
+          recordOutcome(opts.trace, session.doc, watchdog.getMetrics("model finished"));
           yield { type: "delta", content: reply };
           yield { type: "done", messages: sanitizeSessionMessages(out, internal), doc: session.doc };
           return;

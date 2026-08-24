@@ -71,6 +71,15 @@ for (const [index, run] of runs.entries()) {
   if (brief) console.log(`brief    ${brief.replace(/\s+/g, " ").slice(0, 68)}`);
   console.log(`model    ${start?.model ?? "?"}  ·  ${Math.round(Number(end?.elapsedMs ?? 0) / 1000)}s  ·  ${calls.length} tool calls`);
 
+  const styleCall = calls.find((c) => c.name === "set_style");
+  if (styleCall) {
+    const a = parseArgs(styleCall.arguments);
+    const parts = [a.palette, a.roundness, a.elevation].filter(Boolean);
+    if (parts.length > 0) console.log(`style    ${parts.join(" · ")}`);
+    if (a.thesis) console.log(`thesis   ${String(a.thesis).replace(/\s+/g, " ").slice(0, 88)}`);
+    if (a.firstViewport) console.log(`viewport ${String(a.firstViewport).replace(/\s+/g, " ").slice(0, 88)}`);
+  }
+
   /**
    * How the calls were spread over rounds, which is what a run is actually
    * charged for. A round replays the whole conversation; the calls inside it

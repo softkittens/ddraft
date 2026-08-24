@@ -135,8 +135,23 @@ describe("design review contract", () => {
     const lastImage = parts.map((part) => part.type).lastIndexOf("image_url");
     const afterImage = parts.slice(lastImage + 1).map((part) => part.text ?? "").join("\n");
     expect(afterImage).toContain("THESIS: A journal, not a dashboard");
-    expect(afterImage).toContain("intent, not a geometry specification");
+    // Same hedge as the builder prompt: "prefer the stronger composition"
+    // when topology diverges licensed 8ca10dd0's rail photography.
+    expect(afterImage).not.toContain("geometry specification");
+    expect(afterImage).not.toContain("left/right");
     expect(afterImage).toContain("cannot prove sticky, persistent");
+    expect(afterImage).toContain("Banner or split");
+    expect(afterImage).toContain("not a defect");
+  });
+
+  it("does not treat firstViewport as a composition to rebuild", () => {
+    expect(CRITIC_PROMPT).toContain("not a layout specification");
+    expect(CRITIC_PROMPT).not.toContain("left/right");
+  });
+
+  it("does not treat cream close-ups as a missing page when the digest still names the bands", () => {
+    expect(CRITIC_PROMPT).toContain("clip or capture problem");
+    expect(CRITIC_PROMPT).toContain("create_screen slot");
   });
 
   it("tells the overview critic that viewport crop edges are not clipping", () => {
@@ -201,6 +216,7 @@ describe("design review contract", () => {
     // The run that read this instruction spent 45 tool calls against the 33 the
     // build had used, most of them nudging regions the critic never mentioned.
     expect(text).toContain("leave the rest of the canvas alone");
+    expect(text).toContain("Never delete a create_screen slot");
   });
 });
 
@@ -486,5 +502,31 @@ describe("Fixes the critic applies itself", () => {
     }]);
     expect(enforced.verdict).toBe("refine");
     expect(enforced.issues[0].nodeIds).toEqual(["screen"]);
+  });
+
+  it("does not send a passed site back to be rebuilt over tall narrative bands", () => {
+    // 9aa7670e: critic scored Calma 5/5. oversized_section_height on 650px
+    // story/pricing bands then forced a revision that deleted Main.
+    const passingReview: DesignReview = {
+      verdict: "pass",
+      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 4 },
+      strengths: ["Complete information architecture"],
+      issues: []
+    };
+    const enforced = enforceAuditFindings(passingReview, [{
+      rule: "oversized_section_height",
+      severity: "warning",
+      nodeId: "band-story",
+      message: "Story is 654px tall",
+      fix: "Make the card compact (380px–520px)"
+    }, {
+      rule: "accent_overuse",
+      severity: "warning",
+      nodeId: "n1",
+      message: "9 separate roles",
+      fix: "Pick the 2 that mean the most"
+    }]);
+    expect(enforced.verdict).toBe("pass");
+    expect(enforced.issues).toEqual([]);
   });
 });

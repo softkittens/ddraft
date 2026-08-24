@@ -10,6 +10,8 @@ import {
   WHOLE_DOC_ALIASES,
   digestId,
   parentIdOf,
+  chromeWriteError,
+  scaffoldDeleteError,
   resolveIconGeometry,
   resolvePercentSizes
 } from "./types";
@@ -18,7 +20,7 @@ import { normalizeNodeTree, describeNormalization, type NormalizeReport } from "
 export const createScreenTool: DocumentToolDefinition = {
   name: "create_screen",
   description:
-    "Build a mobile or desktop screen frame. Omit tabs except on multi-destination apps. Width is the device (390 or 1440). Height defaults to dynamic 'fit_content' with a viewport floor (844 mobile / 900 desktop) so stacked bands expand naturally without leaving empty space.",
+    "Build a mobile or desktop screen frame. Desktop chrome follows the product: a site is topBar + main; a tool also gets rail and aside. Omit tabs except on multi-destination apps. Width is the device (390 or 1440). Height defaults to dynamic 'fit_content' with a viewport floor (844 mobile / 900 desktop) so stacked bands expand naturally without leaving empty space.",
   parameters: {
     type: "object",
     properties: {
@@ -82,6 +84,7 @@ export const createScreenTool: DocumentToolDefinition = {
     const spec: ScreenSpec = {
       name,
       kind: a.kind,
+      archetype: ctx.archetype,
       tabs: tabs.length > 0 ? tabs : undefined,
       height: typeof a.height === "number" || typeof a.height === "string" ? a.height : undefined
     };
@@ -176,6 +179,8 @@ export const insertNodeTool: DocumentToolDefinition = {
 
     const offParent = ctx.offPage(targetParent);
     if (offParent) return offParent;
+    const chrome = chromeWriteError(doc, targetParent);
+    if (chrome) return chrome;
 
     const before = doc;
     doc = insertChild(doc, targetParent, nodeToInsert as PenNode, typeof a.index === "number" ? a.index : undefined);
@@ -234,6 +239,8 @@ export const placeInstancesTool: DocumentToolDefinition = {
     // on another page is a shared asset, not a trespass.
     const offParent = ctx.offPage(parentId);
     if (offParent) return offParent;
+    const chrome = chromeWriteError(doc, parentId);
+    if (chrome) return chrome;
     if (items.length === 0) return "error: items is empty. Give one entry per instance.";
 
     const known = new Set<string>();
@@ -343,6 +350,8 @@ export const deleteNodeTool: DocumentToolDefinition = {
     if (!findNode(doc.children, targetId)) return `error: node ${targetId} not found`;
     const off = ctx.offPage(targetId);
     if (off) return off;
+    const slot = scaffoldDeleteError(doc, targetId);
+    if (slot) return slot;
 
     // Guard against accidentally wiping out the sole root screen on this page
     const pageRoots = ctx.pageDoc.children;
@@ -386,11 +395,17 @@ export const moveNodeTool: DocumentToolDefinition = {
     if (!findNode(doc.children, targetId)) return `error: could not find node ${targetId}`;
     const off = ctx.offPage(targetId);
     if (off) return off;
+    const slot = scaffoldDeleteError(doc, targetId);
+    if (slot) return slot;
 
     const rawParentId = typeof a.newParentId === "string" ? a.newParentId.trim() : undefined;
     const offParent = ctx.offPage(rawParentId);
     if (offParent) return offParent;
     const isRootMove = !rawParentId || rawParentId === "canvas" || rawParentId === "root" || rawParentId === "document";
+    if (!isRootMove) {
+      const chrome = chromeWriteError(doc, rawParentId);
+      if (chrome) return chrome;
+    }
     const oldParent = parentIdOf(doc, targetId);
 
     const before = digest(doc);

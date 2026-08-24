@@ -46,6 +46,7 @@ import {
   commitAgentPass
 } from "./types";
 import { fetchAgentStatus, streamAgentRun, fetchAgentReview } from "./chatClient";
+import { reviewLoopNext } from "./reviewLoop";
 
 function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError";
@@ -471,7 +472,6 @@ export function useChatSession() {
         if (!reviewed.review) break;
 
         let finalReview: DesignReview | undefined;
-        let reviewUnavailable = false;
         /*
          * True when the loop stopped at its budget with fixes freshly applied.
          *
@@ -520,16 +520,14 @@ export function useChatSession() {
           reviewed = await runReview(sessionId);
           if (reviewed.error) {
             note(`Post-fix visual review could not run: ${reviewed.error}`, "error");
-            reviewUnavailable = true;
             break;
           }
           if (!reviewed.review) {
-            reviewUnavailable = true;
             break;
           }
         }
 
-        if (reviewUnavailable || !finalReview) break;
+        if (!finalReview) break;
 
         // One confirming look at the canvas the user is actually left with. Its
         // fixes are not applied — the fix budget is spent — so what it reports
@@ -537,29 +535,53 @@ export function useChatSession() {
         // to the agent like any other refine.
         if (fixesAwaitingReview) {
           const confirmed = await runReview(sessionId);
-          if (confirmed.error) {
+          if (!confirmed.error && confirmed.review) {
+            const confirmedReview = enforceAuditFindings(confirmed.review, auditDocument(pageScopedDocument(doc(), activePage()?.id)));
+            finalReview = confirmedReview;
+            reviewNumber += 1;
+            setEntries((prev) => [
+              ...prev,
+              {
+                kind: "review",
+                pass: reviewNumber,
+                review: confirmedReview,
+                applied: 0,
+                thumbnail: confirmed.thumbnail,
+                sectionThumbnails: confirmed.sectionThumbnails
+              }
+            ]);
+          } else if (confirmed.error) {
             note(`Final visual review could not run: ${confirmed.error}`, "error");
-            break;
           }
-          if (!confirmed.review) break;
-          const confirmedReview = enforceAuditFindings(confirmed.review, auditDocument(pageScopedDocument(doc(), activePage()?.id)));
-          finalReview = confirmedReview;
-          reviewNumber += 1;
-          setEntries((prev) => [
-            ...prev,
-            {
-              kind: "review",
-              pass: reviewNumber,
-              review: confirmedReview,
-              applied: 0,
-              thumbnail: confirmed.thumbnail,
-              sectionThumbnails: confirmed.sectionThumbnails
-            }
-          ]);
         }
 
-        if (finalReview.verdict !== "refine" || pass === AUTO_REVIEW_REVISIONS) break;
-        instruction = applyReviewMessage(lastBrief(), finalReview, doc());
+        const next = reviewLoopNext({
+          pass,
+          maxRevisions: AUTO_REVIEW_REVISIONS,
+          verdict: finalReview.verdict,
+          hasReview: true
+        });
+        switch (next) {
+          case "stop":
+            break;
+          case "revise":
+            instruction = applyReviewMessage(lastBrief(), finalReview, doc());
+            continue;
+          case "apply_last": {
+            instruction = applyReviewMessage(lastBrief(), finalReview, doc());
+            const last = await runAgentPass(instruction, context, sessionId);
+            context = last.messages;
+            setAgentMessages(context);
+            if (last.edited) producedDesign = true;
+            break;
+          }
+          default: {
+            const _exhaustive: never = next;
+            void _exhaustive;
+            break;
+          }
+        }
+        break;
       }
     } finally {
       abort = null;

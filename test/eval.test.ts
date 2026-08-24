@@ -382,6 +382,9 @@ describe("agent session lifecycle & stall detection", () => {
     // model measurably cost 21% of the tool calls per round in the logged runs.
     expect(JSON.stringify(warnings[0].content)).toContain("one tool call or twenty");
     expect(JSON.stringify(warnings[0].content)).toContain("batch_set_properties");
+    // The BUDGET line has to name this run's cap (5), not MAX_MODEL_ROUNDS (100).
+    expect(JSON.stringify(JSON.parse(posted[0]!).messages)).toContain("5 rounds");
+    expect(JSON.stringify(JSON.parse(posted[0]!).messages)).not.toContain("100 rounds");
 
     // Abort controller propagation
     const ac = new AbortController();
@@ -402,6 +405,58 @@ describe("agent session lifecycle & stall detection", () => {
     ));
     expect(abortEvents.some((e) => e.type === "error" && (e as any).code === "aborted")).toBe(true);
     expect(abortEvents.filter((e) => e.type === "done")).toHaveLength(0);
+  });
+
+  it("nudges a streak of one-call rounds instead of treating them as progress", async () => {
+    // 1d2d9f50 (x-preview): 44 of 67 rounds carried a single call. Wrap-up
+    // already says a round costs the same with twenty calls, but it only
+    // fires near the ceiling. Until then the loop counted that as progress.
+    const posted: string[] = [];
+    let calls = 0;
+    const events = await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "tweak the card" }],
+      makeDoc(frame("f", 100, 100, [rect("r", 40, 40)])),
+      {
+        maxTurns: 20,
+        fetch: async (_in, init) => {
+          posted.push(String(init?.body));
+          calls += 1;
+          if (calls > 4) return saysSse("done");
+          return callsSse("set_property", { id: "r", property: "width", value: 40 + calls }, `c${calls}`);
+        }
+      }
+    ));
+    const density = (body: string) =>
+      JSON.stringify(JSON.parse(body).messages).includes("one tool call or twenty");
+    expect(density(posted[2]!)).toBe(false);
+    expect(density(posted[3]!)).toBe(true);
+    expect(JSON.stringify(JSON.parse(posted[3]!).messages)).toContain("batch_set_properties");
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+    expect(events.some((e) => e.type === "done")).toBe(true);
+  });
+
+  it("does not nudge rounds that already batch several calls", async () => {
+    const posted: string[] = [];
+    let calls = 0;
+    await collect(runSession(
+      testProvider,
+      [{ role: "user", content: "tweak the card" }],
+      makeDoc(frame("f", 200, 200, [rect("r", 40, 40)])),
+      {
+        maxTurns: 20,
+        fetch: async (_in, init) => {
+          posted.push(String(init?.body));
+          calls += 1;
+          if (calls > 4) return saysSse("done");
+          return roundSse([
+            ["set_property", { id: "r", property: "width", value: 40 + calls }],
+            ["set_property", { id: "r", property: "height", value: 40 + calls }]
+          ], calls);
+        }
+      }
+    ));
+    expect(posted.join("\n")).not.toContain("one tool call or twenty");
   });
 });
 
@@ -621,6 +676,47 @@ describe("a conversational reply written as prose", () => {
       })
     );
     expect(events.filter((e) => e.type === "status").length).toBeGreaterThan(2);
+  });
+});
+
+describe("answer_user after the canvas has been designed", () => {
+  it("still runs the finishing audit instead of treating the wrap-up as a chat reply", async () => {
+    // 1d2d9f50: 159 nodes, 33 blockers, then answer_user. The loop recorded
+    // "answered without designing" and never asked the model to fix them.
+    const bodies: any[] = [];
+    let calls = 0;
+    const events = await collect(
+      runSession(testProvider, [{ role: "user", content: "Warm minimal booking site" }], makeDoc(), {
+        fetch: async (_u, init) => {
+          bodies.push(JSON.parse(String(init?.body)));
+          calls += 1;
+          if (calls === 1) return callsSse("create_screen", { name: "Home", kind: "mobile" });
+          if (calls === 2) return callsSse("answer_user", { reply: "A Lisbon booking site is on the canvas." });
+          return saysSse("continuing");
+        },
+        maxTurns: 6
+      })
+    );
+
+    expect(calls).toBeGreaterThan(2);
+    expect(JSON.stringify(bodies[2])).toMatch(/Measured before you finish|scaffold_only|missing_display/);
+    expect(events.some((e) => e.type === "done")).toBe(true);
+  });
+
+  it("still ends immediately when the canvas was never touched", async () => {
+    let calls = 0;
+    const events = await collect(
+      runSession(testProvider, [{ role: "user", content: "what can you do?" }], makeDoc(), {
+        fetch: async () => {
+          calls += 1;
+          return callsSse("answer_user", { reply: "I design screens from a brief." });
+        },
+        maxTurns: 4
+      })
+    );
+    expect(calls).toBe(1);
+    const done = events.find((e) => e.type === "done") as { messages: { content: unknown }[] } | undefined;
+    expect(done?.messages.at(-1)?.content).toBe("I design screens from a brief.");
   });
 });
 

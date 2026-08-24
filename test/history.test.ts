@@ -41,7 +41,7 @@ describe("Style history", () => {
     const basePrompt = agentSystemPrompt(
       makeDoc(), [], "m", 0, [], "Playful ordering app for matcha cakes"
     );
-    const previouslyOffered = basePrompt.match(/PALETTES[\s\S]*?\n  ([^(\n]+) \((?:light|dark)\)/)?.[1]?.trim();
+    const previouslyOffered = basePrompt.match(/PALETTES[\s\S]*?\n  ([^—\n]+) — (?:light|dark)\./)?.[1]?.trim();
     expect(previouslyOffered).toBeDefined();
     const previous: StyleRun = {
       ...run("Playful ordering app for matcha cakes", previouslyOffered!),

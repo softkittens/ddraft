@@ -24,6 +24,11 @@ export const WRAP_UP_ROUNDS = 8;
 export const MAX_RESEARCH_TURNS = 4;
 export const MAX_CORRECTIONS = 3;
 
+/** Consecutive one-call mutating rounds before asking the model to batch. */
+export const SOLO_CALL_STREAK = 3;
+/** After two reminders, further singles are the model's choice. */
+export const MAX_SOLO_NUDGES = 2;
+
 /**
  * Replies cut off by the output cap before the run gives up on the model.
  *
@@ -122,9 +127,38 @@ export class SessionWatchdog {
   emptyReplies = 0;
   wrappingUp = false;
   toolTally = new Map<string, number>();
+  soloStreak = 0;
+  soloNudges = 0;
 
   recordTool(name: string): void {
     this.toolTally.set(name, (this.toolTally.get(name) ?? 0) + 1);
+  }
+
+  /**
+   * 1d2d9f50 spent 44 of 67 rounds on a single call. Wrap-up already says a
+   * round costs the same with twenty calls, but it only fires near the ceiling.
+   * This is that sentence, mid-run, and it does not stop the session.
+   */
+  noteSoloRound(toolCalls: { function: { name: string } }[]): string | null {
+    if (this.wrappingUp || this.soloNudges >= MAX_SOLO_NUDGES) {
+      this.soloStreak = 0;
+      return null;
+    }
+    const mutating = toolCalls.filter(
+      (c) => !READ_ONLY_TOOLS.has(c.function.name) && c.function.name !== "answer_user"
+    );
+    if (mutating.length === 1) this.soloStreak += 1;
+    else this.soloStreak = 0;
+
+    if (this.soloStreak < SOLO_CALL_STREAK) return null;
+
+    this.soloStreak = 0;
+    this.soloNudges += 1;
+    return (
+      "A round costs the same whether it carries one tool call or twenty. " +
+      "Put the rest of this step into one reply: insert_node takes a whole subtree in a single call, " +
+      "and batch_set_properties takes every property edit at once."
+    );
   }
 
   /**
@@ -279,8 +313,12 @@ export class SessionWatchdog {
     if (docAfter !== docBefore && (built || revisited.length === 0)) {
       this.stalledTurns = 0;
       this.researchTurns = 0;
+      const soloNudge = this.noteSoloRound(toolCalls);
+      if (soloNudge) return { action: "nudge", text: soloNudge };
       return { action: "progress" };
     }
+
+    this.soloStreak = 0;
 
     if (revisited.length > 0) {
       this.stalledTurns += 1;

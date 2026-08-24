@@ -4,8 +4,6 @@ import {
   Square,
   Type,
   Frame,
-  Undo2,
-  Redo2,
   FolderOpen,
   Layers,
   BotMessageSquare,
@@ -16,8 +14,6 @@ import {
   setToolMode,
   camera,
   resetZoom100,
-  handleUndo,
-  handleRedo,
   layersVisible,
   setLayersVisible,
   chatVisible,
@@ -26,6 +22,7 @@ import {
   resetCanvas,
   doc
 } from "./store";
+import { ShareButton } from "./ShareButton";
 
 import { openDesignFile } from "../model/importZip";
 
@@ -212,22 +209,7 @@ export const ToolRail: Component = () => {
 export const ZoomControls: Component = () => {
   return (
     <div class="absolute bottom-4 right-3 z-30 flex items-center gap-2 select-none">
-      <div class="chrome-surface flex items-center gap-0.5 rounded-full p-1">
-        <button
-          onClick={handleUndo}
-          title="Undo (Cmd+Z)"
-          class="w-8 h-8 flex items-center justify-center text-neutral-700 hover:bg-black/5 rounded-full transition"
-        >
-          <Undo2 size={15} />
-        </button>
-        <button
-          onClick={handleRedo}
-          title="Redo (Cmd+Shift+Z)"
-          class="w-8 h-8 flex items-center justify-center text-neutral-700 hover:bg-black/5 rounded-full transition"
-        >
-          <Redo2 size={15} />
-        </button>
-      </div>
+      <ShareButton />
       <button
         onClick={resetZoom100}
         title="Reset zoom to 100% (Cmd+0)"

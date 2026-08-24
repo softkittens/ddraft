@@ -50,6 +50,26 @@ function holdsProse(node: any): boolean {
   );
 }
 
+/**
+ * Three or more children with no distinct x/y (and not marked absolute) will
+ * paint on top of each other under layout none. DeepSeek's Casa Lume hero
+ * (5f5d9706) shipped 573 collisions that way. A badge or play control on a
+ * photo is one or two children; a positioned collage already has x/y.
+ */
+export function childrenWouldStackAtOrigin(node: any): boolean {
+  const kids = (Array.isArray(node?.children) ? node.children : []).filter(
+    (c: any) => c && c.enabled !== false
+  );
+  if (kids.length < 3) return false;
+  const placed = kids.filter(
+    (c: any) =>
+      (typeof c.x === "number" && c.x > 8) ||
+      (typeof c.y === "number" && c.y > 8) ||
+      c.layoutPosition === "absolute"
+  );
+  return placed.length < 2;
+}
+
 function isChipChild(child: any): boolean {
   if (!child) return false;
   if (child.type === "icon" || child.type === "text" || child.type === "ellipse") return true;
@@ -125,6 +145,9 @@ function applyDefaults(node: any, report: NormalizeReport): void {
         node.alignItems = "center";
         report.defaulted.push("alignItems: 'center' on icon/badge container");
       }
+    } else if (node.layout === "none" && childrenWouldStackAtOrigin(node)) {
+      node.layout = "vertical";
+      report.defaulted.push("layout: 'vertical' on a content frame that used none (children would stack)");
     }
     return;
   }

@@ -38,6 +38,7 @@ export type AuditRule =
   | "scaffold_only"
   | "icon_alignment"
   | "eyebrow_kicker"
+  | "heading_content_gap"
   | "invisible_node"
   | "undrawn_series"
   | "empty_column"

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { decideAgentDocument } from "../src/ui/agentDocument";
-import { makeDoc, frame, rect } from "./harness";
+import { makeDoc, frame, rect, txt } from "./harness";
 import { findNode } from "../src/model/tree";
 import { layoutResolvedDocument, flattenLayoutTree } from "../src/layout/layout";
 import { resolveInstances } from "../src/model/instance";
@@ -110,6 +110,68 @@ describe("insert_node normalizes what the model wrote", () => {
     expect(frameNode.layout).toBe("horizontal");
     expect(frameNode.justifyContent).toBe("center");
     expect(frameNode.alignItems).toBe("center");
+  });
+
+  it("coerces layout none on a content frame whose children would stack at the origin", async () => {
+    // 5f5d9706: DeepSeek built the hero with layout none and no x/y — 573 collisions.
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: {
+        type: "frame",
+        id: "hero",
+        name: "Hero",
+        width: 1440,
+        height: 520,
+        layout: "none",
+        children: [
+          { type: "text", id: "kicker", content: "Lisbon coworking", fontSize: 14 },
+          { type: "text", id: "title", content: "A house of light", fontSize: 48 },
+          { type: "text", id: "cta", content: "Find your desk", fontSize: 16 }
+        ]
+      }
+    });
+    expect(result).toContain("layout: 'vertical'");
+    expect((session.doc.children[0] as any).layout).toBe("vertical");
+  });
+
+  it("keeps layout none when children already have distinct positions", async () => {
+    const session = createDocumentTools(makeDoc());
+    await session.execute("insert_node", {
+      node: {
+        type: "frame",
+        id: "collage",
+        name: "Collage",
+        width: 800,
+        height: 400,
+        layout: "none",
+        children: [
+          { type: "rectangle", id: "a", width: 200, height: 200, x: 0, y: 0 },
+          { type: "rectangle", id: "b", width: 200, height: 200, x: 240, y: 0 },
+          { type: "rectangle", id: "c", width: 200, height: 200, x: 0, y: 180 }
+        ]
+      }
+    });
+    expect((session.doc.children[0] as any).layout).toBe("none");
+  });
+
+  it("refuses switching a stacked content frame to layout none", async () => {
+    const session = createDocumentTools(
+      makeDoc(
+        frame("hero", 1440, 520, [
+          txt("kicker", "Lisbon coworking", 14),
+          txt("title", "A house of light", 48),
+          txt("cta", "Find your desk", 16)
+        ], { layout: "vertical" })
+      )
+    );
+    const result = await session.execute("set_property", {
+      id: "hero",
+      property: "layout",
+      value: "none"
+    });
+    expect(result).toContain("error:");
+    expect(result).toMatch(/stack|origin|auto-layout/i);
+    expect((session.doc.children[0] as any).layout).toBe("vertical");
   });
 
   it("parses pen.dev files with forward-compatible shadowType and offset effect properties", () => {

@@ -114,20 +114,22 @@
 }
 
 .agent-work-dot {
+  display: block;
   width: 10px;
   height: 10px;
   border-radius: 9999px;
   background: #00ff4c;
+  transform-origin: center center;
   animation: agent-work-pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes agent-work-pulse {
   0%,
   100% {
-    transform: scale(0.72);
+    transform: scale(0.8);
   }
   50% {
-    transform: scale(1.18);
+    transform: scale(1.2);
   }
 }
 

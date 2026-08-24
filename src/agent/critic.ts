@@ -96,7 +96,7 @@ export function criticMessages(input: {
    * Look first, then compare against what was intended.
    */
   const direction = input.direction
-    ? `\n\nNow — and only now — the direction this screen was built to. Compare what you just described against it.\nTHESIS: ${input.direction.thesis}\nOWN-WORLD: ${input.direction.ownWorld}\nFIRST VIEWPORT: ${input.direction.firstViewport}\nThis is intent, not a geometry specification: it names the hierarchy and experience that were aimed at. Prefer the visibly stronger composition when the canvas reasonably adapts an early left/right or section-order idea, and do not fault the canvas for departing from a topology the contract only implied. Judge only visible evidence; a static screenshot cannot prove sticky, persistent, animated, or interactive runtime behavior.`
+    ? `\n\nNow — and only now — the direction this screen was built to. Compare what you just described against it.\nTHESIS: ${input.direction.thesis}\nOWN-WORLD: ${input.direction.ownWorld}\nFIRST VIEWPORT: ${input.direction.firstViewport}\nThis names the hierarchy and experience that were aimed at — the focal subject, the hierarchy, and the first action. Banner or split, one column or several, is not a defect when those are visible. Judge only visible evidence; a static screenshot cannot prove sticky, persistent, animated, or interactive runtime behavior.`
     : "";
   const audit = input.audit ? `\n\nDeterministic measurements:\n${input.audit}` : "";
 

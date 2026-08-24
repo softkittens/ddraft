@@ -51,14 +51,12 @@ export const setStyleTool: DocumentToolDefinition = {
       firstViewport: {
         type: "string",
         /*
-         * Intent, not geometry. This used to ask for the "exact first-screen
-         * composition", which the builder then treated as a specification and
-         * the critic as a rough sketch — the two of them pushed a hero between
-         * left and right across passes because they were reading the same
-         * sentence under different contracts.
+         * 8ca10dd0: "do not lock left/right topology" licensed generate_image
+         * on the desktop rails. Subject, hierarchy, first action — not a
+         * permission to invent a split the scaffold did not ask for.
          */
         description:
-          "The first screen's intent: the focal subject, the hierarchy around it, and the first action a visitor can see. Do not lock an exact left/right topology before layout, and describe only what a static canvas can show — not sticky, persistent or animated behaviour."
+          "The first screen's intent: the focal subject, the hierarchy around it, and the first action a visitor can see. Describe only what a static canvas can show — not sticky, persistent or animated behaviour."
       }
     },
     required: [

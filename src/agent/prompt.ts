@@ -11,6 +11,7 @@ import {
 import type { Message } from "./provider";
 import { avoidanceNote, type StyleRun } from "../design/history";
 import { rules } from "./rules";
+import { desktopSlotNames } from "../design/chrome";
 
 function describe(node: PenNode): string {
   const name = node.name ? ` "${node.name}"` : "";
@@ -49,7 +50,9 @@ function selectionLines(doc: Document, selection: string[]): string[] {
  * calls" while the loop counted 30 model rounds. A model batching four calls
  * into one reply was over the budget it had been given and nowhere near the one
  * that would stop it, and a run that ended at the ceiling had exceeded neither
- * in any way it could have seen coming.
+ * in any way it could have seen coming. The same lie came back through eval:
+ * this constant is the live default, but a run that passes maxTurns must print
+ * that number, not this one.
  */
 export const MAX_MODEL_ROUNDS = 100;
 
@@ -65,7 +68,7 @@ export function composeRuleBlocks(ctx: ResolvedContext): string[] {
     blocks.push(rules("surface-mobile"));
   }
   if (ctx.surface === "desktop" || ctx.surface === "both" || ctx.surface === "unspecified") {
-    blocks.push(rules("surface-desktop"));
+    blocks.push(rules("surface-desktop", { desktopSlots: desktopSlotNames(ctx.archetype) }));
   }
 
   // A revision works inside a composition that already exists. Handing it the
@@ -104,7 +107,7 @@ function orderOfWork(ctx: ResolvedContext): string[] {
     return [
       "ORDER OF WORK — REVISION & INCREMENTAL EDITS",
       "  1. Inspect the selection and document digest to locate target nodes.",
-      "  2. Apply precise edits with batch_set_properties, set_properties, or insert_node.",
+      "  2. Apply precise edits with batch_set_properties, set_property, or insert_node.",
       "  3. Maintain existing style tokens ($surface-*, $foreground-*, $accent-*, $radius-*) and alignment.",
       "  4. Keep edits focused directly on the user request without rebuilding unrelated screens."
     ];
@@ -113,12 +116,12 @@ function orderOfWork(ctx: ResolvedContext): string[] {
     "ORDER OF WORK — DESIGN REQUESTS ONLY",
     "  1. Decide SITE (persuade) vs TOOL (operate) from the surface, not the product.",
     "     A landing page is still SITE. Write THESIS, OWN-WORLD and FIRST VIEWPORT.",
-    "     FIRST VIEWPORT is an intent contract: name the focal subject, hierarchy and visible first action without locking an exact left/right topology before layout. Describe only what a static canvas can show; do not promise sticky, persistent or animated behavior.",
+    "     FIRST VIEWPORT names the focal subject, hierarchy and visible first action. Describe only what a static canvas can show; do not promise sticky, persistent or animated behavior.",
     "  2. set_style — commit to that contract and pick the visual system that supports it.",
     "  3. Screen creation discipline:",
     "     - SINGLE-SCREEN DEFAULT: Build ONE primary screen per request (Desktop 1440 for websites, web tools, dashboards, and landing pages; Mobile 390 for mobile-only apps). Do NOT build a companion mobile screen unless the user explicitly requests mobile or responsive in their brief.",
     "     - When mobile alone is explicitly requested, build mobile only. When responsive or both desktop and mobile are requested, build Desktop first and then reuse its image fills and copy for Mobile.",
-    "  4. Insert whole subtrees. Site: fill topBar; leave rail and aside empty; stack 6–8 varied narrative bands in main to explore the product's full substance (hero, philosophy, spaces/catalog, specs/amenities, photo story, pricing, deep footer).",
+    "  4. Insert whole subtrees. Fill the slots create_screen returned. Site photography belongs in main (hero band, one auto-layout frame). Stack 6–8 varied narrative bands in main to explore the product's full substance (hero, philosophy, spaces/catalog, specs/amenities, photo story, pricing, deep footer).",
     "     Tool: fill only the slots needed. Empty is better than costume. Mobile: content or bleed.",
     "  5. Finish once the screens hold the product. An unused desktop slot is allowed."
   ];
@@ -131,7 +134,8 @@ export function agentSystemPrompt(
   paletteSeed = 0,
   recentStyles: readonly StyleRun[] = [],
   userPrompt = "",
-  sessionContext = ""
+  sessionContext = "",
+  maxTurns = MAX_MODEL_ROUNDS
 ): string {
   const style = currentStyle(doc);
   const direction = currentDirection(doc);
@@ -163,7 +167,7 @@ export function agentSystemPrompt(
           headings: repeatedRuns.map((run) => run.headings),
           roundness: repeatedRuns.flatMap((run) => run.roundness ? [run.roundness] : []),
           elevation: repeatedRuns.map((run) => run.elevation)
-        }),
+        }, { brief: userPrompt }),
         ...(avoidanceNote(recentStyles, userPrompt)
           ? ["", avoidanceNote(recentStyles, userPrompt)]
           : [])
@@ -186,10 +190,8 @@ export function agentSystemPrompt(
       `  OWN-WORLD: ${direction.ownWorld}`,
       `  FIRST VIEWPORT: ${direction.firstViewport}`,
       "Build against the intent in these claims — the focal subject, the hierarchy",
-      "and the first action they promise. They are not a geometry specification:",
-      "where the canvas reads stronger than the arrangement first imagined, keep the",
-      "stronger canvas. Ignore any part of the contract that only a running app could",
-      "demonstrate."
+      "and the first action they promise. Describe only what a static canvas can show.",
+      "Ignore any part of the contract that only a running app could demonstrate."
     ] : []),
     "",
     // Dynamically composed surface blueprints, archetype guides & domain traits
@@ -199,7 +201,7 @@ export function agentSystemPrompt(
     rules("canvas-api"),
     "",
     "BUDGET",
-    `  ${MAX_MODEL_ROUNDS} rounds. A round is one reply, however many tool calls it carries,`,
+    `  ${maxTurns} rounds. A round is one reply, however many tool calls it carries,`,
     "  so send the whole next step at once. When tweaking multiple properties,",
     "  use batch_set_properties or multiple tool calls in one round. Reuse ids from earlier tool results",
     "  instead of reading the canvas again to find them.",
@@ -215,7 +217,7 @@ export function agentSystemPrompt(
   ].join("\n");
 }
 
-function extractUserPrompts(messages: Message[]): { latest: string; all: string } {
+export function extractUserPrompts(messages: Message[]): { latest: string; all: string } {
   const userTexts: string[] = [];
   for (const m of messages) {
     if (m.role === "user") {
@@ -255,13 +257,14 @@ export function withSystemPrompt(
   doc: Document,
   selection: string[] = [],
   modelName?: string,
-  recentStyles: readonly StyleRun[] = []
+  recentStyles: readonly StyleRun[] = [],
+  maxTurns = MAX_MODEL_ROUNDS
 ): Message[] {
   const { latest, all } = extractUserPrompts(messages);
   return [
     {
       role: "system",
-      content: agentSystemPrompt(doc, selection, modelName, paletteSeedFor(messages), recentStyles, latest, all)
+      content: agentSystemPrompt(doc, selection, modelName, paletteSeedFor(messages), recentStyles, latest, all, maxTurns)
     },
     ...messages.filter((m) => m.role !== "system")
   ];

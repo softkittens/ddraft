@@ -1,4 +1,5 @@
 import type { FrameNode, PenNode } from "../model/types";
+import { desktopHasRails, type ChromeArchetype } from "./chrome";
 
 /* ------------------------------------------------------------------ *
  * Screen scaffolding.
@@ -25,6 +26,12 @@ export interface TabSpec {
 export interface ScreenSpec {
   name: string;
   kind: "mobile" | "desktop";
+  /**
+   * Which desktop chrome to stamp. Site omits rails; tool includes them.
+   * Defaults to site — unspecified used to mean "always stamp rails", which is
+   * how photography landed in the digest as fillable edge slots.
+   */
+  archetype?: ChromeArchetype;
   /** Mobile only. Omit for a screen with no tab bar, such as onboarding. */
   tabs?: TabSpec[];
   /**
@@ -255,20 +262,6 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
   } as PenNode;
   slots.topBar = topBar.id;
 
-  const rail: PenNode = {
-    type: "frame",
-    id: id(),
-    name: "Left Rail",
-    metadata: { scaffold: "slot" },
-    width: 260,
-    height: "fill_container",
-    layout: "vertical",
-    padding: 12,
-    gap: 12,
-    children: []
-  } as PenNode;
-  slots.rail = rail.id;
-
   // The dominant region is the reason the screen exists, so it is the one that
   // takes the remaining width rather than a share of it.
   const main: PenNode = {
@@ -285,19 +278,42 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
   } as PenNode;
   slots.main = main.id;
 
-  const aside: PenNode = {
-    type: "frame",
-    id: id(),
-    name: "Right Rail",
-    metadata: { scaffold: "slot" },
-    width: 320,
-    height: "fill_container",
-    layout: "vertical",
-    padding: 0,
-    gap: 14,
-    children: []
-  } as PenNode;
-  slots.aside = aside.id;
+  const bodyChildren: PenNode[] = [];
+  if (desktopHasRails(spec.archetype ?? "unspecified")) {
+    const rail: PenNode = {
+      type: "frame",
+      id: id(),
+      name: "Left Rail",
+      metadata: { scaffold: "slot" },
+      width: 260,
+      height: "fill_container",
+      layout: "vertical",
+      padding: 12,
+      gap: 12,
+      children: []
+    } as PenNode;
+    slots.rail = rail.id;
+    bodyChildren.push(rail);
+
+    bodyChildren.push(main);
+
+    const aside: PenNode = {
+      type: "frame",
+      id: id(),
+      name: "Right Rail",
+      metadata: { scaffold: "slot" },
+      width: 320,
+      height: "fill_container",
+      layout: "vertical",
+      padding: 0,
+      gap: 14,
+      children: []
+    } as PenNode;
+    slots.aside = aside.id;
+    bodyChildren.push(aside);
+  } else {
+    bodyChildren.push(main);
+  }
 
   return {
     type: "frame",
@@ -331,7 +347,7 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
         height: "fill_container",
         layout: "horizontal",
         gap: 16,
-        children: [rail, main, aside]
+        children: bodyChildren
       } as PenNode
     ]
   } as FrameNode;

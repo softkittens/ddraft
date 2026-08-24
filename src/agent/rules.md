@@ -36,7 +36,7 @@ Hero imagery & photo layouts:
 
 DESKTOP CANVAS LAYOUT (1440 wide)
 
-create_screen with kind: 'desktop' returns topBar, rail, main, aside. These are slots, not a product.
+create_screen with kind: 'desktop' returns {desktopSlots}. These are slots, not a product.
 Width stays 1440. Height defaults to dynamic 'fit_content' with a 900 viewport floor so stacked bands scroll naturally. A dense tool stays at 900. Invent every label for THIS product.
 
 ## trait-commerce
@@ -80,8 +80,8 @@ When building a card-swipe, dating, adoption, or browsing experience:
 SITE & LANDING PAGE COMPOSITION (1440 wide)
 
 SITE — a place, story, booking or product landing page:
-  Fill topBar; leave rail and aside empty. Stack full-width narrative bands in main that fully explore the product's substance across 6–8 varied sections:
-  1. First Viewport: bold display title ($font-heading), subline, primary CTA action, and a subject photograph or split composition occupying a real share (about a third of the screen).
+  Fill topBar and main. Photography lives in main. Stack full-width narrative bands in main that fully explore the product's substance across 6–8 varied sections:
+  1. First Viewport: bold display title ($font-heading), subline, primary CTA action, and a subject photograph occupying a real share of the first screen (about a third). How those pieces are arranged is a design choice, not a required split.
   2. Brand Philosophy / Pull-Quote: quiet editorial italic statement establishing the product's voice and point of view.
   3. Tangible Showcase / Spaces / Collection: 3–4 visual cards with photography, descriptions, tags, capacity, or concrete features (an offer row is a section, not the entire page).
   4. Inclusions / Amenities / Capabilities: structured 4–6 item badge or spec grid with Lucide icons (e.g. specialty coffee, fiber wifi, phone booths, or system specs).
@@ -136,7 +136,7 @@ RULES
   27. Contextual Metadata: Use badges or stamps only when they communicate real inventory, timing, popularity or availability. Do not add retail-authority labels as decoration.
   28. Screen Isolation & Dual-Screen Placement: Never nest a screen frame inside another screen frame. When building a companion screen or second screen, omit parentId (or call create_screen) so it is placed side-by-side at x: 480+ on the root canvas.
   29. Non-Destructive Revision Discipline: During visual review or incremental edits, NEVER delete the original root screen or wipe the canvas. If a node is nested by mistake, call move_node(id, newParentId: 'canvas') to un-nest it to the top-level canvas, or delete only the inner duplicate node. Never delete the root container that holds your generated images and core content.
-  30. Auto-Layout Discipline on Mobile: Mobile screens and cards MUST ALWAYS use auto-layout (layout: 'vertical' or layout: 'horizontal'). NEVER switch cards or sections to layout: 'none' (absolute positioning). Absolute coordinates on mobile break wrapping, collide with photography, and cause overlapping text thrashing across revisions.
+  30. Auto-Layout Discipline: Screens, sections, and cards MUST use auto-layout (layout: 'vertical' or layout: 'horizontal'). NEVER switch a content frame with three or more children to layout: 'none' unless those children already have distinct x/y. Absolute stacking at the origin overlaps copy and photography. A badge or play button on a photo (one or two children) may stay absolute.
 
 ## canvas-api
 
@@ -172,7 +172,7 @@ MATERIAL REFINE CRITERIA (Return "refine" when one is visibly harmful. Use score
 9. Photography that fails its frame: the product depends on photography and the largest image is a thumbnail or a strip above a card grid, not a real share of the viewport — or the opposite, an orphaned layout wall (e.g. >600px tall photo in vertical flow pushing all copy off-screen), or a frame so narrow/tall that only a sliver of the subject survives the crop: a courtyard reduced to one column of fountain, a room reduced to a doorway. Sleek panoramic landscape banners (e.g. 1440x480) with copy below are intentional and not a defect.
 10. Catalog as page: three or more equal cards (title + blurb + price) standing in for the whole layout. An offer or pricing row on a long scrolling site is not this defect.
 11. Under-generated / Shallow Site Stub: A landing page or site that stops prematurely after only 2–3 brief blocks without exploring the product's substance (missing tangible spaces/catalog cards, concrete amenities/specs, pricing comparison, or proper multi-column footer). A complete site must have depth and rhythm.
-12. Section Collisions & Card Alignment: Section titles visibly overlapping or becoming unreadably crowded against cards; sibling cards in a horizontal pricing/feature row having uneven card heights or vertically staggered CTA button baselines; stray isolated placeholder punctuation (`"-"`, `"•"`).
+12. Section Collisions & Card Alignment: Section titles glued to the card or photo grid below them (under ~24px of space), overlapping, or becoming unreadably crowded; sibling cards in a horizontal pricing/feature row having uneven card heights or vertically staggered CTA button baselines; stray isolated placeholder punctuation (`"-"`, `"•"`).
 13. Oversized Single-Viewport Mobile Screen: A single-viewport card-swipe, dating, camera, or audio player app with a tab bar that expands past the 844px device viewport, pushing the bottom tab bar off-screen. (Multi-section store feeds, catalogs, and food ordering menus are SCROLLABLE feeds (1100–1600px). On scrollable feeds, having product cards peek or cross the 844px fold is intentional scroll affordance, NOT clipped content! Never penalize a scrollable feed for extending past 844px or ask the model to squish it into a single screen).
 14. Muddy Button Contrast: Action buttons, CTA buttons, or selected filter chips with dark text on dark/colored background fills (e.g. black text on olive/green, terracotta, or navy buttons). Solid colored action buttons require crisp white/light text ($surface-primary or #FFFFFF).
 15. Empty Placeholder Image Wells in Cards: Product cards, menu items, or space cards displaying a blank solid-color rectangle or empty tinted box instead of real product photography, illustration, or Lucide icon well. Every product card offering an item must have its product photo generated or filled.
@@ -181,6 +181,8 @@ MATERIAL REFINE CRITERIA (Return "refine" when one is visibly harmful. Use score
 18. Competing Actions & Pasted-On Overlays: A secondary control should not appear as a large filled slab pasted across photography, obscure the subject, or compete with the region's primary action. Image-detail, save, and auxiliary actions must be visually subordinate to order, submit, or checkout. Repeating the same strong CTA within one compact region is not hierarchy.
 19. Cryptic or Placeholder Selection UI: Option controls must be understandable without decoding decorative initials, isolated letters, or tiny captions. Refine low-information tiles when the actual choice—flavor, size, plan, destination—could be named or pictured directly.
 20. Global Finish: Look past checklist compliance. Refine visibly provisional composition: awkwardly attached controls, inconsistent radii or padding, accidental dead space, excessive display-type repetition, coarse grouping, and elements that feel inserted after the layout was finished. A technically valid screen can still lack production polish.
+21. First Viewport is not a layout specification: judge whether the named subject, hierarchy, and first action are visible. Do not refine a working first screen because it is a banner rather than a split, or one column rather than two.
+22. Digest vs empty close-up: if the digest still names the narrative bands, cream section thumbnails are a clip or capture problem, not a missing page. Do not ask to rebuild or delete a create_screen slot (Main, Top Bar). Set the clipping parent's height to fit_content.
 
 SCORE ANCHORS
 - 5 means exceptional, presentation-ready work with no visible rough edge. Do not award 5 merely because no mandatory defect was found.
@@ -196,7 +198,7 @@ PASS CRITERIA (Return "pass" ONLY when ALL are true):
 - If present, the status bar and tab bar are completely clean and un-overlapped.
 - All action buttons, icon wells, and status chips have their contents centered, and hug rather than float in a larger plate.
 - Sibling cards in horizontal rows have matched heights and their action buttons share a locked, uniform horizontal baseline.
-- Text has clean margins away from media edges and section grouping is visually unambiguous; do not impose a fixed gap when nothing collides.
+- Text has clean margins away from media edges, and a section heading is separated from the card or photo grid it introduces by a clear band of space (about 24–40px). Do not invent gaps between lines inside a heading cluster.
 - Typography has a clear hierarchy appropriate to the composition without empty marketing boilerplate.
 - Primary and secondary actions have unmistakable rank; auxiliary controls do not obscure photography or look pasted onto the composition.
 - Choice controls communicate their options directly rather than relying on cryptic initials or placeholder-like symbols.

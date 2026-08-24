@@ -6,6 +6,7 @@ import type { FetchFn, Tool } from "./provider";
 // browser core map resolves to nothing and paints the fallback glyph.
 import "../model/iconCatalog";
 import { type DocumentToolDefinition, type ToolContext } from "./tools/types";
+import type { ChromeArchetype } from "../design/chrome";
 import { styleTools } from "./tools/styleTools";
 import { propertyTools } from "./tools/propertyTools";
 import { mutationTools } from "./tools/mutationTools";
@@ -38,7 +39,8 @@ export const TOOL_DEFS: Tool[] = ALL_DOCUMENT_TOOLS.map((tool) => ({
 export function createDocumentTools(
   initial: Document,
   image: { providerId?: string; apiKey?: string; fetch?: FetchFn } = {},
-  pageId?: string
+  pageId?: string,
+  archetype: ChromeArchetype = "unspecified"
 ) {
   let doc = initial;
 
@@ -94,7 +96,8 @@ export function createDocumentTools(
       return `error: ${id} is on another page. This run is working on one page; switch pages to edit it.`;
     },
     image,
-    recordWrite
+    recordWrite,
+    archetype
   };
 
   async function execute(name: string, args: unknown): Promise<string> {

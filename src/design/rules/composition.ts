@@ -827,10 +827,13 @@ export function checkSectionHeightBudget(ctx: AuditContext): AuditFinding[] {
 
     // 1. Check for False Floor / Missing Scroll Affordance on multi-section scrollable pages
     if (isScrollable) {
-      // Find substantive top-level content sections (exclude narrow status/search header bars < 70px)
+      // A 70px status/search bar is chrome-adjacent. A thin quote or divider
+      // (~80px) is not the next section the fold should reveal — 3fbe82f2's
+      // black quote peeked while rooms and pricing sat below 900px.
+      const SUBSTANTIVE_PEEK = 160;
       const substantiveSections = screenKids.filter((c) => {
         const b = ctx.boxes.get(c.id)?.box;
-        return b && b.height >= 70;
+        return b && b.height >= SUBSTANTIVE_PEEK;
       });
 
       if (substantiveSections.length >= 2) {
@@ -849,7 +852,7 @@ export function checkSectionHeightBudget(ctx: AuditContext): AuditFinding[] {
                 "false_floor",
                 firstSec.id,
                 `Section "${firstSec.name ?? firstSec.id}" is ${Math.round(firstBox.height)}px tall and pushes "${secondSec.name ?? secondSec.id}" completely below the ${viewportFloor}px fold (starts at y: ${Math.round(secondYRelative)}px). This creates a false floor (illusion of completeness) concealing the rest of the page.`,
-                `Make "${firstSec.name ?? firstSec.id}" compact (${isMobile ? "220px–340px" : "380px–520px"}) so the top of "${secondSec.name ?? secondSec.id}" peeks above the ${viewportFloor}px fold, providing scroll affordance.`
+                `Shorten "${firstSec.name ?? firstSec.id}" (${isMobile ? "220px–340px" : "so the first viewport is compact"}) so the top of "${secondSec.name ?? secondSec.id}" peeks above the ${viewportFloor}px fold. Do not delete Main or any create_screen slot.`
               )
             );
           }
@@ -857,7 +860,13 @@ export function checkSectionHeightBudget(ctx: AuditContext): AuditFinding[] {
       }
     }
 
-    // 2. Check for monolithic single-card height bloat in vertical flow
+    // 2. Check for monolithic single-card height bloat in vertical flow.
+    // A scrolling desktop site is a stack of narrative bands; 650px of photo
+    // story is rhythm. 9aa7670e treated those bands as cards that had to shrink
+    // to 380–520px, then the revision deleted Main. false_floor already catches
+    // a hero that hides the next section.
+    if (isScrollable && !isMobile) continue;
+
     const maxHeightBudget = isMobile ? 380 : 600;
     const recommended = isMobile ? "220px–340px" : "380px–520px";
 
@@ -1099,6 +1108,85 @@ export function checkEyebrowKicker(ctx: AuditContext): AuditFinding[] {
           );
         }
       }
+    }
+  });
+  return findings;
+}
+
+const HEADING_MIN_SIZE = 20;
+/** Below this, a heading and the grid it introduces read as one glued block. */
+const MIN_HEADING_CONTENT_GAP = 24;
+/** Compact CTA / chip rows sit under a hero title; card and photo grids do not. */
+const COLLECTION_CHILD_MIN_HEIGHT = 80;
+const SECTION_BAND_MIN_WIDTH = 500;
+
+function largestTextSize(node: PenNode): number {
+  if (node.type === "text") return (node as TextNode).fontSize ?? 14;
+  let max = 0;
+  for (const child of childrenOf(node)) {
+    if (child.enabled === false) continue;
+    max = Math.max(max, largestTextSize(child));
+  }
+  return max;
+}
+
+function isHeadingStack(node: PenNode): boolean {
+  if (hasImageFill(node)) return false;
+  if (childrenOf(node).some((c) => c.enabled !== false && hasImageFill(c))) return false;
+  return largestTextSize(node) >= HEADING_MIN_SIZE;
+}
+
+function isCollectionRow(node: PenNode, ctx: AuditContext): boolean {
+  if (node.type !== "frame") return false;
+  const layout = (node as { layout?: string }).layout;
+  const kids = childrenOf(node).filter((c) => c.enabled !== false && c.type === "frame");
+  if (layout === "horizontal") {
+    const tall = kids.filter((k) => (ctx.boxes.get(k.id)?.box.height ?? 0) >= COLLECTION_CHILD_MIN_HEIGHT);
+    if (tall.length >= 2) return true;
+    if (kids.filter((k) => hasImageFill(k)).length >= 2) return true;
+    return false;
+  }
+  if (layout === "vertical") {
+    return kids.some((row) => isCollectionRow(row, ctx));
+  }
+  return false;
+}
+
+/**
+ * A section heading sitting on top of the card or photo grid it introduces.
+ *
+ * DeepSeek's Pátio page set gap: 10 inside the heading cluster (overline →
+ * title) and gap: none on the band, then inserted the grid as a sibling.
+ * The critic was told not to impose a fixed gap when nothing collides, so
+ * the red marks — heading glued to the rooms, amenities, mosaic — never
+ * became a finding. Measure the band; 24–40px is grouping, not decoration.
+ */
+export function checkHeadingContentGap(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "frame") return;
+    if ((node as { layout?: string }).layout !== "vertical") return;
+    const bandBox = ctx.absBoxes.get(node.id);
+    if (!bandBox || bandBox.width < SECTION_BAND_MIN_WIDTH) return;
+
+    const kids = childrenOf(node).filter((c) => c.enabled !== false);
+    for (let i = 0; i < kids.length - 1; i++) {
+      const heading = kids[i];
+      const collection = kids[i + 1];
+      if (!isHeadingStack(heading) || !isCollectionRow(collection, ctx)) continue;
+      const a = ctx.absBoxes.get(heading.id);
+      const b = ctx.absBoxes.get(collection.id);
+      if (!a || !b) continue;
+      const gap = Math.round(b.y - (a.y + a.height));
+      if (gap >= MIN_HEADING_CONTENT_GAP) continue;
+      findings.push(
+        warning(
+          "heading_content_gap",
+          node.id,
+          `"${node.name ?? node.id}" sits the heading ${gap}px above the card or photo grid. Section grouping needs ${MIN_HEADING_CONTENT_GAP}–40px between the title block and what it introduces.`,
+          `Set gap: 32 on this vertical band so the heading and the grid below it separate. Do not add spacer frames.`
+        )
+      );
     }
   });
   return findings;
