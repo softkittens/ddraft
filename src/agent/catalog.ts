@@ -49,10 +49,10 @@ export const PROVIDER_CATALOG: CatalogProvider[] = [
      * by inference, which the gateway serves for every vendor it routes.
      */
     models: [
-      { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna", description: "Cheap & fast", vision: true },
+      { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna (Recommended)", description: "Cheap & fast", vision: true },
       { id: "deepseek/deepseek-v4-flash-vision-exp", label: "DeepSeek Flash Vision", description: "Cheap & decent", vision: true },
       { id: "minimax/minimax-m3", label: "MiniMax M3", description: "Fast & creative with vision", vision: true },
-      { id: "mimo/mimo-v2.5-pro", label: "MiMo V2.5 Pro", description: "Balanced quality & reasoning", vision: true },
+      { id: "xiaomi/mimo-v2.5-pro", label: "MiMo V2.5 Pro", description: "Balanced quality & reasoning", vision: true },
       { id: "google/gemini-3.7-flash", label: "Gemini 3.7 Flash", description: "Fast & best value", vision: true },
       { id: "anthropic/claude-opus-5", label: "Claude Opus 5", description: "Expensive & highly capable", vision: true },
       { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", description: "Expensive, frontier intelligence", vision: true }
@@ -81,7 +81,7 @@ export const PROVIDER_CATALOG: CatalogProvider[] = [
     baseUrlEnv: "OPENCODE_GO_BASE_URL",
     baseUrl: "https://opencode.ai/zen/go/v1",
     models: [
-      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", description: "Cheap & fast", api: "responses", vision: true },
+      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna (Recommended)", description: "Cheap & fast", api: "responses", vision: true },
       { id: "grok-4.5", label: "Grok 4.5", description: "Fast reasoning", api: "responses", vision: true },
       { id: "ox-alpha-free", label: "Ox Alpha (Free)", description: "Free tier model", api: "responses", vision: true },
       { id: "kimi-k3", label: "Kimi K3", description: "Strong context & reasoning", vision: true },

@@ -1,6 +1,6 @@
 import { Component, Show, createSignal } from "solid-js";
 import {
-  MousePointer,
+  MousePointer2,
   Square,
   Type,
   Frame,
@@ -180,7 +180,7 @@ export const ToolRail: Component = () => {
         title="Select tool (V)"
         class={railButtonClass(toolMode() === "select")}
       >
-        <MousePointer size={16} />
+        <MousePointer2 size={16} />
       </button>
       <button
         onClick={() => setToolMode("frame")}
