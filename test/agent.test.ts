@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { complete, stepDownEffort, toWireReasoningEffort, type Provider, type FetchFn, type Message } from "../src/agent/provider";
+import { complete, stepDownEffort, toWireReasoningEffort, toApiMessages, GEMINI_SKIP_THOUGHT_SIGNATURE, type Provider, type FetchFn, type Message } from "../src/agent/provider";
 import {
   loadProvider,
   listConfiguredProviders,
@@ -143,6 +143,26 @@ describe("H1 provider client & streaming protocol", () => {
     }
     expect(chunks).toEqual(['{"x":1}']);
   });
+
+  it("fills in a dummy Gemini thought signature when the gateway omitted one", () => {
+    const gemini: Provider = {
+      id: "vercel",
+      baseUrl: "https://ai-gateway.vercel.sh/v1",
+      model: "google/gemini-3.7-flash",
+      apiKey: "k"
+    };
+    const filled = toApiMessages([
+      { role: "assistant", content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "set_style", arguments: "{}" } }] }
+    ], gemini);
+    expect((filled[0].tool_calls as { extra_content?: { google?: { thought_signature?: string } } }[])[0].extra_content?.google?.thought_signature)
+      .toBe(GEMINI_SKIP_THOUGHT_SIGNATURE);
+
+    const kept = toApiMessages([
+      { role: "assistant", content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "set_style", arguments: "{}" }, extra_content: { google: { thought_signature: "real-sig" } } }] }
+    ], gemini);
+    expect((kept[0].tool_calls as { extra_content?: { google?: { thought_signature?: string } } }[])[0].extra_content?.google?.thought_signature)
+      .toBe("real-sig");
+  });
 });
 
 describe("H2 credentials & model catalog discovery", () => {
@@ -265,6 +285,34 @@ describe("H3 session tool loop & conversational handling", () => {
     expect(calls).toBe(2);
     expect(events.some((e) => e.type === "done")).toBe(true);
     expect(events.some((e) => e.type === "error")).toBe(false);
+  });
+
+  it("does not retry a provider 400 as a dropped connection", async () => {
+    let calls = 0;
+    const events = await collectSession(async () => {
+      calls++;
+      return new Response(JSON.stringify({ error: { message: "Request contains an invalid argument." } }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
+    });
+    expect(calls).toBe(1);
+    expect(events.some((e) => e.type === "status" && e.content.includes("Reconnecting"))).toBe(false);
+    expect(events.some((e) => e.type === "error" && e.message.includes("invalid argument"))).toBe(true);
+  });
+
+  it("does not retry a 429 model-access refusal as a dropped connection", async () => {
+    let calls = 0;
+    const events = await collectSession(async () => {
+      calls++;
+      return new Response(JSON.stringify({ error: { message: "No access to this model at this time." } }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" }
+      });
+    });
+    expect(calls).toBe(1);
+    expect(events.some((e) => e.type === "status" && e.content.includes("Reconnecting"))).toBe(false);
+    expect(events.some((e) => e.type === "error" && /not available|no access/i.test(e.message))).toBe(true);
   });
 });
 

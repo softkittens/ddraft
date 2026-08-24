@@ -44,6 +44,14 @@ export function isAbortError(err: unknown, signal?: AbortSignal): boolean {
   return err instanceof Error && (err.name === "AbortError" || err.message === "aborted");
 }
 
+/** Dropped sockets and 5xx are worth another try. 4xx (including 429 "no access") is a real refusal. */
+export function isTransientProviderError(err: unknown): boolean {
+  if (err instanceof Error && err.name === "AbortError") return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/\b4\d\d\b/.test(msg) || /invalid argument|no access to this model/i.test(msg)) return false;
+  return /ECONNRESET|ETIMEDOUT|ECONNREFUSED|connection was closed|socket|network|\b(502|503|504)\b/i.test(msg);
+}
+
 function toolDetail(name: string, args: unknown): string | undefined {
   const bag = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
   if (name === "generate_image" && typeof bag.prompt === "string") return bag.prompt;
@@ -203,6 +211,7 @@ export async function* runSession(
           turnCompleted = true;
         } catch (streamErr) {
           if (opts.signal?.aborted) throw streamErr;
+          if (!isTransientProviderError(streamErr)) throw streamErr;
           retriesLeft--;
           if (retriesLeft < 0) throw streamErr;
 

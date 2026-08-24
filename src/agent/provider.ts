@@ -93,6 +93,27 @@ export function isValidImageUrl(url: string | undefined | null): boolean {
   return /^https?:\/\//i.test(trimmed) || /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(trimmed);
 }
 
+/** Gemini 3 rejects a follow-up tool turn unless each function call carries a thought signature. */
+export const GEMINI_SKIP_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
+
+export function isGeminiModel(p: Pick<Provider, "id" | "model">): boolean {
+  return p.id === "gemini" || /gemini/i.test(p.model);
+}
+
+function withGeminiThoughtSignatures(calls: ToolCall[], p?: Provider): ToolCall[] {
+  if (!p || !isGeminiModel(p)) return calls;
+  return calls.map((call) => {
+    if (call.extra_content?.google?.thought_signature) return call;
+    return {
+      ...call,
+      extra_content: {
+        ...call.extra_content,
+        google: { ...call.extra_content?.google, thought_signature: GEMINI_SKIP_THOUGHT_SIGNATURE }
+      }
+    };
+  });
+}
+
 export function toApiMessages(messages: Message[], p?: Provider) {
   // The catalog decides this, once. Sniffing the model name for "gpt-4o" or
   // "vl" here disagreed with loadProvider on every model neither rule named,
@@ -119,7 +140,7 @@ export function toApiMessages(messages: Message[], p?: Provider) {
       content = null as any;
     }
     const row: Record<string, unknown> = { role: m.role, content };
-    if (m.tool_calls) row.tool_calls = m.tool_calls;
+    if (m.tool_calls) row.tool_calls = withGeminiThoughtSignatures(m.tool_calls, p);
     if (m.tool_call_id) row.tool_call_id = m.tool_call_id;
     return row;
   });

@@ -128,18 +128,23 @@ export function useChatSession() {
     defaultChoice;
   const [choice, setChoice] = createSignal(initialChoice);
 
+  const defaultEffortForModel = (modelChoice: string): "low" | "medium" | "high" => {
+    const lower = modelChoice.toLowerCase();
+    if (lower.includes("luna") || lower.includes("deepseek")) return "high";
+    if (lower.includes("opus") || lower.includes("sol")) return "low";
+    if (lower.includes("gemini")) return "medium";
+    return "medium";
+  };
+
   const initialEffort =
     (typeof localStorage !== "undefined" && (localStorage.getItem("ddraft_selected_effort") as "low" | "medium" | "high")) ||
     saved?.effort ||
-    (initialChoice.toLowerCase().includes("opus") || initialChoice.toLowerCase().includes("sol") ? "low" : "medium");
+    defaultEffortForModel(initialChoice);
   const [effort, setEffort] = createSignal<"low" | "medium" | "high">(initialEffort);
 
   const handleChoiceChange = (newChoice: string) => {
     setChoice(newChoice);
-    const lower = newChoice.toLowerCase();
-    if (lower.includes("opus") || lower.includes("sol")) {
-      setEffort("low");
-    }
+    setEffort(defaultEffortForModel(newChoice));
   };
 
   const [entries, setEntries] = createSignal<Entry[]>(saved?.entries ?? []);

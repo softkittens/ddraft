@@ -86,6 +86,9 @@ async function responseError(p: Provider, res: Response): Promise<Error> {
   if (res.status === 401) {
     return new Error(`${p.id} (401 Unauthorized): ${detail}. Please check your API key in .env or set base URL.`);
   }
+  if (res.status === 429 && /no access to this model/i.test(detail)) {
+    return new Error(`${p.model} is not available on this ${p.id} key. Pick another model.`);
+  }
   return new Error(`provider ${p.id} ${res.status}: ${detail}`);
 }
 
@@ -190,6 +193,18 @@ async function* completeResponsesStream(
   }
 }
 
+function extraContentFromDelta(call: {
+  extra_content?: ToolCall["extra_content"];
+  thought_signature?: string;
+  function?: { name?: string; arguments?: string; thought_signature?: string };
+}): ToolCall["extra_content"] | undefined {
+  if (call.extra_content) return call.extra_content;
+  const signature = call.thought_signature ?? call.function?.thought_signature;
+  return typeof signature === "string" && signature
+    ? { google: { thought_signature: signature } }
+    : undefined;
+}
+
 export async function* completeStream(
   p: Provider,
   messages: Message[],
@@ -236,7 +251,8 @@ export async function* completeStream(
       choices?: { finish_reason?: string | null; delta?: { content?: string; reasoning?: string; reasoning_content?: string; thinking?: string; tool_calls?: {
         index: number;
         id?: string;
-        function?: { name?: string; arguments?: string };
+        thought_signature?: string;
+        function?: { name?: string; arguments?: string; thought_signature?: string };
         extra_content?: ToolCall["extra_content"];
       }[] } }[];
     };
@@ -253,7 +269,7 @@ export async function* completeStream(
       id: c.id,
       name: c.function?.name,
       arguments: c.function?.arguments,
-      extra_content: c.extra_content
+      extra_content: extraContentFromDelta(c)
     }));
     yield {
       content: delta.content,
