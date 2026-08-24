@@ -10,13 +10,13 @@ import {
   UnknownModelError
 } from "../src/agent/credentials";
 import { visionModelFor } from "../src/agent/catalog";
-import { runSession, type AgentEvent } from "../src/agent/session";
+import { runSession, isAbortError, type AgentEvent } from "../src/agent/session";
 import { createDocumentTools, TOOL_DEFS } from "../src/agent/tools";
 import { makeDoc, frame, rect, txt } from "./harness";
-import { callsSse, saysSse, streamed, runTestSequence } from "./agent-harness";
+import { callsSse, saysSse, streamed, runTestSequence, sseStream } from "./agent-harness";
 import { digest } from "../src/digest/digest";
 import { agentSystemPrompt } from "../src/agent/prompt";
-import { assembleToolCalls, completeStream } from "../src/agent/stream";
+import { assembleToolCalls, completeStream, parseSseData } from "../src/agent/stream";
 import { getLucideIconPath, searchLucideIcons, getAllLucideIconNames, iconCatalogAvailable } from "../src/model/icons";
 import { generateDesignImage } from "../src/agent/image_gen";
 
@@ -130,6 +130,19 @@ describe("H1 provider client & streaming protocol", () => {
     expect(posted?.input[0].content[0].type).toBe("input_text");
     expect(posted?.input[1].content[0].type).toBe("output_text");
   });
+
+  it("ignores SSE comment frames used as keepalives", async () => {
+    const chunks: string[] = [];
+    for await (const data of parseSseData(sseStream([
+      ": keepalive\n\n",
+      "data: {\"x\":1}\n\n",
+      ": keepalive\n\n",
+      "data: [DONE]\n\n"
+    ]))) {
+      chunks.push(data);
+    }
+    expect(chunks).toEqual(['{"x":1}']);
+  });
 });
 
 describe("H2 credentials & model catalog discovery", () => {
@@ -142,7 +155,7 @@ describe("H2 credentials & model catalog discovery", () => {
     expect(JSON.stringify(configured)).not.toContain("v-key");
 
     const pVercel = loadProvider("vercel", { VERCEL_API_KEY: "v-key" }, "gpt-5.6-luna");
-    expect(pVercel).toMatchObject({ baseUrl: "https://ai-gateway.vercel.sh/v1", model: "gpt-5.6-luna", apiKey: "v-key", vision: true });
+    expect(pVercel).toMatchObject({ baseUrl: "https://ai-gateway.vercel.sh/v1", model: "openai/gpt-5.6-luna", apiKey: "v-key", vision: true });
 
     const pOpenCode = loadProvider("opencode-go", { OPENCODE_API_KEY: "sk-live" }, "glm-5.2");
     expect(pOpenCode).toMatchObject({ baseUrl: "https://opencode.ai/zen/go/v1", model: "glm-5.2", apiKey: "sk-live" });
@@ -223,6 +236,35 @@ describe("H3 session tool loop & conversational handling", () => {
     });
     const toolEv = badEvents.find((e) => e.type === "tool");
     expect(toolEv?.type === "tool" && toolEv.result.toLowerCase()).toContain("json");
+  });
+
+  it("does not treat an upstream AbortError as a client abort", () => {
+    const live = new AbortController();
+    expect(isAbortError(new DOMException("The connection was closed.", "AbortError"), live.signal)).toBe(false);
+    live.abort();
+    expect(isAbortError(new DOMException("The connection was closed.", "AbortError"), live.signal)).toBe(true);
+    expect(isAbortError(new DOMException("The connection was closed.", "AbortError"))).toBe(true);
+  });
+
+  it("retries a dropped upstream stream when the client did not abort", async () => {
+    let calls = 0;
+    const events = await collectSession(async () => {
+      calls++;
+      if (calls === 1) {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new DOMException("The connection was closed.", "AbortError"));
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } }
+        );
+      }
+      return saysSse("All done.");
+    });
+    expect(calls).toBe(2);
+    expect(events.some((e) => e.type === "done")).toBe(true);
+    expect(events.some((e) => e.type === "error")).toBe(false);
   });
 });
 

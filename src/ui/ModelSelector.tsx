@@ -24,22 +24,8 @@ export function parseChoice(value: string): { providerId: string; model: string 
   return { providerId: value.slice(0, split), model: value.slice(split + 1) };
 }
 
-function modelBlurb(model: { id: string; description?: string }): string {
-  if (model.description) return model.description;
-  const id = model.id.toLowerCase();
-  if (id.includes("luna")) {
-    return "Cheap & fast.";
-  }
-  if (id.includes("flash") || id.includes("turbo") || id.includes("mini") || id.includes("free")) {
-    return "Fast and efficient.";
-  }
-  if (id.includes("opus") || id.includes("sol")) {
-    return "Expensive, frontier intelligence.";
-  }
-  if (id.includes("pro") || id.includes("max") || id.startsWith("o") || id.includes("codex")) {
-    return "Prioritizes quality and reasoning.";
-  }
-  return "Designs and edits the canvas.";
+function modelBlurb(model: { description?: string }): string {
+  return model.description ?? "Designs and edits the canvas.";
 }
 
 function matchesQuery(query: string, providerLabel: string, modelId: string, modelLabel: string): boolean {

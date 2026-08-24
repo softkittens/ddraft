@@ -11,8 +11,8 @@ FROM oven/bun:1-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/demo-project ./demo-project
 COPY --from=builder /app/src ./src

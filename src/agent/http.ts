@@ -30,7 +30,12 @@ export interface AgentHttpDeps {
   env?: Record<string, string | undefined>;
   fetch?: FetchFn;
   logDir?: string;
+  /** SSE comment interval. Tests can shorten this. 0 disables. */
+  keepaliveMs?: number;
 }
+
+/** Bun.serve's default idleTimeout is 10s. Comment frames keep the socket active while the model thinks. */
+export const SSE_KEEPALIVE_MS = 5_000;
 
 const REVIEW_BODY_LIMIT = 32 * 1024 * 1024;
 const IMAGE_DATA_URL = /^data:image\/(png|jpeg|jpg|webp);base64,/i;
@@ -369,27 +374,43 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
       selection: body.selection
     });
 
+    let isClosed = false;
+    let keepalive: ReturnType<typeof setInterval> | undefined;
+    const stopKeepalive = () => {
+      if (keepalive === undefined) return;
+      clearInterval(keepalive);
+      keepalive = undefined;
+    };
+
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        let isClosed = false;
         const safeEnqueue = (chunk: Uint8Array) => {
           if (isClosed) return;
           try {
             controller.enqueue(chunk);
           } catch {
             isClosed = true;
+            stopKeepalive();
           }
         };
 
         const safeClose = () => {
           if (isClosed) return;
           isClosed = true;
+          stopKeepalive();
           try {
             controller.close();
           } catch {
             // Already closed or aborted
           }
         };
+
+        const keepaliveMs = deps.keepaliveMs ?? SSE_KEEPALIVE_MS;
+        if (keepaliveMs > 0) {
+          keepalive = setInterval(() => {
+            safeEnqueue(new TextEncoder().encode(": keepalive\n\n"));
+          }, keepaliveMs);
+        }
 
         void (async () => {
           try {
@@ -434,13 +455,18 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
             console.error("[ddraft-agent stream unhandled]", err);
           }
         });
+      },
+      cancel() {
+        isClosed = true;
+        stopKeepalive();
       }
     });
 
     const headers: Record<string, string> = {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive"
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no"
     };
     if (log) headers["X-Agent-Session-Id"] = log.id;
     return new Response(stream, { headers });

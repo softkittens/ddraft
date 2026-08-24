@@ -49,7 +49,7 @@ export const PROVIDER_CATALOG: CatalogProvider[] = [
      * by inference, which the gateway serves for every vendor it routes.
      */
     models: [
-      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", description: "Cheap & fast", vision: true },
+      { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna", description: "Cheap & fast", vision: true },
       { id: "deepseek/deepseek-v4-flash-vision-exp", label: "DeepSeek Flash Vision", description: "Cheap & decent", vision: true },
       { id: "minimax/minimax-m3", label: "MiniMax M3", description: "Fast & creative with vision", vision: true },
       { id: "mimo/mimo-v2.5-pro", label: "MiMo V2.5 Pro", description: "Balanced quality & reasoning", vision: true },

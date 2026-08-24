@@ -120,6 +120,48 @@ describe("H5 agent HTTP run endpoint & session logging", () => {
     req.emit("aborted");
     expect(signal.aborted).toBe(true);
   });
+
+  it("emits SSE comments so a quiet thinking turn does not look idle", async () => {
+    const hangingFetch: FetchFn = async (_input, init) => {
+      await new Promise((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+      throw new Error("unreachable");
+    };
+
+    const ac = new AbortController();
+    const res = await agentPost(
+      "run",
+      {
+        providerId: "opencode-go",
+        model: "glm-5.2",
+        messages: [{ role: "user", content: "hi" }],
+        doc: makeDoc()
+      },
+      { env: { OPENCODE_API_KEY: "sk-test" }, fetch: hangingFetch, keepaliveMs: 20 },
+      { signal: ac.signal }
+    );
+
+    expect(res.headers.get("Content-Type")).toContain("text/event-stream");
+    expect(res.headers.get("X-Accel-Buffering")).toBe("no");
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    const deadline = Date.now() + 800;
+    while (Date.now() < deadline && !buf.includes(": keepalive")) {
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<{ done: true; value: undefined }>((resolve) => {
+          setTimeout(() => resolve({ done: true, value: undefined }), 40);
+        })
+      ]);
+      if (next.value) buf += decoder.decode(next.value, { stream: true });
+    }
+    ac.abort();
+    await reader.cancel().catch(() => undefined);
+    expect(buf).toContain(": keepalive");
+  });
 });
 
 const validReview = {

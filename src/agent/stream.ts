@@ -14,20 +14,26 @@ export async function* parseSseData(body: ReadableStream<Uint8Array>): AsyncGene
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const parts = buf.split("\n\n");
-    buf = parts.pop() ?? "";
-    for (const part of parts) {
-      for (const line of part.split("\n")) {
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim();
-        if (data === "[DONE]") return;
-        if (data) yield data;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split("\n\n");
+      buf = parts.pop() ?? "";
+      for (const part of parts) {
+        for (const line of part.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          const data = line.slice(5).trim();
+          if (data === "[DONE]") return;
+          if (data) yield data;
+        }
       }
     }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {}
   }
 }
 

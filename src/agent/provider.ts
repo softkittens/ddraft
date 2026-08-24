@@ -100,7 +100,8 @@ export function toApiMessages(messages: Message[], p?: Provider) {
   return messages.map((m) => {
     let content = m.content;
     if (Array.isArray(content)) {
-      if (!p?.vision) {
+      const hasImages = content.some((c) => c.type === "image_url");
+      if (!p?.vision || !hasImages) {
         content = content
           .filter((c) => c.type === "text")
           .map((c) => (c as { type: "text"; text: string }).text)
@@ -113,6 +114,9 @@ export function toApiMessages(messages: Message[], p?: Provider) {
           return c;
         });
       }
+    }
+    if (m.role === "assistant" && m.tool_calls && m.tool_calls.length > 0 && (content === "" || content == null)) {
+      content = null as any;
     }
     const row: Record<string, unknown> = { role: m.role, content };
     if (m.tool_calls) row.tool_calls = m.tool_calls;

@@ -23,12 +23,17 @@ const mimeTypes: Record<string, string> = {
 };
 
 const server = Bun.serve({
+  hostname: "0.0.0.0",
   port,
-  async fetch(req) {
+  // Quiet SSE while the model thinks is still a live request. Bun's default
+  // idleTimeout is 10s; it aborts req.signal and kills the upstream stream.
+  idleTimeout: 0,
+  async fetch(req, bunServer) {
     const url = new URL(req.url);
 
     // 1. Agent API endpoints
     if (url.pathname.startsWith("/agent")) {
+      bunServer.timeout(req, 0);
       return handleAgentRequest(req, {
         env: process.env,
         logDir: resolve(process.cwd(), "agent-logs")

@@ -43,20 +43,22 @@ export function loadProvider(
   if (!apiKey) return null;
   // An unknown model is an error, not a reason to pick a different one. A run
   // billed and scored against a model nobody asked for is worse than no run.
-  if (model && !spec.models.some((m) => m.id === model)) {
+  const selected = model
+    ? spec.models.find((m) => m.id === model || m.id.endsWith(`/${model}`) || m.id.replace(/^[^/]+\//, "") === model)
+    : spec.models[0];
+  if (model && !selected) {
     throw new UnknownModelError(
       `${spec.label} does not offer the model "${model}". It offers: ${spec.models.map((m) => m.id).join(", ")}`
     );
   }
   const baseUrl = (spec.baseUrlEnv ? (Array.isArray(spec.baseUrlEnv) ? readEnvKey(bag, spec.baseUrlEnv) : bag[spec.baseUrlEnv]) : undefined) || spec.baseUrl;
-  const selected = spec.models.find((item) => item.id === (model || spec.models[0].id));
   return {
     id: spec.id,
     baseUrl,
-    model: model || spec.models[0].id,
+    model: selected?.id || model || spec.models[0].id,
     apiKey,
     reasoningEffort,
-    api: selected?.api || (/^(gpt-5|grok-4\.[56])/i.test(model || spec.models[0].id) ? "responses" : "chat"),
+    api: selected?.api || "chat",
     vision: selected ? modelSupportsVision(spec, selected) : false,
     maxOutputTokens: selected?.maxOutputTokens ?? spec.maxOutputTokens
   };

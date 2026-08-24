@@ -40,7 +40,7 @@ export type AgentEvent =
   | { type: "error"; message: string; code: AgentErrorCode };
 
 export function isAbortError(err: unknown, signal?: AbortSignal): boolean {
-  if (signal?.aborted) return true;
+  if (signal) return signal.aborted;
   return err instanceof Error && (err.name === "AbortError" || err.message === "aborted");
 }
 
@@ -169,25 +169,51 @@ export async function* runSession(
       tracedMessages = out.length;
       yield { type: "status", content: `${provider.model} is thinking…` };
 
+      let turnCompleted = false;
+      let retriesLeft = 2;
       let content = "";
       let reasoning = "";
       let truncated = false;
-      const partGroups: Parameters<typeof assembleToolCalls>[0] = [];
+      let partGroups: Parameters<typeof assembleToolCalls>[0] = [];
 
-      for await (const delta of completeStream(currentProvider, out, SESSION_TOOLS, opts)) {
+      while (!turnCompleted && retriesLeft >= 0) {
         if (opts.signal?.aborted) break;
-        if (delta.truncated) truncated = true;
-        if (delta.reasoning) {
-          reasoning += delta.reasoning;
-          trace(opts.trace, { type: "reasoning_delta", turn: turn + 1, content: delta.reasoning });
-          yield { type: "reasoning", content: delta.reasoning };
+
+        content = "";
+        reasoning = "";
+        truncated = false;
+        partGroups = [];
+
+        try {
+          for await (const delta of completeStream(currentProvider, out, SESSION_TOOLS, opts)) {
+            if (opts.signal?.aborted) break;
+            if (delta.truncated) truncated = true;
+            if (delta.reasoning) {
+              reasoning += delta.reasoning;
+              trace(opts.trace, { type: "reasoning_delta", turn: turn + 1, content: delta.reasoning });
+              yield { type: "reasoning", content: delta.reasoning };
+            }
+            if (delta.content) {
+              content += delta.content;
+              trace(opts.trace, { type: "assistant_delta", turn: turn + 1, content: delta.content });
+              yield { type: "delta", content: delta.content };
+            }
+            if (delta.toolCallParts) partGroups.push(delta.toolCallParts);
+          }
+          turnCompleted = true;
+        } catch (streamErr) {
+          if (opts.signal?.aborted) throw streamErr;
+          retriesLeft--;
+          if (retriesLeft < 0) throw streamErr;
+
+          const lowered = stepDownEffort(currentProvider.reasoningEffort, currentProvider);
+          console.warn(`[ddraft-agent] Upstream connection dropped on Turn ${turn + 1}. Retrying (${retriesLeft} left, stepping down effort from ${currentProvider.reasoningEffort ?? "default"} to ${lowered})...`);
+          currentProvider = { ...currentProvider, reasoningEffort: lowered };
+          trace(opts.trace, { type: "effort_step_down", turn: turn + 1, reasoningEffort: lowered });
+          yield { type: "status", content: `Reconnecting ${provider.model}…` };
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          continue;
         }
-        if (delta.content) {
-          content += delta.content;
-          trace(opts.trace, { type: "assistant_delta", turn: turn + 1, content: delta.content });
-          yield { type: "delta", content: delta.content };
-        }
-        if (delta.toolCallParts) partGroups.push(delta.toolCallParts);
       }
 
       if (opts.signal?.aborted) break;

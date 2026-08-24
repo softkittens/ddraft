@@ -5,9 +5,13 @@ const port = Number(process.env.DDRAFT_AGENT_PORT || process.env.PEN_AGENT_PORT)
 
 Bun.serve({
   port,
-  fetch: (req) => handleAgentRequest(req, {
-    logDir: resolve(process.cwd(), "agent-logs")
-  }),
+  idleTimeout: 0,
+  fetch: (req, bunServer) => {
+    bunServer.timeout(req, 0);
+    return handleAgentRequest(req, {
+      logDir: resolve(process.cwd(), "agent-logs")
+    });
+  },
   error: (err) => {
     console.error("[ddraft-agent unhandled error]", err);
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
