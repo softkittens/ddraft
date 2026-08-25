@@ -79,6 +79,7 @@ export const VALUE_ALIASES: Record<string, Record<string, string>> = {
   textAlign: { start: "left", end: "right" },
   textGrowth: {
     "fixed": "fixed-width", "fixed_width": "fixed-width",
+    "wrap": "fixed-width", "wrapping": "fixed-width", "word-wrap": "fixed-width",
     "fixed_width_height": "fixed-width-height", "fixed-width_height": "fixed-width-height",
     "fit_content": "auto", "fit-content": "auto", "hug": "auto"
   }

@@ -878,11 +878,11 @@ describe("Scoping, Triage & Tool Integration", () => {
     expect(rules(cart)).not.toContain("icon_alignment");
   });
 
-  it("flags eyebrow kickers above headings", () => {
+  it("flags eyebrow kickers with stylized hacker slashes above headings", () => {
     const kickerDoc = makeDoc(
       frame("screen", 390, 844, [
         frame("header", 300, 100, [
-          txt("eyebrow", "NEAR YOU", 10),
+          txt("eyebrow", "NEAR YOU //", 10),
           txt("title", "Brooklyn, NY", 28)
         ], { layout: "vertical" })
       ])
@@ -952,9 +952,9 @@ describe("Scoping, Triage & Tool Integration", () => {
     expect(rules(hero)).not.toContain("heading_content_gap");
   });
 
-  it("holds eyebrow kickers and glued section headings for the finishing pass", () => {
-    expect(FINISHING_RULES.has("eyebrow_kicker")).toBe(true);
+  it("holds glued section headings for the finishing pass", () => {
     expect(FINISHING_RULES.has("heading_content_gap")).toBe(true);
+    expect(FINISHING_RULES.has("eyebrow_kicker")).toBe(false);
   });
 
   it("flags text colliding across image boundaries", () => {
@@ -1283,7 +1283,7 @@ describe("Scoping, Triage & Tool Integration", () => {
     expect(rules(site)).not.toContain("oversized_section_height");
   });
 
-  it("blocks inconsistent action styles across sibling cards in a row", () => {
+  it("warns about inconsistent action styles across sibling cards in a row", () => {
     const asymmetricCardsDoc = makeDoc(
       screen("mobile", [
         frame("grid", "fill_container", "fit_content", [
@@ -1299,22 +1299,18 @@ describe("Scoping, Triage & Tool Integration", () => {
       ], { width: 390, height: 844 })
     );
     expectFinding(asymmetricCardsDoc, "inconsistent_card_actions", {
-      severity: "blocker",
+      severity: "warning",
       message: /inconsistent action style/
     });
   });
 
-  it("blocks commerce rows where every product card is missing an action", () => {
+  it("does not flag informational card rows where cards intentionally have no buttons", () => {
     const noActions = makeDoc(screen("mobile", [
       frame("grid", "fill_container", "fit_content", [
-        frame("card1", 170, 240, [txt("t1", "Yuzu Cloud", 16)], { name: "Product Card 1" }),
-        frame("card2", 170, 240, [txt("t2", "Black Sesame", 16)], { name: "Product Card 2" })
-      ], { name: "Product Grid", layout: "horizontal", gap: 12 })
+        frame("card1", 170, 240, [txt("t1", "Quiet Studio", 16)], { name: "Card 1" }),
+        frame("card2", 170, 240, [txt("t2", "Garden Loft", 16)], { name: "Card 2" })
+      ], { name: "Spaces Row", layout: "horizontal", gap: 12 })
     ], { width: 390, height: 844 }));
-    expectFinding(noActions, "inconsistent_card_actions", {
-      nodeId: "grid",
-      severity: "blocker",
-      message: /no visible add, buy, cart, or order action/
-    });
+    expect(rules(noActions)).not.toContain("inconsistent_card_actions");
   });
 });

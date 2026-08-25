@@ -34,7 +34,7 @@ export interface AgentReviewRequest {
   pageId?: string;
   /** What the builder resolved, so the critic judges the same product it built. */
   context?: ResolvedContext;
-  sessionId: string;
+  sessionId?: string;
 }
 
 export interface AgentStatusResult {

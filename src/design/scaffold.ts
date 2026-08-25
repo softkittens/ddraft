@@ -262,6 +262,8 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
   } as PenNode;
   slots.topBar = topBar.id;
 
+  const hasRails = desktopHasRails(spec.archetype ?? "unspecified");
+
   // The dominant region is the reason the screen exists, so it is the one that
   // takes the remaining width rather than a share of it.
   const main: PenNode = {
@@ -270,7 +272,7 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
     name: "Main",
     metadata: { scaffold: "slot" },
     width: "fill_container",
-    height: "fill_container",
+    height: hasRails ? "fill_container" : "fit_content",
     layout: "vertical",
     padding: [0, 8],
     gap: 14,
@@ -279,7 +281,7 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
   slots.main = main.id;
 
   const bodyChildren: PenNode[] = [];
-  if (desktopHasRails(spec.archetype ?? "unspecified")) {
+  if (hasRails) {
     const rail: PenNode = {
       type: "frame",
       id: id(),
@@ -344,7 +346,7 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
         name: "Body",
         metadata: { scaffold: "slot" },
         width: "fill_container",
-        height: "fill_container",
+        height: hasRails ? "fill_container" : "fit_content",
         layout: "horizontal",
         gap: 16,
         children: bodyChildren

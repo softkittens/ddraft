@@ -11,23 +11,22 @@ import {
   resetToken,
   persistChat,
   zoomToFit,
-  activePage
+  activePage,
+  setAgentRunning
 } from "../store";
 import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
 import { noteAgentEdits, clearAgentEditTargets, diffChangedNodeIds } from "../canvas/workingFrames";
 import type { Message } from "../../agent/provider";
 import type { PublicProvider } from "../../agent/credentials";
 import type { Document } from "../../model/types";
+import { findNode, childrenOf } from "../../model/tree";
 import { decideAgentDocument } from "../agentDocument";
 import { parseChoice, choiceValue } from "../ModelSelector";
 import { defaultEffortForModelChoice } from "../../agent/catalog";
 import { captureDocumentPng } from "../../render/capture";
 import {
-  applyReviewFixes,
   applyReviewMessage,
   enforceAuditFindings,
-  enforceRejectedFixes,
-  type DesignReview,
   type ReviewResponse
 } from "../../agent/review";
 import { digest } from "../../digest/digest";
@@ -54,7 +53,6 @@ function isAbortError(err: unknown): boolean {
 }
 
 let hasAutoFitInitial = false;
-const MAX_POST_FIX_REVIEWS = 1;
 
 function applyCanvasUpdate(nextDoc: Document) {
   const oldMap = nodeMap();
@@ -148,6 +146,24 @@ export function useChatSession() {
   const [streamReasoning, setStreamReasoning] = createSignal("");
   const [lastBrief, setLastBrief] = createSignal(saved?.lastBrief ?? "");
   const [pending, setPending] = createSignal<PendingStep | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = createSignal(0);
+
+  createEffect(() => {
+    setAgentRunning(running());
+  });
+
+  createEffect(() => {
+    if (!running()) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const start = Date.now();
+    setElapsedSeconds(0);
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - start) / 1000));
+    }, 250);
+    onCleanup(() => clearInterval(interval));
+  });
 
   // The transcript is saved with the canvas it describes.
   createEffect(
@@ -173,6 +189,7 @@ export function useChatSession() {
       setStreamReasoning("");
       setPending(null);
       setRunning(false);
+      setElapsedSeconds(0);
       clearAgentEditTargets();
     }, { defer: true })
   );
@@ -378,13 +395,11 @@ export function useChatSession() {
     return { finished, edited, messages: finalMessages, failure, toolsCalled };
   }
 
-  async function runReview(
-    sessionId: string
-  ): Promise<{
+  async function runReview(sessionId?: string, focusedNodeIds?: string[]): Promise<{
     review?: ReviewResponse;
-    error?: string;
     thumbnail?: string;
     sectionThumbnails?: { name: string; url: string }[];
+    error?: string;
   }> {
     zoomToFit({ animate: true });
     const selected = parseChoice(choice());
@@ -393,9 +408,6 @@ export function useChatSession() {
     const seq = ++reviewSeq;
     const signal = reviewAbort.signal;
     const captured = doc();
-    // Pinned once for the whole review: the screenshots, the digest, the audit
-    // and the resolved context all have to describe the same page, and the
-    // user can switch pages while the request is in flight.
     const capturedPage = activePage()?.id;
     const pageDoc = pageScopedDocument(captured, capturedPage);
 
@@ -411,6 +423,28 @@ export function useChatSession() {
     });
 
     try {
+      const allScreens = capture.screens.map((s) => ({
+        id: s.id,
+        name: s.name,
+        dataUrl: s.dataUrl,
+        kind: s.kind,
+        parentId: s.parentId
+      }));
+
+      let screensToSend = allScreens;
+      if (focusedNodeIds && focusedNodeIds.length > 0) {
+        const focusedSet = new Set(focusedNodeIds);
+        const matched = allScreens.filter((s) => {
+          if (focusedSet.has(s.id)) return true;
+          const secNode = findNode(pageDoc.children, s.id);
+          if (secNode && focusedNodeIds.some((fid) => findNode(childrenOf(secNode), fid))) return true;
+          return false;
+        });
+        if (matched.length > 0) {
+          screensToSend = matched;
+        }
+      }
+
       const review = await fetchAgentReview(
         {
           providerId: selected?.providerId,
@@ -418,29 +452,20 @@ export function useChatSession() {
           reasoningEffort: effort(),
           brief: lastBrief(),
           screenshot: capture.dataUrl,
-          screenshots: capture.screens.map((s) => ({
-            id: s.id,
-            name: s.name,
-            dataUrl: s.dataUrl,
-            kind: s.kind,
-            parentId: s.parentId
-          })),
+          screenshots: screensToSend,
           digest: digest(pageDoc),
           direction: currentDirection(captured),
           audit: formatAudit(auditDocument(pageDoc), "Measured design audit"),
           pageId: capturedPage,
-          // The server sees only the brief. Without this the critic re-resolves
-          // from that one string and can judge a mobile app against dashboard
-          // criteria the builder never received.
           context: resolvePromptContext(lastBrief(), pageDoc, [...selectedIds()], sessionTextOf(agentMessages())),
           sessionId
         },
         signal
       );
       if (seq !== reviewSeq || doc() !== captured) return {};
-      const thumbSrc = capture.screens[0]?.dataUrl || capture.dataUrl;
+      const thumbSrc = screensToSend[0]?.dataUrl || capture.screens[0]?.dataUrl || capture.dataUrl;
       const sectionThumbnails: { name: string; url: string }[] = [];
-      for (const s of capture.screens) {
+      for (const s of screensToSend) {
         if (s.kind === "section" || s.kind === "viewport") {
           const thumb = await createThumbnail(s.dataUrl);
           if (thumb) {
@@ -453,7 +478,7 @@ export function useChatSession() {
       }
       return {
         review,
-        thumbnail: await createThumbnail(thumbSrc),
+        thumbnail: thumbSrc ? await createThumbnail(thumbSrc) : undefined,
         sectionThumbnails
       };
     } catch (err) {
@@ -477,6 +502,7 @@ export function useChatSession() {
     let instruction = text;
     let context = agentMessages();
     let producedDesign = false;
+    let targetedNodes: string[] | undefined;
     const sessionId = crypto.randomUUID();
 
     const initialScreenCount = doc().children.length;
@@ -492,106 +518,41 @@ export function useChatSession() {
         if (!result.finished || !result.edited) break;
         producedDesign = true;
 
-        // Action-based decision: Only run visual review for major changes (empty canvas build, new screen created, or set_style called)
-        const isMajorDesignChange =
+        const isSubstantiveDesign =
           initialScreenCount === 0 ||
-          result.toolsCalled.includes("create_screen") ||
-          result.toolsCalled.includes("set_style");
+          result.toolsCalled.some((t) =>
+            ["create_screen", "set_style", "insert_node", "replace_node", "generate_image"].includes(t)
+          ) ||
+          result.toolsCalled.length >= 3;
 
-        if (!isMajorDesignChange) {
+        if (!isSubstantiveDesign) {
           break;
         }
 
-        let reviewed = await runReview(sessionId);
+        const reviewed = await runReview(sessionId, targetedNodes);
         if (reviewed.error) {
           note(`Visual review could not run: ${reviewed.error}`, "error");
           break;
         }
         if (!reviewed.review) break;
 
-        let finalReview: DesignReview | undefined;
-        /*
-         * True when the loop stopped at its budget with fixes freshly applied.
-         *
-         * At that point the canvas on screen is one the critic never saw: it
-         * reviewed A, its fixes produced B, and the budget ran out before B
-         * could be looked at. Printing A's verdict there is how "pass" came to
-         * mean "an earlier version of this passed".
-         */
-        let fixesAwaitingReview = false;
-        for (let fixReview = 0; fixReview <= MAX_POST_FIX_REVIEWS; fixReview++) {
-          const measuredReview = enforceAuditFindings(reviewed.review, auditDocument(pageScopedDocument(doc(), activePage()?.id)));
-          const beforeFixes = doc();
-          const fixed = applyReviewFixes(beforeFixes, measuredReview);
-          if (fixed.applied.length > 0 && doc() === beforeFixes) {
-            applyCanvasUpdate(fixed.doc);
-          }
+        const finalReview = enforceAuditFindings(
+          reviewed.review,
+          auditDocument(pageScopedDocument(doc(), activePage()?.id))
+        );
 
-          const displayedReview = enforceRejectedFixes(measuredReview, fixed.rejected);
-          finalReview = displayedReview;
-          reviewNumber += 1;
-          setEntries((prev) => [
-            ...prev,
-            {
-              kind: "review",
-              pass: reviewNumber,
-              review: displayedReview,
-              applied: fixed.applied.length,
-              thumbnail: reviewed.thumbnail,
-              sectionThumbnails: reviewed.sectionThumbnails
-            }
-          ]);
-
-          // Rejected fixes need coordinated agent work. Accepted fixes need a
-          // fresh screenshot review; a verdict about the pre-fix canvas is not
-          // evidence that the changed canvas passes.
-          if (
-            fixed.rejected.length > 0 ||
-            fixed.applied.length === 0 ||
-            fixReview === MAX_POST_FIX_REVIEWS
-          ) {
-            fixesAwaitingReview =
-              fixed.applied.length > 0 && fixed.rejected.length === 0 && fixReview === MAX_POST_FIX_REVIEWS;
-            break;
+        reviewNumber += 1;
+        setEntries((prev) => [
+          ...prev,
+          {
+            kind: "review",
+            pass: reviewNumber,
+            review: finalReview,
+            applied: 0,
+            thumbnail: reviewed.thumbnail,
+            sectionThumbnails: reviewed.sectionThumbnails
           }
-
-          reviewed = await runReview(sessionId);
-          if (reviewed.error) {
-            note(`Post-fix visual review could not run: ${reviewed.error}`, "error");
-            break;
-          }
-          if (!reviewed.review) {
-            break;
-          }
-        }
-
-        if (!finalReview) break;
-
-        // One confirming look at the canvas the user is actually left with. Its
-        // fixes are not applied — the fix budget is spent — so what it reports
-        // is what is on screen. If it finds something, the outer pass hands it
-        // to the agent like any other refine.
-        if (fixesAwaitingReview) {
-          const confirmed = await runReview(sessionId);
-          if (!confirmed.error && confirmed.review) {
-            const confirmedReview = enforceAuditFindings(confirmed.review, auditDocument(pageScopedDocument(doc(), activePage()?.id)));
-            finalReview = confirmedReview;
-            reviewNumber += 1;
-            setEntries((prev) => [
-              ...prev,
-              {
-                kind: "review",
-                pass: reviewNumber,
-                review: confirmedReview,
-                applied: 0,
-                thumbnail: confirmed.thumbnail,
-                sectionThumbnails: confirmed.sectionThumbnails
-              }
-            ]);
-          } else if (confirmed.error) {
-            note(`Final visual review could not run: ${confirmed.error}`, "error");
-          }
-        }
+        ]);
 
         const next = reviewLoopNext({
           pass,
@@ -603,6 +564,7 @@ export function useChatSession() {
           case "stop":
             break;
           case "revise":
+            targetedNodes = finalReview.issues.flatMap((iss) => iss.nodeIds || []);
             instruction = applyReviewMessage(lastBrief(), finalReview, doc());
             continue;
           case "apply_last": {
@@ -647,6 +609,7 @@ export function useChatSession() {
     setStreamReasoning("");
     setPending(null);
     setRunning(false);
+    setElapsedSeconds(0);
     clearAgentEditTargets();
     persistChat({ entries: [], agentMessages: [], lastBrief: "" });
     void flushSession();
@@ -664,6 +627,7 @@ export function useChatSession() {
     setEffort,
     entries,
     running,
+    elapsedSeconds,
     streamText,
     streamReasoning,
     pending,

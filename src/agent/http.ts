@@ -314,14 +314,11 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
           if (isAbortError(err, req.signal)) {
             return new Response(null, { status: 204 });
           }
-          // The model answered; it just did not answer in the shape asked for.
-          // Handing that to a second model would spend another call on a
-          // failure a retry cannot distinguish from a stubborn one.
-          if (err instanceof z.ZodError || err instanceof SyntaxError) {
-            return Response.json({ error: "invalid_response" }, { status: 422 });
-          }
           const alternate = loadVisionProvider(provider.id, env, tried, body.reasoningEffort);
           if (!alternate) {
+            if (err instanceof z.ZodError || err instanceof SyntaxError) {
+              return Response.json({ error: "invalid_response" }, { status: 422 });
+            }
             return Response.json({ error: message }, { status: 502 });
           }
           log?.write({

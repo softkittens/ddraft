@@ -303,6 +303,71 @@ export function hasTextContent(node: PenNode): boolean {
   return false;
 }
 
+const SCAFFOLD_SLOT_NAME =
+  /^(inset content|bleed content|content|body|top ?bar|(left |right )?rail|aside|main|safe area)$/i;
+
+/**
+ * True once a screen holds something the model authored — copy, a photo, a
+ * control — rather than the empty chrome create_screen stamped.
+ *
+ * 8ab1ecbc: Muse Spark built a finished Casa Pátio, opened a blank second
+ * desktop, deleted the first, then failed to rebuild. The only way to tell
+ * "this screen is the design" from "this screen is still an empty shell" is
+ * this walk, the same one the scaffold_only audit uses.
+ */
+export function hasAuthoredContent(node: PenNode): boolean {
+  if (node.enabled === false) return false;
+  const tagged = (node as { metadata?: { scaffold?: string } }).metadata?.scaffold;
+  if (tagged === "chrome" || SCREEN_CHROME_NAME.test(node.name ?? "")) return false;
+
+  const isSlot = tagged === "slot" || SCAFFOLD_SLOT_NAME.test(node.name ?? "");
+  if (!isSlot) {
+    if (node.type === "text") {
+      if (typeof (node as { content?: string }).content === "string" && (node as { content?: string }).content!.trim()) {
+        return true;
+      }
+    } else if (node.type !== "frame" && node.type !== "group") {
+      return true;
+    } else if (hasImageFill(node)) {
+      return true;
+    }
+  }
+
+  for (const child of childrenOf(node)) {
+    if (hasAuthoredContent(child)) return true;
+  }
+  return false;
+}
+
+export function countAuthoredElements(node: PenNode): number {
+  if (node.enabled === false) return 0;
+  const tagged = (node as { metadata?: { scaffold?: string } }).metadata?.scaffold;
+  if (tagged === "chrome" || SCREEN_CHROME_NAME.test(node.name ?? "")) return 0;
+
+  let count = 0;
+  const isSlot = tagged === "slot" || SCAFFOLD_SLOT_NAME.test(node.name ?? "");
+  if (!isSlot) {
+    if (node.type === "text") {
+      if (typeof (node as { content?: string }).content === "string" && (node as { content?: string }).content!.trim()) {
+        count += 1;
+      }
+    } else if (node.type !== "frame" && node.type !== "group") {
+      count += 1;
+    } else if (hasImageFill(node)) {
+      count += 1;
+    }
+  }
+
+  for (const child of childrenOf(node)) {
+    count += countAuthoredElements(child);
+  }
+  return count;
+}
+
+export function hasSubstantiveContent(node: PenNode, minThreshold = 3): boolean {
+  return countAuthoredElements(node) >= minThreshold;
+}
+
 export function isDescendant(node: PenNode, ancestor: PenNode): boolean {
   for (const child of childrenOf(ancestor)) {
     if (child === node || isDescendant(node, child)) return true;

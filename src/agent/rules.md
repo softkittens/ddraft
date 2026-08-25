@@ -135,8 +135,12 @@ RULES
   26. Focal Contrast: Establish one unmistakable subject through scale, imagery, typography, placement or a ground shift. A dark rounded hero on a pale screen is one option, never the default requirement.
   27. Contextual Metadata: Use badges or stamps only when they communicate real inventory, timing, popularity or availability. Do not add retail-authority labels as decoration.
   28. Screen Isolation & Dual-Screen Placement: Never nest a screen frame inside another screen frame. When building a companion screen or second screen, omit parentId (or call create_screen) so it is placed side-by-side at x: 480+ on the root canvas.
-  29. Non-Destructive Revision Discipline: During visual review or incremental edits, NEVER delete the original root screen or wipe the canvas. If a node is nested by mistake, call move_node(id, newParentId: 'canvas') to un-nest it to the top-level canvas, or delete only the inner duplicate node. Never delete the root container that holds your generated images and core content.
-  30. Auto-Layout Discipline: Screens, sections, and cards MUST use auto-layout (layout: 'vertical' or layout: 'horizontal'). NEVER switch a content frame with three or more children to layout: 'none' unless those children already have distinct x/y. Absolute stacking at the origin overlaps copy and photography. A badge or play button on a photo (one or two children) may stay absolute.
+  29. Non-Destructive Revision Discipline & Atomic Updates: During visual review or incremental edits, NEVER delete the root screen or scroll containers (Main slot). When redesigning or updating a section or card, use `replace_node(id, node)` to replace it in-place atomically in a single call — do not delete children one-by-one. If a node is nested by mistake, call move_node(id, newParentId: 'canvas') or delete only the offending child.
+  30. Section-by-Section Construction: For multi-section landing pages and apps, build incrementally by inserting 1–2 sections per `insert_node` call into the `Main` slot. This avoids token-limit truncations and keeps layout progress stable and verifiable.
+  31. Auto-Layout Discipline: Screens, sections, and cards MUST use auto-layout (layout: 'vertical' or layout: 'horizontal'). NEVER switch a content frame with three or more children to layout: 'none' unless those children already have distinct x/y. Absolute stacking at the origin overlaps copy and photography. A badge or play button on a photo (one or two children) may stay absolute.
+  32. Hero Text Proximity & Vertical Flow: In split Hero or editorial columns (e.g. left copy, right photography/card), keep the headline, subtitle, metadata/hours, and primary CTA closely clustered using layout: 'vertical', a defined gap (20–28px), and justifyContent: 'flex-start'. NEVER set justifyContent: 'space_between' on a tall vertical text stack holding raw text children across 500px+ of height, as this scatters copy across the page and creates huge dead space.
+  33. Card Top-Content vs Bottom-CTA Pattern: In card grids and sibling collections (Spaces, Features, Amenities, Pricing), structure each card with two logical zones: (1) a top auto-layout content stack (layout: 'vertical', gap: 8–12) holding the photo/icon, title, blurb, and metadata line, and (2) a bottom CTA button. Set height: 'fill_container' and justifyContent: 'space_between' on the outer card frame. This ensures copy never collides with or overlaps the button, and all CTA buttons across the row align to a locked horizontal baseline.
+  34. Text Wrapping & Card Inner Sizing: Text descriptions inside cards must set width: 'fill_container' and textGrowth: 'fixed-width' so copy wraps naturally within the card's inner width. Provide at least 16–24px padding on cards to prevent multi-line text from crowding card edges or touching interactive buttons.
 
 ## canvas-api
 
@@ -153,7 +157,8 @@ CANVAS API
   width/height: number, 'fill_container', 'fit_content' (or 'fit_content(<fallback>)'). A fixed height on a frame that holds text clips it; use 'fit_content'.
   fill: token ('$surface-primary'), hex string, { type: 'color', color: '...', blendMode: 'multiply' | 'overlay' }, { type: 'gradient', gradientType: 'linear' | 'radial' | 'angular', stops: [...] }, or { type: 'image', url: '...' }.
   effect: { type: 'shadow', offset: { x: 0, y: 4 }, blur: 12, color: 'rgba(0,0,0,0.08)' }.
-  insert_node: builds a whole subtree in one call. Build a screen in a few large calls, not one call per node.
+  insert_node: builds a subtree inside a parent slot. Build large pages section-by-section.
+  replace_node: atomically replaces an existing section/card subtree in-place without manual multi-delete cycles.
 
 ## critic
 
@@ -209,7 +214,7 @@ PASS CRITERIA (Return "pass" ONLY when ALL are true):
 ISSUES & FIXES
 - Per-Slice Scrutiny: Inspect the full screen overview and true close-up sections for localized alignment, button baselines, and text collisions. Contextual viewport crops may cut content at their outer edge; that is not clipping.
 - Frame targeting: When multiple screens are present (e.g. Desktop and Mobile), always specify the screen name in the issue title or instruction (e.g. "[Desktop] Cropped hero photograph" or "[Mobile] Button alignment"), and cite nodeIds located inside that specific screen.
-- Anything you can correct by setting one property on one node belongs in 'fixes', not 'issues' — those are applied directly and cost nothing. Reserve 'issues' for changes that need the layout rebuilt, content rewritten, or elements added.
+- Anything you can correct by setting one property on one node belongs in 'fixes', not 'issues'. When returning 'refine', provide clear 'issues' with specific instructions so the agent can execute revisions using canvas tools (such as replace_node or batch_set_properties).
 - A fix adjusts an element; it never removes one. Do not propose fontSize 0, width or height 0, or opacity 0 to make something you object to go away — those are discarded. If an element should not be there, say so in 'issues' and let the design decide.
 - Fixable properties: {fixableProperties}.
 - Colours are tokens ('$accent-primary') or hex. Sizes are numbers, 'fill_container' or 'fit_content'. A fix with any other property is discarded.

@@ -23,7 +23,7 @@ export type CaptureResult =
 
 const FULL_SCREEN_SCALE = 0.5;
 const MOBILE_FULL_SCREEN_SCALE = 1;
-const SECTION_SLICE_SCALE = 0.75;
+const SECTION_SLICE_SCALE = 0.5;
 const JPEG_QUALITY = 0.85;
 const IMAGE_WAIT_MS = 1500;
 const FONT_WAIT_MS = 300;
@@ -97,13 +97,12 @@ function captureBoxSlice(
   kind?: "screen" | "section" | "viewport",
   parentId?: string
 ): ScreenCapture | null {
-  if (sliceBox.width <= 0 || sliceBox.height <= 0) return null;
-  const baseScale =
-    kind === "section"
-      ? SECTION_SLICE_SCALE
-      : sliceBox.width <= 500
-      ? MOBILE_FULL_SCREEN_SCALE
-      : FULL_SCREEN_SCALE;
+  const isMob = sliceBox.width <= 500;
+  const baseScale = isMob
+    ? MOBILE_FULL_SCREEN_SCALE
+    : kind === "section"
+    ? SECTION_SLICE_SCALE
+    : FULL_SCREEN_SCALE;
   const scale = captureScale(sliceBox, baseScale);
   const canvas = globalThis.document.createElement("canvas");
   const width = Math.max(1, Math.round(sliceBox.width * scale));
@@ -130,7 +129,7 @@ function captureBoxSlice(
       name: labelName || root.id,
       dataUrl: canvas.toDataURL("image/jpeg", JPEG_QUALITY),
       box: sliceBox,
-    kind: kind || "screen",
+      kind: kind || "screen",
       parentId
     };
   } catch {
@@ -140,7 +139,7 @@ function captureBoxSlice(
 
 function findSectionSlices(root: LayoutNode, isMobile: boolean): LayoutNode[] {
   const sections: LayoutNode[] = [];
-  const minHeight = isMobile ? 260 : 160;
+  const minHeight = isMobile ? 120 : 160;
   const maxHeight = isMobile ? 844 : 1000;
   
   function walk(node: LayoutNode, depth: number) {
@@ -216,34 +215,8 @@ function captureSingleRoot(
   const threshold = isMobile ? viewportHeight + 40 : 1400;
   if (box.height > threshold) {
     const sections = findSectionSlices(root, isMobile);
-    const substantive = sections.filter((s) => s.box.height >= (isMobile ? 260 : 160));
-    let chosen: LayoutNode[] = [];
-    if (substantive.length <= 4) {
-      chosen = substantive;
-    } else {
-      // 1. Always include top section (Hero)
-      chosen.push(substantive[0]);
-
-      // 2. Look for explicit pricing/membership or product grid section
-      const keySection = substantive.find((s) => {
-        const name = map.get(s.id)?.name ?? "";
-        return /price|pricing|rate|rates|membership|tier|plan|product|collection|slice|catalog/i.test(name);
-      });
-
-      // 3. Middle sections (Spaces, Inclusions, Features)
-      const middle = substantive.filter((s) => s !== substantive[0] && s !== keySection);
-      if (middle.length > 0) chosen.push(middle[0]);
-      if (middle.length > 1) chosen.push(middle[Math.floor(middle.length / 2)]);
-
-      if (keySection && !chosen.includes(keySection)) {
-        chosen.push(keySection);
-      } else if (substantive.length > chosen.length) {
-        chosen.push(substantive[substantive.length - 1]);
-      }
-    }
-    // Sort in document order and deduplicate
-    const chosenSet = new Set(chosen);
-    const ordered = substantive.filter((s) => chosenSet.has(s)).slice(0, 4);
+    const substantive = sections.filter((s) => s.box.height >= (isMobile ? 120 : 160));
+    const ordered = substantive.slice(0, 12);
 
     for (const sec of ordered) {
       const secNode = map.get(sec.id);

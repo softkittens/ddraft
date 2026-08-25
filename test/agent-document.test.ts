@@ -134,6 +134,28 @@ describe("insert_node normalizes what the model wrote", () => {
     expect((session.doc.children[0] as any).layout).toBe("vertical");
   });
 
+  it("defaults height: 'fill_container' on sibling cards in a horizontal row", async () => {
+    const session = createDocumentTools(makeDoc());
+    const result = await session.execute("insert_node", {
+      node: {
+        type: "frame",
+        id: "testimonial-row",
+        name: "Testimonials",
+        width: 1200,
+        layout: "horizontal",
+        gap: 24,
+        children: [
+          { type: "frame", id: "c1", name: "Card 1", width: "fill_container", layout: "vertical", children: [] },
+          { type: "frame", id: "c2", name: "Card 2", width: "fill_container", layout: "vertical", children: [] }
+        ]
+      }
+    });
+    expect(result).toContain("height: 'fill_container'");
+    const parent = session.doc.children[0] as any;
+    expect(parent.children[0].height).toBe("fill_container");
+    expect(parent.children[1].height).toBe("fill_container");
+  });
+
   it("keeps layout none when children already have distinct positions", async () => {
     const session = createDocumentTools(makeDoc());
     await session.execute("insert_node", {

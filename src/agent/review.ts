@@ -358,7 +358,7 @@ export function applyReviewMessage(
     "decoration, and leave the rest of the canvas alone — this is a revision, not",
     "a second design pass.",
     "Never delete a create_screen slot (Main, Top Bar, rails, Inset, Bleed) or the",
-    "screen itself. Edit or replace children inside the slot.",
+    "screen itself. Use replace_node to refactor cited sections or cards in a single atomic tool call, or batch_set_properties to adjust spacing, height, and tokens in-place.",
     "When you finish, say in one sentence what you changed. What the product is",
     "has already been said."
   ];
@@ -400,7 +400,10 @@ export function enforceAuditFindings(
     "false_floor",
     "missing_product_image",
     "undersized_subject",
-    "missing_display"
+    "missing_display",
+    "uneven_card_heights",
+    "text_clipped",
+    "misaligned_inputs"
   ]);
   const severeFindings = findings.filter(
     (f) =>

@@ -9,6 +9,7 @@ export interface ChatInputBarProps {
   onSend: () => void;
   onStop: () => void;
   running: boolean;
+  elapsedSeconds?: number;
   configured: boolean;
   requiresAccessCode?: boolean;
   authenticated?: boolean;
@@ -22,6 +23,13 @@ export interface ChatInputBarProps {
 export const ChatInputBar: Component<ChatInputBarProps> = (props) => {
   const isLocked = () => props.requiresAccessCode && !props.authenticated;
   const isReady = () => props.configured && !isLocked();
+
+  const formattedElapsed = () => {
+    const totalSecs = props.elapsedSeconds ?? 0;
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   return (
     <div class="flex flex-col gap-1.5 px-3 pb-3 pt-1 shrink-0">
@@ -67,13 +75,18 @@ export const ChatInputBar: Component<ChatInputBarProps> = (props) => {
         </Show>
 
         <Show when={props.running}>
-          <button
-            onClick={props.onStop}
-            class="w-8 h-8 rounded-full bg-rose-200 hover:bg-rose-300 text-rose-800 flex items-center justify-center transition shrink-0"
-            title="Stop generation"
-          >
-            <Square size={11} />
-          </button>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-[11px] tabular-nums font-mono text-neutral-400 select-none">
+              {formattedElapsed()}
+            </span>
+            <button
+              onClick={props.onStop}
+              class="w-8 h-8 rounded-full bg-rose-200 hover:bg-rose-300 text-rose-800 flex items-center justify-center transition shrink-0"
+              title="Stop generation"
+            >
+              <Square size={11} />
+            </button>
+          </div>
         </Show>
         <Show when={!props.running}>
           <button

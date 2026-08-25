@@ -148,6 +148,22 @@ function applyDefaults(node: any, report: NormalizeReport): void {
     } else if (node.layout === "none" && childrenWouldStackAtOrigin(node)) {
       node.layout = "vertical";
       report.defaulted.push("layout: 'vertical' on a content frame that used none (children would stack)");
+    } else if (node.layout === "horizontal" && Array.isArray(node.children) && node.children.length >= 2) {
+      const cardKids = node.children.filter(
+        (c: any) =>
+          c &&
+          c.type === "frame" &&
+          (c.layout === "vertical" || c.layout === undefined) &&
+          (c.width === "fill_container" || typeof c.width === "number")
+      );
+      if (cardKids.length >= 2 && cardKids.length === node.children.length) {
+        for (const card of cardKids) {
+          if (card.height === undefined) {
+            card.height = "fill_container";
+            report.defaulted.push("height: 'fill_container' on sibling cards in a row");
+          }
+        }
+      }
     }
     return;
   }
@@ -156,13 +172,26 @@ function applyDefaults(node: any, report: NormalizeReport): void {
 
   const spans = node.width === "fill_container" || typeof node.width === "number";
   const content = typeof node.content === "string" ? node.content : "";
-  if (spans && content.length > PROSE_LENGTH && node.textGrowth === undefined) {
+  if (spans && (content.includes(" ") || content.length > 20) && node.textGrowth === undefined) {
     node.textGrowth = "fixed-width";
     report.defaulted.push("textGrowth: 'fixed-width' on wrapping text");
   }
 }
 
-export function normalizeNodeTree(node: any, report: NormalizeReport): any {
+export function snapHexToToken(hex: string, variables?: Record<string, any>): string | undefined {
+  if (!variables || typeof hex !== "string" || !hex.startsWith("#")) return undefined;
+  const cleanHex = hex.trim().toLowerCase();
+  for (const [token, def] of Object.entries(variables)) {
+    if (!token.startsWith("$")) continue;
+    const val = typeof def === "string" ? def : def?.value;
+    if (typeof val === "string" && val.trim().toLowerCase() === cleanHex) {
+      return token;
+    }
+  }
+  return undefined;
+}
+
+export function normalizeNodeTree(node: any, report: NormalizeReport, variables?: Record<string, any>): any {
   if (!node || typeof node !== "object") return node;
   const type = typeof node.type === "string" ? node.type : "frame";
   const allowed = TYPE_KEYS[type];
@@ -219,6 +248,29 @@ export function normalizeNodeTree(node: any, report: NormalizeReport): any {
     }
   }
 
+  if (variables) {
+    if (typeof out.fill === "string") {
+      const snapped = snapHexToToken(out.fill, variables);
+      if (snapped) {
+        report.renamed.push(`${type}.fill: '${out.fill}' -> '${snapped}'`);
+        out.fill = snapped;
+      }
+    } else if (out.fill && typeof out.fill === "object" && typeof out.fill.color === "string") {
+      const snapped = snapHexToToken(out.fill.color, variables);
+      if (snapped) {
+        report.renamed.push(`${type}.fill.color: '${out.fill.color}' -> '${snapped}'`);
+        out.fill.color = snapped;
+      }
+    }
+    if (typeof out.stroke === "string") {
+      const snapped = snapHexToToken(out.stroke, variables);
+      if (snapped) {
+        report.renamed.push(`${type}.stroke: '${out.stroke}' -> '${snapped}'`);
+        out.stroke = snapped;
+      }
+    }
+  }
+
   if (squareSize !== undefined) {
     const axes: string[] = [];
     if (out.width === undefined) { out.width = squareSize; axes.push("width"); }
@@ -228,7 +280,7 @@ export function normalizeNodeTree(node: any, report: NormalizeReport): any {
   }
 
   if (Array.isArray(out.children)) {
-    out.children = out.children.map((c: any) => normalizeNodeTree(c, report));
+    out.children = out.children.map((c: any) => normalizeNodeTree(c, report, variables));
   }
   applyDefaults(out, report);
   return out;

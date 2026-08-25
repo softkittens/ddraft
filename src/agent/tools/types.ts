@@ -7,6 +7,7 @@ import { layoutResolvedDocument, flattenLayoutTree } from "../../layout/layout";
 import type { LayoutNode } from "../../layout/types";
 import { getLucideIconPath } from "../../model/icons";
 import { viewportFor, MAX_SCREEN_HEIGHT } from "../../design/scaffold";
+import { hasAuthoredContent } from "../../design/helpers";
 import { ALLOWED_PROPERTIES } from "../../model/vocabulary";
 import type { FetchFn, Tool } from "../provider";
 import type { ChromeArchetype } from "../../design/chrome";
@@ -253,6 +254,55 @@ export function scaffoldDeleteError(doc: Document, id: string | undefined): stri
     return `error: ${id} is screen chrome. Leave it in place.`;
   }
   return undefined;
+}
+
+/**
+ * 8ab1ecbc: Muse Spark created a blank second desktop, then deleted the
+ * finished first one. The only-root guard does not fire once a second screen
+ * exists, which is exactly the wipe order. A screen that already holds a
+ * design is not disposable.
+ */
+export function populatedScreenDeleteError(
+  pageRoots: PenNode[],
+  id: string,
+  confirm?: boolean
+): string | undefined {
+  if (confirm) return undefined;
+  const root = pageRoots.find((node) => node.id === id);
+  if (!root || !hasAuthoredContent(root)) return undefined;
+  const name = root.name ? ` "${root.name}"` : "";
+  return `error: cannot delete ${id}${name} — it already has a design. To confirm deleting this populated screen, pass { confirm: true }. Otherwise, edit its slots or use replace_node to update sections in-place.`;
+}
+
+/**
+ * A site landing page can have multiple distinct screens (e.g. Home, Pricing, Checkout),
+ * but creating an identical duplicate desktop screen or rebuild when one already has content
+ * is a rebuild in disguise — the step before the delete in 8ab1ecbc.
+ */
+export function replacementScreenError(
+  pageRoots: PenNode[],
+  kind: "mobile" | "desktop",
+  archetype: ChromeArchetype | undefined,
+  newName?: string
+): string | undefined {
+  if (archetype !== "site") return undefined;
+  const normalizedNew = newName?.trim().toLowerCase();
+
+  const duplicate = pageRoots.find((node) => {
+    if ((node as { metadata?: { screenKind?: string } }).metadata?.screenKind !== kind) return false;
+    if (!hasAuthoredContent(node)) return false;
+    const existingName = (node.name ?? "").trim().toLowerCase();
+    if (!normalizedNew) return true;
+    if (normalizedNew === existingName || existingName === kind) return true;
+    if (normalizedNew.includes(existingName) || existingName.includes(normalizedNew)) return true;
+    if (/\b(final|rebuild|copy|new|v2|draft|version)\b/i.test(normalizedNew)) return true;
+    return false;
+  });
+
+  if (!duplicate) return undefined;
+  const other = kind === "desktop" ? "mobile" : "desktop";
+  const name = duplicate.name ? ` "${duplicate.name}"` : "";
+  return `error: a ${kind} screen named${name} already exists (${duplicate.id}). To build a companion screen (e.g. "Pricing", "Checkout", or ${other}), give it a distinct name. To edit the existing screen, modify its slots or use replace_node.`;
 }
 
 export function screenSizeError(

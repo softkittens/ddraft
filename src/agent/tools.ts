@@ -114,6 +114,9 @@ export function createDocumentTools(
     get doc() {
       return doc;
     },
+    get pageDoc() {
+      return pageScopedDocument(doc, pageId);
+    },
     /** Slots put back to a value they already held, and cleared as they are read. */
     drainRevisits(): { key: string; values: string[] }[] {
       const out = [...revisited].map(([key, values]) => ({ key, values }));

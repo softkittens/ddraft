@@ -72,9 +72,26 @@
     background-color 150ms ease-out;
 }
 
+@keyframes robo-lime-pulse {
+  0%, 100% {
+    color: #ffffff;
+    transform: scale(1);
+  }
+  50% {
+    color: #00ff4c;
+    transform: scale(1.14);
+  }
+}
+
+.robo-lime-pulse {
+  animation: robo-lime-pulse 1.4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chat-shell,
-  .chat-reopen {
+  .chat-reopen,
+  .robo-lime-pulse {
+    animation: none;
     transition: none;
   }
 }

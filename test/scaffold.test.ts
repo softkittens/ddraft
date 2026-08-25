@@ -125,6 +125,14 @@ describe("screen scaffold", () => {
     expect(Object.keys(slots).sort()).toEqual(["aside", "main", "rail", "screen", "topBar"]);
   });
 
+  it("builds Main and Body with fit_content height for site landing pages", () => {
+    const { node } = buildScreen({ name: "Landing", kind: "desktop", archetype: "site" }, ids());
+    const main = find(node, "Main")!;
+    const body = find(node, "Body")!;
+    expect(main.height).toBe("fit_content");
+    expect(body.height).toBe("fit_content");
+  });
+
   it("does not build rails on a site desktop — those slots are how photography leaked into chrome", () => {
     // 8ca10dd0: create_screen always stamped Left/Right Rail, then the prompt
     // asked the model not to fill them. Asking lost to the digest. Site chrome
@@ -306,6 +314,73 @@ describe("create_screen tool", () => {
     const out = await session.execute("delete_node", { id: main.id });
     expect(out).toMatch(/error:.*slot/i);
     expect(find(session.doc.children[0], "Main")?.id).toBe(main.id);
+  });
+
+  it("refuses to delete a screen that already has a design, even after a second screen exists", async () => {
+    // 8ab1ecbc: Muse Spark built Casa Pátio on n1, created "Casa Pátio — Final"
+    // as a blank second desktop, then deleted n1. Rebuild inserts were truncated,
+    // so the finished page was gone and the replacement never landed.
+    const session = createDocumentTools(empty(), {}, undefined, "site");
+    await session.execute("create_screen", { name: "Casa Pátio", kind: "desktop" });
+    await session.execute("create_screen", { name: "Casa Pátio — Final", kind: "desktop" });
+    const original = session.doc.children[0]!;
+    const main = find(original, "Main")!;
+    await session.execute("insert_node", {
+      parentId: main.id,
+      node: {
+        type: "text",
+        id: "heroTitle",
+        name: "heroTitle",
+        content: "A house of light above the Tagus",
+        fontSize: 48
+      }
+    });
+    const out = await session.execute("delete_node", { id: original.id });
+    expect(out).toMatch(/error:.*already has a design|cannot delete/i);
+    expect(session.doc.children.some((n) => n.id === original.id)).toBe(true);
+    expect(find(session.doc.children.find((n) => n.id === original.id)!, "heroTitle")).toBeDefined();
+  });
+
+  it("lets an empty leftover screen be deleted after the real one is filled", async () => {
+    const session = createDocumentTools(empty(), {}, undefined, "site");
+    await session.execute("create_screen", { name: "Casa Pátio", kind: "desktop" });
+    await session.execute("create_screen", { name: "Scratch", kind: "desktop" });
+    const original = session.doc.children[0]!;
+    const leftover = session.doc.children[1]!;
+    const main = find(original, "Main")!;
+    await session.execute("insert_node", {
+      parentId: main.id,
+      node: { type: "text", id: "heroTitle", content: "A house of light above the Tagus", fontSize: 48 }
+    });
+    const out = await session.execute("delete_node", { id: leftover.id });
+    expect(out).not.toContain("error:");
+    expect(session.doc.children.map((n) => n.id)).toEqual([original.id]);
+  });
+
+  it("refuses a second populated-kind create_screen on a site", async () => {
+    const session = createDocumentTools(empty(), {}, undefined, "site");
+    await session.execute("create_screen", { name: "Casa Pátio", kind: "desktop" });
+    const main = find(session.doc.children[0], "Main")!;
+    await session.execute("insert_node", {
+      parentId: main.id,
+      node: { type: "text", id: "heroTitle", content: "A house of light above the Tagus", fontSize: 48 }
+    });
+    const out = await session.execute("create_screen", { name: "Casa Pátio — Final", kind: "desktop" });
+    expect(out).toMatch(/error:.*already exists/i);
+    expect(session.doc.children).toHaveLength(1);
+  });
+
+  it("still allows a mobile companion beside a filled desktop site", async () => {
+    const session = createDocumentTools(empty(), {}, undefined, "site");
+    await session.execute("create_screen", { name: "Casa Pátio", kind: "desktop" });
+    const main = find(session.doc.children[0], "Main")!;
+    await session.execute("insert_node", {
+      parentId: main.id,
+      node: { type: "text", id: "heroTitle", content: "A house of light above the Tagus", fontSize: 48 }
+    });
+    const out = await session.execute("create_screen", { name: "Casa Pátio phone", kind: "mobile" });
+    expect(out).not.toContain("error:");
+    expect(session.doc.children).toHaveLength(2);
   });
 
   it("raises a too-short create_screen height to the viewport", async () => {

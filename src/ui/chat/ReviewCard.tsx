@@ -49,7 +49,9 @@ export const ReviewCard: Component<{
               <For each={props.entry.sectionThumbnails}>
                 {(sec) => (
                   <div class="rounded-lg bg-white p-1 border border-black/[0.04] overflow-hidden space-y-1 shadow-2xs">
-                    <img src={sec.url} alt={sec.name} class="w-full h-16 object-cover rounded" />
+                    <div class="w-full h-20 bg-neutral-100/70 rounded flex items-center justify-center overflow-hidden">
+                      <img src={sec.url} alt={sec.name} class="max-w-full max-h-full object-contain" />
+                    </div>
                     <div class="text-[9px] text-neutral-600 truncate px-0.5 font-medium">{sec.name}</div>
                   </div>
                 )}

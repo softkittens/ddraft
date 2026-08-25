@@ -11,6 +11,7 @@ const mimeTypes: Record<string, string> = {
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -19,7 +20,8 @@ const mimeTypes: Record<string, string> = {
   ".gif": "image/gif",
   ".avif": "image/avif",
   ".pen": "application/json; charset=utf-8",
-  ".ico": "image/x-icon"
+  ".ico": "image/x-icon",
+  ".wasm": "application/wasm"
 };
 
 const server = Bun.serve({

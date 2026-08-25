@@ -9,9 +9,17 @@ export const CollapsedActivity: Component<{
   streamReasoning: string;
   streamText: string;
   running: boolean;
+  elapsedSeconds?: number;
   onExpand: () => void;
   onStop: () => void;
 }> = (props) => {
+  const formattedElapsed = () => {
+    const totalSecs = props.elapsedSeconds ?? 0;
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
   const activity = () =>
     collapsedActivity({
       entries: props.entries,
@@ -40,14 +48,19 @@ export const CollapsedActivity: Component<{
         </span>
       </button>
       <Show when={props.running}>
-        <button
-          type="button"
-          onClick={props.onStop}
-          class="w-8 h-8 rounded-full bg-rose-200 hover:bg-rose-300 text-rose-800 flex items-center justify-center transition shrink-0"
-          title="Stop generation"
-        >
-          <Square size={11} />
-        </button>
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="text-[11px] tabular-nums font-mono text-neutral-400 select-none">
+            {formattedElapsed()}
+          </span>
+          <button
+            type="button"
+            onClick={props.onStop}
+            class="w-8 h-8 rounded-full bg-rose-200 hover:bg-rose-300 text-rose-800 flex items-center justify-center transition shrink-0"
+            title="Stop generation"
+          >
+            <Square size={11} />
+          </button>
+        </div>
       </Show>
     </div>
   );

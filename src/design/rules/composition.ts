@@ -11,6 +11,7 @@ import {
   childrenOf,
   isScreen,
   isDescendant,
+  hasAuthoredContent,
   hasImageFill,
   solidFillOf,
   contrastRatio,
@@ -317,31 +318,6 @@ function scaffoldRole(node: PenNode): "chrome" | "slot" | undefined {
 }
 
 /**
- * Returns true as soon as any user-authored content is found inside the screen.
- * Short-circuits immediately on the first non-scaffold element.
- */
-function hasScreenContent(node: PenNode): boolean {
-  if (node.enabled === false) return false;
-  const role = scaffoldRole(node);
-  if (role === "chrome") return false;
-
-  if (role !== "slot") {
-    if (node.type === "text") {
-      if ((node as TextNode).content?.trim()) return true;
-    } else if (node.type !== "frame" && node.type !== "group") {
-      return true;
-    } else if (hasImageFill(node)) {
-      return true;
-    }
-  }
-
-  for (const child of childrenOf(node)) {
-    if (hasScreenContent(child)) return true;
-  }
-  return false;
-}
-
-/**
  * A screen that is still nothing but the frame create_screen handed back.
  *
  * This is the rule that was missing, and the gap it left is the largest one the
@@ -363,7 +339,7 @@ export function checkScaffoldOnlyScreens(ctx: AuditContext): AuditFinding[] {
   for (const screen of ctx.doc.children) {
     if (!isScreen(screen) || screen.enabled === false) continue;
 
-    if (!hasScreenContent(screen)) {
+    if (!hasAuthoredContent(screen)) {
       findings.push(
         blocker(
           "scaffold_only",
@@ -1097,7 +1073,10 @@ export function checkEyebrowKicker(ctx: AuditContext): AuditFinding[] {
         const aSize = aText.fontSize ?? 14;
         const bSize = bText.fontSize ?? 14;
         if (readsAsMetric(bText.content ?? "")) continue;
-        if (aSize <= 12 && bSize >= 20) {
+        const aContent = (aText.content ?? "").trim();
+        // Specifically catch artificial hacker/slash kicker decorations like "DISCOVER //" or "// 01 INTRO"
+        const isHackerKicker = /\/\/|\[.*?\]|#\d+|\b0\d\s*\/\//.test(aContent);
+        if (isHackerKicker && aSize <= 12 && bSize >= 20) {
           findings.push(
             warning(
               "eyebrow_kicker",
@@ -1424,8 +1403,29 @@ export function checkSiblingCardActionConsistency(ctx: AuditContext): AuditFindi
 
   walkEnabled(ctx.doc.children, (node) => {
     if (node.type !== "frame" || (node as any).layout !== "horizontal") return;
+
     const cards = childrenOf(node).filter((c) => c.type === "frame" && c.enabled !== false);
     if (cards.length < 2) return;
+
+    // Geometric check: Sibling cards in a card grid must have uniform dimensions.
+    // A split presentation (e.g. 60% text copy + 40% photo) has disparate widths.
+    const cardBoxes = cards
+      .map((c) => ctx.boxes.get(c.id)?.box)
+      .filter((b): b is NonNullable<typeof b> => b !== undefined);
+    if (cardBoxes.length < cards.length) return;
+
+    const widths = cardBoxes.map((b) => b.width);
+    const minW = Math.min(...widths);
+    const maxW = Math.max(...widths);
+    if (minW < 100 || maxW - minW > 50) return;
+
+    // Sibling cards must all contain text content
+    const hasText = (c: PenNode) => {
+      let found = false;
+      walkEnabled([c], (sub) => { if (sub.type === "text") found = true; });
+      return found;
+    };
+    if (!cards.every(hasText)) return;
 
     interface CardAction {
       cardId: string;
@@ -1437,71 +1437,55 @@ export function checkSiblingCardActionConsistency(ctx: AuditContext): AuditFindi
 
     const cardActions: CardAction[] = [];
     for (const card of cards) {
-      const cardBox = ctx.boxes.get(card.id)?.box;
-      if (!cardBox || cardBox.width < 100 || cardBox.height < 80) continue;
-
-      let foundAction: PenNode | undefined;
       let isButtonFrame = false;
-      let isRawTextGlyph = false;
+      let hasRawGlyph = false;
 
       walkEnabled([card], (sub) => {
         if (sub === card) return;
-        // Check for raw text plus/add glyph
+        // Check for button/icon well frame
+        if (sub.type === "frame") {
+          const isButtonShape =
+            sub.cornerRadius !== undefined &&
+            ((typeof sub.width === "number" &&
+              typeof sub.height === "number" &&
+              Math.abs(sub.width - sub.height) <= 8 &&
+              sub.width <= 48) ||
+              sub.fill !== undefined);
+          if (isButtonShape) {
+            isButtonFrame = true;
+          }
+        }
+        // Check for raw unstyled text plus/add glyph
         if (sub.type === "text") {
           const content = ((sub as TextNode).content ?? "").trim();
           if (content === "+" || content === "＋" || content === "add" || content === "→" || content === "↗") {
-            foundAction = sub;
-            isRawTextGlyph = true;
+            hasRawGlyph = true;
           }
-        }
-        // Check for button/icon well frame
-        const isActionName = /btn|button|cta|add|cart|plus|action|icon_well/i.test(sub.name ?? "");
-        if (sub.type === "frame" && (isActionName || (sub.cornerRadius && ((sub.width === sub.height && typeof sub.width === "number" && sub.width <= 48) || sub.fill !== undefined)))) {
-          foundAction = sub;
-          isButtonFrame = true;
-          isRawTextGlyph = false;
         }
       });
 
       cardActions.push({
         cardId: card.id,
         cardName: card.name ?? card.id,
-        actionNode: foundAction,
         isButtonFrame,
-        isRawTextGlyph
+        isRawTextGlyph: !isButtonFrame && hasRawGlyph
       });
     }
 
-    if (cardActions.length >= 2) {
-      const hasButtonFrame = cardActions.some((ca) => ca.isButtonFrame);
-      const hasRawGlyphOrMissing = cardActions.some((ca) => ca.isRawTextGlyph || !ca.actionNode);
+    // Only flag when one sibling has a styled button container and another has a naked unstyled glyph
+    const hasButtonFrame = cardActions.some((ca) => ca.isButtonFrame);
+    const hasRawGlyph = cardActions.some((ca) => ca.isRawTextGlyph);
 
-      const isCommerceRow = /product|catalog|menu|collection|grid|cards|items|slice/i.test(
-        node.name ?? ""
+    if (hasButtonFrame && hasRawGlyph) {
+      const defective = cardActions.find((ca) => ca.isRawTextGlyph)!;
+      findings.push(
+        warning(
+          "inconsistent_card_actions",
+          defective.cardId,
+          `Card "${defective.cardName}" has an inconsistent action style compared to sibling cards (sibling has a styled button container, while this card has a raw glyph or missing button).`,
+          "Give all sibling cards in the row identical action button structures and styling."
+        )
       );
-      if (isCommerceRow && cardActions.every((ca) => !ca.actionNode)) {
-        findings.push(
-          blocker(
-            "inconsistent_card_actions",
-            node.id,
-            `Commerce row "${node.name ?? node.id}" has no visible add, buy, cart, or order action on any product card.`,
-            "Give every sibling product card a consistent, visible action control with a clear tap target and contrasting icon or label."
-          )
-        );
-        return;
-      }
-
-      if (hasButtonFrame && hasRawGlyphOrMissing) {
-        const defective = cardActions.find((ca) => ca.isRawTextGlyph || !ca.actionNode)!;
-        findings.push(
-          blocker(
-            "inconsistent_card_actions",
-            defective.cardId,
-            `Card "${defective.cardName}" has an inconsistent action style compared to sibling cards (sibling has a styled button container, while this card has a raw glyph or missing button).`,
-            "Give all sibling cards in the row identical action button structures and styling."
-          )
-        );
-      }
     }
   });
 
@@ -1527,7 +1511,7 @@ export function checkCardRowHeights(ctx: AuditContext): AuditFinding[] {
     if (heights.length >= 2) {
       const minH = Math.min(...heights.map((h) => h.height));
       const maxH = Math.max(...heights.map((h) => h.height));
-      if (maxH - minH >= 12) {
+      if (maxH - minH >= 6) {
         const worst = heights.find((h) => h.height === minH) || heights[0];
         findings.push(
           warning(

@@ -1,4 +1,4 @@
-import { Component, Show, createSignal } from "solid-js";
+import { Component, Show, createSignal, onMount } from "solid-js";
 import {
   MousePointer2,
   Square,
@@ -7,7 +7,8 @@ import {
   FolderOpen,
   Layers,
   Bot,
-  Trash2
+  Trash2,
+  Download
 } from "lucide-solid";
 import {
   toolMode,
@@ -19,6 +20,7 @@ import {
   setLayersVisible,
   chatVisible,
   setChatVisible,
+  agentRunning,
   updateDoc,
   resetCanvas,
   doc
@@ -33,6 +35,37 @@ const iconBtn =
 export const Toolbar: Component = () => {
   let fileInputRef: HTMLInputElement | undefined;
   const [confirmingClear, setConfirmingClear] = createSignal(false);
+  const [installPrompt, setInstallPrompt] = createSignal<any>(null);
+  const [isStandalone, setIsStandalone] = createSignal(false);
+
+  onMount(() => {
+    if (typeof window !== "undefined") {
+      setIsStandalone(
+        window.matchMedia("(display-mode: standalone)").matches ||
+        (window.navigator as any).standalone === true
+      );
+
+      window.addEventListener("beforeinstallprompt", (e) => {
+        e.preventDefault();
+        setInstallPrompt(e);
+      });
+
+      window.addEventListener("appinstalled", () => {
+        setInstallPrompt(null);
+        setIsStandalone(true);
+      });
+    }
+  });
+
+  const handleInstallClick = async () => {
+    const prompt = installPrompt();
+    if (!prompt) return;
+    prompt.prompt();
+    const { outcome } = await prompt.userChoice;
+    if (outcome === "accepted") {
+      setInstallPrompt(null);
+    }
+  };
 
   const canClear = () => doc().children.length > 0;
 
@@ -88,6 +121,16 @@ export const Toolbar: Component = () => {
             Open
           </button>
         </div>
+        <Show when={installPrompt() && !isStandalone()}>
+          <button
+            onClick={handleInstallClick}
+            title="Install ddraft as Desktop App"
+            class="chrome-surface h-10 px-3 rounded-full flex items-center gap-1.5 text-[13px] font-medium text-neutral-800 hover:bg-black/5 transition"
+          >
+            <Download size={14} class="text-neutral-500" />
+            Install App
+          </button>
+        </Show>
         <button
           onClick={() => setLayersVisible(!layersVisible())}
           title="Toggle layers (\\)"
@@ -103,14 +146,18 @@ export const Toolbar: Component = () => {
 
       <button
         onClick={() => setChatVisible(true)}
-        title="Open chat"
+        title={agentRunning() ? "Agent is working (Open chat)" : "Open chat"}
         class={`chat-reopen absolute bottom-4 left-3 z-40 origin-bottom-left w-14 h-14 rounded-full bg-neutral-900 text-white flex items-center justify-center shadow-[0_10px_28px_rgba(15,15,15,0.28),0_2px_6px_rgba(15,15,15,0.16)] hover:bg-neutral-800 hover:shadow-[0_14px_32px_rgba(15,15,15,0.32)] hover:-translate-y-0.5 active:translate-y-0 active:scale-95 ${
           chatVisible() ? "opacity-0 scale-90 pointer-events-none" : "opacity-100 scale-100"
         }`}
         tabindex={chatVisible() ? -1 : 0}
         aria-hidden={chatVisible()}
       >
-        <Bot size={22} stroke-width={1.8} />
+        <Bot
+          size={22}
+          stroke-width={1.8}
+          class={agentRunning() ? "robo-lime-pulse" : "text-white"}
+        />
       </button>
 
       <Show when={confirmingClear()}>

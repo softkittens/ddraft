@@ -93,7 +93,11 @@ export function checkOverflow(nodes: LayoutNode[], doc: Document): Finding[] {
         if (!isClipped && !carriesText) continue;
 
         const overRight = child.box.x + child.box.width - parent.box.width;
-        const overBottom = child.box.y + child.box.height - parent.box.height;
+        const isVerticalFlowSlot =
+          !isClipped &&
+          parentDoc?.layout === "vertical" &&
+          (parentDoc.height === "fit_content" || (parentDoc as any).metadata?.scaffold === "slot");
+        const overBottom = isVerticalFlowSlot ? 0 : child.box.y + child.box.height - parent.box.height;
         const parts: string[] = [];
         if (child.box.x < -1.0) parts.push(`${Math.round(-child.box.x)}px past the left edge`);
         if (overRight > 1.0) parts.push(`${Math.round(overRight)}px past the right edge`);

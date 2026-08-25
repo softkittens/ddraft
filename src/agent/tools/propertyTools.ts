@@ -15,7 +15,7 @@ import {
   formatLayout,
   resolvePercentSizes
 } from "./types";
-import { normalizePropertyValue, childrenWouldStackAtOrigin } from "./normalize";
+import { normalizePropertyValue, childrenWouldStackAtOrigin, snapHexToToken } from "./normalize";
 
 function stackedAbsoluteLayoutError(node: ReturnType<typeof findNode>, value: unknown): string | undefined {
   if (!node || value !== "none") return undefined;
@@ -95,6 +95,10 @@ export const setPropertyTool: DocumentToolDefinition = {
     const vocabulary = normalizePropertyValue(a.property, a.value);
     if (vocabulary.value === undefined) return vocabulary.note;
     a.value = vocabulary.value;
+    if ((a.property === "fill" || a.property === "stroke") && typeof a.value === "string") {
+      const snapped = snapHexToToken(a.value, doc.variables);
+      if (snapped) a.value = snapped;
+    }
     const vocabularyNote = vocabulary.note;
     const offTarget = ctx.offPage(a.id);
     if (offTarget) return offTarget;
@@ -217,6 +221,10 @@ export const batchSetPropertiesTool: DocumentToolDefinition = {
       if (vocabulary.value === undefined) { vocabularyNotes.push(vocabulary.note); continue; }
       if (vocabulary.note) vocabularyNotes.push(vocabulary.note);
       u.value = vocabulary.value;
+      if ((u.property === "fill" || u.property === "stroke") && typeof u.value === "string") {
+        const snapped = snapHexToToken(u.value, doc.variables);
+        if (snapped) u.value = snapped;
+      }
       if (!findNode(newDoc.children, u.id)) {
         const inside = splitInstanceId(newDoc, u.id);
         if (!inside) continue;

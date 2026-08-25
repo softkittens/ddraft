@@ -102,11 +102,16 @@ export function criticMessages(input: {
 
   const contentParts: any[] = [];
   if (input.screenshots && input.screenshots.length > 0) {
+    const hasSections = input.screenshots.some((s) => s.kind === "section");
+    const screensToSend = hasSections
+      ? input.screenshots.filter((s) => s.kind === "section")
+      : input.screenshots;
+
     contentParts.push({
       type: "text",
-      text: `Brief:\n${input.brief}${audit}\n\nDigest:\n${input.digest}\n\nAttached screenshots (full screens and high-resolution section close-ups):`
+      text: `Brief:\n${input.brief}${audit}\n\nDigest:\n${input.digest}\n\nAttached screenshots (${hasSections ? "high-resolution section close-ups in layout order" : "full screen"}):`
     });
-    for (const s of input.screenshots) {
+    for (const s of screensToSend) {
       const header = s.kind === "section"
         ? `--- [Close-up Section: "${s.name || s.id}" (id: #${s.id || "unknown"}, parent: #${s.parentId || "screen"})] ---`
         : s.kind === "viewport"

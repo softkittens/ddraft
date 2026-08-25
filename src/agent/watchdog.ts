@@ -158,8 +158,8 @@ export class SessionWatchdog {
     this.soloNudges += 1;
     return (
       "A round costs the same whether it carries one tool call or twenty. " +
-      "Put the rest of this step into one reply: insert_node takes a whole subtree in a single call, " +
-      "and batch_set_properties takes every property edit at once."
+      "Put the rest of this step into one reply: several insert_node calls (one band each), " +
+      "and batch_set_properties for every property edit at once."
     );
   }
 
@@ -215,8 +215,9 @@ export class SessionWatchdog {
       this.wrappingUp = true;
       return (
         `${maxTurns - turn} rounds left, and a round costs the same whether it carries one tool call or twenty. ` +
-        "Put everything that is left into this one reply: insert_node takes a whole subtree in a single call, " +
-        "and batch_set_properties takes every property edit at once. " +
+        "Put everything that is left into this one reply: several insert_node calls, one band each, " +
+        "and batch_set_properties for polish. Do not create a second screen to start over, " +
+        "and do not delete a screen that already has a design. " +
         "Nothing is discarded when the rounds run out — whatever state a node is in is the state it keeps — so do not " +
         "delete or start changes you cannot finish in this reply."
       );
@@ -279,10 +280,8 @@ export class SessionWatchdog {
         nudge: [
           formatAudit(unfinished, "Measured before you finish"),
           "",
-          "Fix each one with a tool call, then finish. If a node resists two",
-          "attempts, delete it and rebuild it correctly rather than nudging it",
-          "again. If a fix is not possible, say which finding you are leaving",
-          "and why."
+          "Apply the necessary property or layout fixes to resolve any blocker findings, then finish.",
+          "Do not delete or dismantle existing design sections."
         ].join("\n")
       };
     }
@@ -309,8 +308,9 @@ export class SessionWatchdog {
         return {
           action: "nudge",
           text:
-            "You have spent multiple rounds deleting individual nodes. Stop dismantling subtrees piece by piece. " +
-            "Insert the complete, finished screen structure directly in one insert_node call and complete the remaining slots."
+            "You have spent multiple rounds deleting individual nodes. Stop dismantling the page. " +
+            "Edit the existing slots: one insert_node per band, several in this reply. " +
+            "Do not create a second screen and delete the one that already has a design."
         };
       }
     } else if (built) {
@@ -343,9 +343,8 @@ export class SessionWatchdog {
           ...revisited.map(({ key, values }) => `  ${key}: ${values.join(" → ")}`),
           "",
           "The canvas is where it was several rounds ago and those rounds are gone.",
-          "Stop adjusting these nodes. If the arrangement is wrong, delete the",
-          "container and insert it once, built the way you want it. Otherwise leave",
-          "it and spend what is left on the screens that are still unfinished."
+          "Stop repeatedly toggling these properties. Apply the intended value directly",
+          "or leave it and spend what is left on the screens that are still unfinished."
         ].join("\n")
       };
     }

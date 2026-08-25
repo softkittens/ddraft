@@ -487,6 +487,32 @@ describe("H4 document tools specification", () => {
     expect((session.doc.children[0].children?.[0].children?.[0] as any).content).toBe("Original Title");
   });
 
+  it("atomically replaces an entire subtree in-place with replace_node", async () => {
+    const doc = makeDoc(
+      frame("screen", 1440, 900, [
+        frame("card1", 400, 200, [txt("t1", "Old Card", 16)]),
+        frame("card2", 400, 200, [txt("t2", "Second Card", 16)])
+      ])
+    );
+    const session = createDocumentTools(doc);
+    const res = await session.execute("replace_node", {
+      id: "card1",
+      node: {
+        type: "frame",
+        id: "card1_new",
+        name: "New Card",
+        layout: "vertical",
+        width: 420,
+        height: 250,
+        children: [txt("t1_new", "Brand New Content", 20)]
+      }
+    });
+    expect(res).toContain('ok: replaced "card1" with "card1_new" in-place.');
+    expect(session.doc.children[0].children?.[0].id).toBe("card1_new");
+    expect(session.doc.children[0].children?.[1].id).toBe("card2");
+    expect((session.doc.children[0].children?.[0].children?.[0] as any).content).toBe("Brand New Content");
+  });
+
   it("warns about orphaned absolute heights when switching to auto-layout", async () => {
     const doc = makeDoc(
       frame("hero", 1440, 1200, [
@@ -524,6 +550,49 @@ describe("H4 document tools specification", () => {
     const res = await session.execute("delete_node", { id: "screen1" });
     expect(res).toContain("error: cannot delete \"screen1\" because it is the only root screen");
     expect(session.doc.children).toHaveLength(1);
+  });
+
+  it("allows creating a second desktop screen with a distinct name on a site, but blocks duplicate clones", async () => {
+    const doc = makeDoc(
+      frame("screen1", 1440, 900, [
+        txt("t1", "Hero Headline", 44),
+        txt("t2", "Hero Subtitle", 18),
+        txt("t3", "Call to Action", 16),
+        txt("t4", "Feature 1", 14)
+      ])
+    );
+    doc.children[0].name = "Home";
+    (doc.children[0] as any).metadata = { screenKind: "desktop" };
+
+    const session = createDocumentTools(doc, {}, undefined, "site");
+
+    // Creating another "Home" screen or generic duplicate is blocked
+    const dupRes = await session.execute("create_screen", { name: "Home", kind: "desktop" });
+    expect(dupRes).toContain("already exists");
+
+    // Creating a distinct "Pricing" screen succeeds
+    const distinctRes = await session.execute("create_screen", { name: "Pricing", kind: "desktop" });
+    expect(distinctRes).toContain("built desktop screen \"Pricing\"");
+    expect(session.doc.children).toHaveLength(2);
+  });
+
+  it("allows deleting a populated screen when confirm: true is passed on a multi-screen canvas", async () => {
+    const doc = makeDoc(
+      frame("screen1", 1440, 900, [txt("t1", "Hero Headline", 44)]),
+      frame("screen2", 1440, 900, [txt("t2", "Pricing Headline", 44)])
+    );
+    const session = createDocumentTools(doc);
+
+    // Deleting without confirm: true warns
+    const warnRes = await session.execute("delete_node", { id: "screen2" });
+    expect(warnRes).toContain("confirm: true");
+    expect(session.doc.children).toHaveLength(2);
+
+    // Deleting with confirm: true succeeds
+    const delRes = await session.execute("delete_node", { id: "screen2", confirm: true });
+    expect(delRes).not.toContain("error:");
+    expect(session.doc.children).toHaveLength(1);
+    expect(session.doc.children[0].id).toBe("screen1");
   });
 });
 

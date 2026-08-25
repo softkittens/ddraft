@@ -12,6 +12,8 @@ import {
   parentIdOf,
   chromeWriteError,
   scaffoldDeleteError,
+  populatedScreenDeleteError,
+  replacementScreenError,
   resolveIconGeometry,
   resolvePercentSizes
 } from "./types";
@@ -69,6 +71,9 @@ export const createScreenTool: DocumentToolDefinition = {
     if (!name) return "error: name is required";
     if (a.kind !== "mobile" && a.kind !== "desktop") return "error: kind must be 'mobile' or 'desktop'";
 
+    const replacement = replacementScreenError(ctx.pageDoc.children, a.kind, ctx.archetype, name);
+    if (replacement) return replacement;
+
     let activeFound = false;
     const tabs: TabSpec[] = Array.isArray(a.tabs)
       ? (a.tabs as any[])
@@ -99,7 +104,9 @@ export const createScreenTool: DocumentToolDefinition = {
     const siblings = ctx.pageDoc.children;
     let maxX = 0;
     for (const root of siblings) {
-      const right = (root.x ?? 0) + (typeof root.width === "number" ? root.width : 1200);
+      const isMob = (root as any).metadata?.screenKind === "mobile" || (typeof root.width === "number" && root.width <= 500);
+      const rootW = typeof root.width === "number" ? root.width : isMob ? 390 : 1440;
+      const right = (root.x ?? 0) + rootW;
       if (right > maxX) maxX = right;
     }
     (scaffold.node as any).x = siblings.length > 0 ? maxX + 80 : 0;
@@ -152,13 +159,15 @@ export const insertNodeTool: DocumentToolDefinition = {
   },
   execute: (ctx, a) => {
     let doc = ctx.doc;
-    if (!a.node || typeof a.node !== "object") return "error: node is required";
+    if (!a.node || typeof a.node !== "object") {
+      return "error: node is required. If this call was cut off, insert one section at a time rather than the whole page in one tree.";
+    }
     const rawParentId = typeof a.parentId === "string" ? a.parentId.trim() : undefined;
     const isRootInsert = !rawParentId || WHOLE_DOC_ALIASES.has(rawParentId);
     const targetParent = isRootInsert ? undefined : rawParentId;
 
     const report: NormalizeReport = { renamed: [], unknown: [], defaulted: [] };
-    const nodeToInsert = resolveIconGeometry(normalizeNodeTree({ ...(a.node as any) }, report));
+    const nodeToInsert = resolveIconGeometry(normalizeNodeTree({ ...(a.node as any) }, report, doc.variables));
     const normalizationNote = describeNormalization(report);
 
     if (isRootInsert) {
@@ -332,13 +341,17 @@ export const duplicateNodeTool: DocumentToolDefinition = {
 
 export const deleteNodeTool: DocumentToolDefinition = {
   name: "delete_node",
-  description: "Delete a node and all its children from the document.",
+  description: "Delete a node and all its children from the document. Pass confirm: true when intentionally deleting a populated root screen.",
   parameters: {
     type: "object",
     properties: {
       id: {
         type: "string",
         description: "Node ID to delete"
+      },
+      confirm: {
+        type: "boolean",
+        description: "Set to true when intentionally deleting a top-level screen that already contains authored content."
       }
     },
     required: ["id"]
@@ -353,11 +366,12 @@ export const deleteNodeTool: DocumentToolDefinition = {
     const slot = scaffoldDeleteError(doc, targetId);
     if (slot) return slot;
 
-    // Guard against accidentally wiping out the sole root screen on this page
     const pageRoots = ctx.pageDoc.children;
-    if (pageRoots.length === 1 && targetId === pageRoots[0].id) {
-      return `error: cannot delete "${targetId}" because it is the only root screen on the canvas. To change its contents, edit or delete its child nodes instead.`;
+    if (pageRoots.length === 1 && targetId === pageRoots[0].id && !a.confirm) {
+      return `error: cannot delete "${targetId}" because it is the only root screen on the canvas. To confirm deleting it, pass { confirm: true }, or edit its child nodes instead.`;
     }
+    const populated = populatedScreenDeleteError(pageRoots, targetId, a.confirm === true);
+    if (populated) return populated;
 
     const parentId = parentIdOf(doc, targetId);
     doc = removeNode(doc, targetId);
@@ -423,6 +437,68 @@ export const moveNodeTool: DocumentToolDefinition = {
   }
 };
 
+export const replaceNodeTool: DocumentToolDefinition = {
+  name: "replace_node",
+  description:
+    "Atomically replace an existing node and its entire subtree with a new node definition, preserving its position in the parent frame. Use this to redesign or re-layout a section or card without deleting and recreating individual child elements.",
+  parameters: {
+    type: "object",
+    properties: {
+      id: {
+        type: "string",
+        description: "Node ID of the existing element to replace"
+      },
+      node: {
+        type: "object",
+        description: "Complete new node definition with all its children"
+      }
+    },
+    required: ["id", "node"]
+  },
+  execute: (ctx, a) => {
+    let doc = ctx.doc;
+    if (typeof a.id !== "string" || !a.id.trim()) return "error: id is required";
+    if (!a.node || typeof a.node !== "object") return "error: node is required";
+
+    const targetId = a.id.trim();
+    const existing = findNode(doc.children, targetId);
+    if (!existing) return `error: node "${targetId}" not found`;
+
+    const off = ctx.offPage(targetId);
+    if (off) return off;
+    const slot = scaffoldDeleteError(doc, targetId);
+    if (slot) return slot;
+
+    const report: NormalizeReport = { renamed: [], unknown: [], defaulted: [] };
+    const nodeToInsert = resolveIconGeometry(normalizeNodeTree({ ...(a.node as any) }, report, doc.variables));
+    if (!(nodeToInsert as any).id) (nodeToInsert as any).id = targetId;
+    const normalizationNote = describeNormalization(report);
+
+    const before = doc;
+    doc = replaceNode(doc, targetId, nodeToInsert as PenNode);
+    if (doc === before) return `error: could not replace "${targetId}"`;
+
+    const percent = resolvePercentSizes(doc);
+    doc = percent.doc;
+    ctx.setDoc(doc);
+
+    const parentId = parentIdOf(doc, (nodeToInsert as PenNode).id);
+    const body = parentId ? digestSubtree(doc, parentId) : digestSubtree(doc, (nodeToInsert as PenNode).id);
+    const note = insertionNote(doc, (nodeToInsert as PenNode).id);
+    const loop = ctx.recordWrite(targetId, "subtree", (nodeToInsert as PenNode).id);
+    return [
+      `ok: replaced "${targetId}" with "${(nodeToInsert as PenNode).id}" in-place.`,
+      normalizationNote,
+      ...percent.notes,
+      body,
+      note,
+      loop
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+};
+
 export const revertNodeTool: DocumentToolDefinition = {
   name: "revert_node",
   description:
@@ -483,6 +559,7 @@ export const revertNodeTool: DocumentToolDefinition = {
 export const mutationTools = [
   createScreenTool,
   insertNodeTool,
+  replaceNodeTool,
   placeInstancesTool,
   duplicateNodeTool,
   deleteNodeTool,

@@ -117,6 +117,7 @@ export const ChatPanel: Component = () => {
             streamReasoning={session.streamReasoning()}
             streamText={session.streamText()}
             running={session.running()}
+            elapsedSeconds={session.elapsedSeconds()}
             onExpand={() => setChatExpanded(true)}
             onStop={session.stop}
           />
@@ -128,6 +129,7 @@ export const ChatPanel: Component = () => {
           onSend={session.send}
           onStop={session.stop}
           running={session.running()}
+          elapsedSeconds={session.elapsedSeconds()}
           configured={session.configured()}
           requiresAccessCode={session.requiresAccessCode()}
           authenticated={session.authenticated()}

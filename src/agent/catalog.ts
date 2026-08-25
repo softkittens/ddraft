@@ -109,14 +109,6 @@ export const PROVIDER_CATALOG: CatalogProvider[] = [
     baseUrl: "https://opencode.ai/zen/v1",
     models: [
       {
-        id: "x-preview-f-free",
-        label: "Ox Alpha Free (Unlimited)",
-        description: "Free & unlimited drafting",
-        vision: true,
-        reasoning: { defaultEffort: "high" }
-      },
-      { id: "hy3-free", label: "Hy3 Free", description: "Fast free generation", reasoning: { supported: false } },
-      {
         id: "mimo-v2.5-free",
         label: "MiMo V2.5 Free",
         description: "Free vision reasoning",
@@ -124,10 +116,18 @@ export const PROVIDER_CATALOG: CatalogProvider[] = [
         reasoning: { defaultEffort: "medium" }
       },
       {
+        id: "x-preview-f-free",
+        label: "Ox Alpha Free (Unlimited)",
+        description: "Free & unlimited drafting",
+        vision: true,
+        reasoning: { defaultEffort: "high" }
+      },
+      {
         id: "muse-spark-1.2-contributor-free",
         label: "Muse Spark 1.2 Free",
-        description: "Free design generation",
+        description: "Free design generation & vision",
         api: "responses",
+        vision: true,
         reasoning: { supported: false }
       },
       { id: "nemotron-3-ultra-free", label: "Nemotron 3 Ultra Free", description: "Free coding & design", reasoning: { supported: false } },
@@ -195,8 +195,9 @@ export const PROVIDER_CATALOG: CatalogProvider[] = [
       {
         id: "muse-spark-1.2-contributor",
         label: "Muse Spark 1.2",
-        description: "Creative layout engine",
+        description: "Creative layout engine & vision",
         api: "responses",
+        vision: true,
         reasoning: { supported: false }
       }
     ]

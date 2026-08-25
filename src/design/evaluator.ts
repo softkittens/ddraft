@@ -201,27 +201,18 @@ export const FINISHING_RULES: ReadonlySet<AuditRule> = new Set<AuditRule>([
   "missed_bleed",
   "undersized_subject",
   "catalog_row",
-  "eyebrow_kicker",
   "heading_content_gap"
 ]);
 
 const IMMEDIATE_RULES: ReadonlySet<AuditRule> = new Set<AuditRule>([
   "clipped",
   "collision",
-  "collapsed_container",
   "invisible_node",
   "off_canvas",
   "text_clipped",
   "text_too_small",
   "low_contrast",
-  "tap_target",
-  "empty_text",
-  "token_bypass",
-  "tracking",
-  "prose_measure",
-  "border_accent",
-  "shadow_quality",
-  "single_elevation"
+  "token_bypass"
 ]);
 
 export function auditInsertion(doc: Document, subtreeId: string): AuditFinding[] {

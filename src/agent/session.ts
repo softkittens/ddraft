@@ -264,12 +264,12 @@ export async function* runSession(
           // then called this, and the loop recorded "answered without designing"
           // while 33 blockers sat on the canvas.
           if (session.doc === doc) {
-            recordOutcome(opts.trace, session.doc, watchdog.getMetrics("answered without designing"));
+            recordOutcome(opts.trace, session.pageDoc, watchdog.getMetrics("answered without designing"));
             yield { type: "delta", content: reply };
             yield { type: "done", messages: sanitizeSessionMessages(out, internal), doc: session.doc };
             return;
           }
-          const evalRes = watchdog.evaluateCompletion(session.doc, turn, maxTurns, false, reply, resolved.lifecycle);
+          const evalRes = watchdog.evaluateCompletion(session.pageDoc, turn, maxTurns, false, reply, resolved.lifecycle);
           if (evalRes.action === "retry_empty") {
             out.pop();
             nudge(evalRes.nudge);
@@ -279,7 +279,7 @@ export async function* runSession(
             nudge(evalRes.nudge);
             continue;
           }
-          recordOutcome(opts.trace, session.doc, watchdog.getMetrics("model finished"));
+          recordOutcome(opts.trace, session.pageDoc, watchdog.getMetrics("model finished"));
           yield { type: "delta", content: reply };
           yield { type: "done", messages: sanitizeSessionMessages(out, internal), doc: session.doc };
           return;
@@ -296,7 +296,7 @@ export async function* runSession(
       // 2. Handle completion when model makes no tool calls
       if (toolCalls.length === 0) {
         const evalRes = watchdog.evaluateCompletion(
-          session.doc,
+          session.pageDoc,
           turn,
           maxTurns,
           session.doc === doc,
@@ -313,7 +313,7 @@ export async function* runSession(
           continue;
         }
 
-        recordOutcome(opts.trace, session.doc, watchdog.getMetrics("model finished"));
+        recordOutcome(opts.trace, session.pageDoc, watchdog.getMetrics("model finished"));
         yield { type: "done", messages: sanitizeSessionMessages(out, internal), doc: session.doc };
         return;
       }
