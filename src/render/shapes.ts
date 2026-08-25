@@ -9,7 +9,7 @@ import type {
   ImageFill
 } from "../model/types";
 import { resolveVariable } from "../model/variables";
-import { resolveFontFamily, measureTextNode } from "../layout/text";
+import { formatFontString, measureTextNode } from "../layout/text";
 import { getLucideIconPath } from "../model/icons";
 import { getCachedImage } from "./imageCache";
 import {
@@ -206,9 +206,7 @@ export function drawShape(
           break;
         }
 
-        const fam = resolveFontFamily(textNode.fontFamily, variables);
-        const weight = textNode.fontWeight || "normal";
-        ctx.font = `${weight} ${size}px ${fam}`;
+        ctx.font = formatFontString(size, textNode.fontFamily, textNode.fontWeight, textNode.fontStyle, variables);
         const defaultTextFill = resolveVariable("$foreground-primary", variables) || "#1e293b";
         ctx.fillStyle = resolveVariable(textNode.fill, variables) || defaultTextFill;
         ctx.textBaseline = "middle";

@@ -30,6 +30,7 @@ import {
   renamePage as renamePageInDoc,
   setPageOf
 } from "../model/pages";
+import { ensureDocumentFonts } from "../render/fontLoader";
 import { loadSession, saveSession, clearSession, flushSession, type ChatSnapshot } from "./persist";
 
 export type ToolMode = "select" | "frame" | "rect" | "text";
@@ -61,6 +62,8 @@ export const [editingTextId, setEditingTextId] = createSignal<string | null>(nul
  */
 export const [activePageId, setActivePageId] = createSignal<string | undefined>(undefined);
 
+export const [fontVersion, setFontVersion] = createSignal<number>(0);
+
 export const { resolvedDoc, nodeMap, layoutTree, pages, activePage, activeScreens } = createRoot(() => {
   const pages = createMemo(() => pagesOf(doc()));
   const activePage = createMemo(() => {
@@ -83,7 +86,20 @@ export const { resolvedDoc, nodeMap, layoutTree, pages, activePage, activeScreen
    */
   const resolvedDoc = createMemo(() => resolveInstances(pageScopedDocument(doc(), activePage()?.id)));
   const nodeMap = createMemo(() => indexDocument(resolvedDoc()));
-  const layoutTree = createMemo(() => layoutResolvedDocument(resolvedDoc()));
+  const layoutTree = createMemo(() => {
+    fontVersion();
+    return layoutResolvedDocument(resolvedDoc());
+  });
+
+  createEffect(() => {
+    const current = resolvedDoc();
+    ensureDocumentFonts(current).then((newlyLoaded) => {
+      if (newlyLoaded) {
+        setFontVersion((v) => v + 1);
+      }
+    });
+  });
+
   return { resolvedDoc, nodeMap, layoutTree, pages, activePage, activeScreens };
 });
 

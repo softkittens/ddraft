@@ -90,6 +90,7 @@ export const CanvasView: Component = () => {
 
   createEffect(() => {
     doc();
+    layoutTree();
     camera();
     selectedIds();
     hoveredId();

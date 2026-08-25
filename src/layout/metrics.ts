@@ -35,9 +35,11 @@ export function measureKey(
   fontSize: number,
   resolvedFamily: string,
   fontWeight: string | number,
-  letterSpacing: number
+  letterSpacing: number,
+  fontStyle?: string
 ): string {
-  return `${fontWeight}|${fontSize}|${resolvedFamily}|${letterSpacing}|${text}`;
+  const prefix = fontStyle === "italic" ? "italic|" : "";
+  return `${prefix}${fontWeight}|${fontSize}|${resolvedFamily}|${letterSpacing}|${text}`;
 }
 
 let recorded: RecordedMetrics | null = null;

@@ -1,6 +1,4 @@
 import { describe, it, expect } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { makeDoc } from "./harness";
 import { contrastRatio } from "../src/design/evaluator";
 import {
@@ -114,13 +112,6 @@ describe("Style system", () => {
         captions: "Inter"
       })
     ).toThrow(StyleChoiceError);
-  });
-
-  it("only offers typefaces the renderer loads", () => {
-    const loaded = readFileSync(join(import.meta.dir, "../index.html"), "utf-8");
-    for (const family of FONT_FAMILIES) {
-      expect(loaded).toContain(family.replace(/ /g, "+"));
-    }
   });
 
   it("requires one display step without making it the default title", () => {

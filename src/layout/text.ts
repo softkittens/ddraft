@@ -34,31 +34,49 @@ function getCanvasContext(): CanvasRenderingContext2D | null {
   return cachedCanvasCtx;
 }
 
-/**
- * Every family the style catalog offers, with the generic it falls back to.
- * A family that is not here resolves to itself and will silently fall back to
- * whatever the platform picks, so the catalog and this table must agree.
- */
-const FONT_STACKS: Record<string, string> = {
-  Inter: "Inter, sans-serif",
-  Geist: "Geist, sans-serif",
-  "DM Sans": "'DM Sans', sans-serif",
-  "Space Grotesk": "'Space Grotesk', sans-serif",
-  "Funnel Display": "'Funnel Display', sans-serif",
-  Newsreader: "Newsreader, serif",
-  "Playfair Display": "'Playfair Display', serif",
-  "Instrument Serif": "'Instrument Serif', serif",
-  Anton: "Anton, sans-serif",
-  "Geist Mono": "'Geist Mono', monospace",
-  "IBM Plex Mono": "'IBM Plex Mono', monospace"
-};
+export function clearTextMetricsCaches(): void {
+  liveWidthCache.clear();
+  nodeResultCache.clear();
+  dynamicRatioCache.clear();
+}
 
 export function resolveFontFamily(fam?: string, variables?: Record<string, any>): string {
   const raw = resolveVariable(fam || "Inter", variables);
-  const known = FONT_STACKS[raw];
-  if (known) return known;
-  if (raw.includes("Mono")) return "'Geist Mono', monospace";
-  return raw;
+  const clean = raw.replace(/['"]/g, "").trim();
+  const formatted = clean.includes(" ") ? `'${clean}'` : clean;
+  const lower = clean.toLowerCase();
+  if (lower.includes("mono") || lower.includes("code") || lower.includes("monospace")) {
+    return `${formatted}, monospace`;
+  }
+  if (
+    lower.includes("serif") ||
+    lower.includes("playfair") ||
+    lower.includes("newsreader") ||
+    lower.includes("merriweather") ||
+    lower.includes("lora") ||
+    lower.includes("garamond") ||
+    lower.includes("georgia") ||
+    lower.includes("times") ||
+    lower.includes("bodoni") ||
+    lower.includes("baskerville") ||
+    lower.includes("cinzel")
+  ) {
+    return `${formatted}, serif`;
+  }
+  return `${formatted}, sans-serif`;
+}
+
+export function formatFontString(
+  fontSize = 14,
+  fontFamily = "Inter",
+  fontWeight?: string | number,
+  fontStyle?: string,
+  variables?: Record<string, any>
+): string {
+  const style = fontStyle === "italic" ? "italic " : "";
+  const weight = fontWeight ? `${fontWeight} ` : "";
+  const family = resolveFontFamily(fontFamily, variables);
+  return `${style}${weight}${fontSize}px ${family}`.trim();
 }
 
 export function measureTextWidth(
@@ -67,11 +85,12 @@ export function measureTextWidth(
   fontFamily = "Inter",
   fontWeight?: string | number,
   letterSpacing = 0,
-  variables?: Record<string, any>
+  variables?: Record<string, any>,
+  fontStyle?: string
 ): number {
   const resolvedFam = resolveFontFamily(fontFamily, variables);
   const weight = fontWeight || "normal";
-  const key = measureKey(text, fontSize, resolvedFam, weight, letterSpacing);
+  const key = measureKey(text, fontSize, resolvedFam, weight, letterSpacing, fontStyle);
 
   // A recording, when present, is the authority. It holds what a real font engine
   // reported, so a headless run gets the same widths as the browser.
@@ -82,7 +101,7 @@ export function measureTextWidth(
 
   const ctx = getCanvasContext();
   if (ctx) {
-    ctx.font = `${weight} ${fontSize}px ${resolvedFam}`;
+    ctx.font = formatFontString(fontSize, fontFamily, weight, fontStyle, variables);
     const measured = Math.ceil(ctx.measureText(text).width + text.length * letterSpacing);
     liveWidthCache.set(key, measured);
     noteMeasurement(key, measured);
@@ -184,13 +203,14 @@ export function measureTextNode(
 
   const lineHeight = getLineHeight(node, variables);
   const resolvedFam = resolveFontFamily(fontFamily, variables);
-  const cacheKey = `${content}\0${fontSize}\0${resolvedFam}\0${fontWeight}\0${letterSpacing}\0${growth}\0${canWrap ? 1 : 0}\0${targetWidth}\0${lineHeight}`;
+  const fontStyle = node.fontStyle || "normal";
+  const cacheKey = `${content}\0${fontSize}\0${resolvedFam}\0${fontWeight}\0${fontStyle}\0${letterSpacing}\0${growth}\0${canWrap ? 1 : 0}\0${targetWidth}\0${lineHeight}`;
   const cached = nodeResultCache.get(cacheKey);
   if (cached) return cached;
 
   let result: TextMetricsResult;
   if (growth === "auto" || !canWrap) {
-    const width = measureTextWidth(content, fontSize, fontFamily, fontWeight, letterSpacing, variables);
+    const width = measureTextWidth(content, fontSize, fontFamily, fontWeight, letterSpacing, variables, fontStyle);
     result = { width, height: lineHeight, lineHeight, lines: [content] };
   } else {
     const words = content.split(" ");
@@ -199,7 +219,7 @@ export function measureTextNode(
 
     for (const word of words) {
       const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const testWidth = measureTextWidth(testLine, fontSize, fontFamily, fontWeight, letterSpacing, variables);
+      const testWidth = measureTextWidth(testLine, fontSize, fontFamily, fontWeight, letterSpacing, variables, fontStyle);
       if (testWidth > targetWidth && currentLine) {
         lines.push(currentLine);
         currentLine = word;

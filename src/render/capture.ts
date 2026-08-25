@@ -1,8 +1,9 @@
 import { layoutResolvedDocument } from "../layout/layout";
-import { indexDocument, walkNodes } from "../model/tree";
+import { indexDocument } from "../model/tree";
 import { resolveInstances } from "../model/instance";
-import { paintNode, preloadCachedImage } from "./paint";
-import type { Document as PenDocument, Fill, ImageFill, PenNode } from "../model/types";
+import { paintNode } from "./paint";
+import { waitForPaintInputs } from "./paintInputs";
+import type { Document as PenDocument, PenNode } from "../model/types";
 import { pageScopedDocument } from "../model/pages";
 import type { LayoutNode, Box } from "../layout/types";
 
@@ -25,8 +26,6 @@ const FULL_SCREEN_SCALE = 0.5;
 const MOBILE_FULL_SCREEN_SCALE = 1;
 const SECTION_SLICE_SCALE = 0.5;
 const JPEG_QUALITY = 0.85;
-const IMAGE_WAIT_MS = 1500;
-const FONT_WAIT_MS = 300;
 const MAX_CAPTURE_AREA = 1920 * 1080;
 
 function documentBox(tree: LayoutNode[]): Box | null {
@@ -44,25 +43,6 @@ function documentBox(tree: LayoutNode[]): Box | null {
     width: Math.max(1, maxX - minX),
     height: Math.max(1, maxY - minY)
   };
-}
-
-function imageUrlOf(fill: Fill | Fill[] | undefined): string | undefined {
-  const fills = Array.isArray(fill) ? fill : fill ? [fill] : [];
-  for (const f of fills) {
-    if (f && typeof f === "object" && f.type === "image") {
-      const image = f as ImageFill;
-      return image.url || image.data;
-    }
-  }
-}
-
-function imageUrls(doc: PenDocument): string[] {
-  const urls: string[] = [];
-  walkNodes(doc.children, (n) => {
-    const url = imageUrlOf(n.fill);
-    if (url) urls.push(url);
-  });
-  return urls;
 }
 
 function captureScale(box: Box, baseScale: number = FULL_SCREEN_SCALE): number {
@@ -245,22 +225,10 @@ export async function captureDocumentPng(doc: PenDocument, pageId?: string): Pro
     return { ok: false, reason: "unavailable" };
   }
   doc = pageScopedDocument(doc, pageId);
-
-  const fonts = (globalThis.document as { fonts?: { ready?: Promise<unknown> } }).fonts;
-  if (fonts?.ready) {
-    try {
-      await Promise.race([
-        fonts.ready,
-        new Promise<void>((resolve) => setTimeout(resolve, FONT_WAIT_MS))
-      ]);
-    } catch {
-      // paint with fallback metrics
-    }
-  }
-
-  await Promise.all(imageUrls(doc).map((url) => preloadCachedImage(url, IMAGE_WAIT_MS)));
-
   const resolved = resolveInstances(doc);
+
+  await waitForPaintInputs(resolved);
+
   const tree = layoutResolvedDocument(resolved);
   const box = documentBox(tree);
   if (!box) return { ok: false, reason: "no_target" };

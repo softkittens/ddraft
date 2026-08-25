@@ -1,8 +1,9 @@
 import { layoutResolvedDocument, findLayoutNode } from "../layout/layout";
-import { indexDocument, findParent, walkNodes } from "../model/tree";
+import { indexDocument, findParent } from "../model/tree";
 import { resolveInstances } from "../model/instance";
-import { paintNode, preloadCachedImage } from "./paint";
-import type { Document, Fill, ImageFill, PenNode } from "../model/types";
+import { paintNode } from "./paint";
+import { waitForPaintInputs } from "./paintInputs";
+import type { Document, PenNode } from "../model/types";
 
 /**
  * Raster export of a selected frame, Figma-style: 1× / 2× / 3× the node's
@@ -31,8 +32,6 @@ export type ExportResult =
   | { ok: false; reason: ExportFailure };
 
 const JPEG_QUALITY = 0.92;
-const IMAGE_WAIT_MS = 1500;
-const FONT_WAIT_MS = 300;
 
 function mimeFor(format: ExportFormat): "image/png" | "image/jpeg" {
   switch (format) {
@@ -119,40 +118,6 @@ export function exportFilename(
   return `${safe || "Frame"}${scaleSuffix(scale)}.${extensionFor(format)}`;
 }
 
-function imageUrlOf(fill: Fill | Fill[] | undefined): string | undefined {
-  const fills = Array.isArray(fill) ? fill : fill ? [fill] : [];
-  for (const f of fills) {
-    if (f && typeof f === "object" && f.type === "image") {
-      const image = f as ImageFill;
-      return image.url || image.data;
-    }
-  }
-}
-
-function imageUrls(doc: Document): string[] {
-  const urls: string[] = [];
-  walkNodes(doc.children, (n) => {
-    const url = imageUrlOf(n.fill);
-    if (url) urls.push(url);
-  });
-  return urls;
-}
-
-async function waitForPaintInputs(doc: Document): Promise<void> {
-  const fonts = (globalThis.document as { fonts?: { ready?: Promise<unknown> } }).fonts;
-  if (fonts?.ready) {
-    try {
-      await Promise.race([
-        fonts.ready,
-        new Promise<void>((resolve) => setTimeout(resolve, FONT_WAIT_MS))
-      ]);
-    } catch {
-      // paint with fallback metrics
-    }
-  }
-  await Promise.all(imageUrls(doc).map((url) => preloadCachedImage(url, IMAGE_WAIT_MS)));
-}
-
 export async function exportSelectedFrame(
   doc: Document,
   selectedIds: Iterable<string>,
@@ -163,12 +128,12 @@ export async function exportSelectedFrame(
     return { ok: false, reason: "unavailable" };
   }
 
-  const target = resolveExportTarget(doc, selectedIds);
+  const resolved = resolveInstances(doc);
+  const target = resolveExportTarget(resolved, selectedIds);
   if (!target) return { ok: false, reason: "no_target" };
 
-  await waitForPaintInputs(doc);
+  await waitForPaintInputs(resolved);
 
-  const resolved = resolveInstances(doc);
   const tree = layoutResolvedDocument(resolved);
   const layoutNode = findLayoutNode(tree, target.id);
   if (!layoutNode || layoutNode.box.width <= 0 || layoutNode.box.height <= 0) {
