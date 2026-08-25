@@ -1,4 +1,4 @@
-import { Component, Show, createSignal, onMount } from "solid-js";
+import { Component, Show, createSignal } from "solid-js";
 import {
   MousePointer2,
   Square,
@@ -7,8 +7,7 @@ import {
   FolderOpen,
   Layers,
   Bot,
-  Trash2,
-  Download
+  Trash2
 } from "lucide-solid";
 import {
   toolMode,
@@ -35,37 +34,6 @@ const iconBtn =
 export const Toolbar: Component = () => {
   let fileInputRef: HTMLInputElement | undefined;
   const [confirmingClear, setConfirmingClear] = createSignal(false);
-  const [installPrompt, setInstallPrompt] = createSignal<any>(null);
-  const [isStandalone, setIsStandalone] = createSignal(false);
-
-  onMount(() => {
-    if (typeof window !== "undefined") {
-      setIsStandalone(
-        window.matchMedia("(display-mode: standalone)").matches ||
-        (window.navigator as any).standalone === true
-      );
-
-      window.addEventListener("beforeinstallprompt", (e) => {
-        e.preventDefault();
-        setInstallPrompt(e);
-      });
-
-      window.addEventListener("appinstalled", () => {
-        setInstallPrompt(null);
-        setIsStandalone(true);
-      });
-    }
-  });
-
-  const handleInstallClick = async () => {
-    const prompt = installPrompt();
-    if (!prompt) return;
-    prompt.prompt();
-    const { outcome } = await prompt.userChoice;
-    if (outcome === "accepted") {
-      setInstallPrompt(null);
-    }
-  };
 
   const canClear = () => doc().children.length > 0;
 
@@ -121,16 +89,6 @@ export const Toolbar: Component = () => {
             Open
           </button>
         </div>
-        <Show when={installPrompt() && !isStandalone()}>
-          <button
-            onClick={handleInstallClick}
-            title="Install ddraft as Desktop App"
-            class="chrome-surface h-10 px-3 rounded-full flex items-center gap-1.5 text-[13px] font-medium text-neutral-800 hover:bg-black/5 transition"
-          >
-            <Download size={14} class="text-neutral-500" />
-            Install App
-          </button>
-        </Show>
         <button
           onClick={() => setLayersVisible(!layersVisible())}
           title="Toggle layers (\\)"
