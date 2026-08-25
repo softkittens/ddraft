@@ -6,15 +6,12 @@
  * client — and this half reads rules.md off disk, which the browser cannot do.
  */
 import type { Message } from "./provider";
-import type { DesignDirection } from "../design/styleSystem";
-import { designReviewSchema, isValidFixValue, SAFE_FIX_PROPERTIES, type DesignReview } from "./review";
+import { designReviewSchema, type DesignReview } from "./review";
 import { rules } from "./rules";
 
 import { resolvePromptContext, type ResolvedContext } from "./context";
 
-export const BASE_CRITIC_PROMPT = rules("critic", {
-  fixableProperties: Object.keys(SAFE_FIX_PROPERTIES).join(", ")
-});
+export const BASE_CRITIC_PROMPT = rules("critic");
 
 export const CRITIC_PROMPT = BASE_CRITIC_PROMPT;
 
@@ -50,7 +47,9 @@ export function buildCriticSystemPrompt(brief: string, resolved?: ResolvedContex
   if (ctx.archetype === "site") {
     domainAdditions.push(
       `DOMAIN-SPECIFIC CRITERIA — MARKETING SITE & LANDING PAGE:`,
-      `- Information Architecture Depth: The site must have substance and rhythm across 6–8 distinct narrative sections (First Viewport, Spaces/Showcase, Amenities/Specs, Stories, Pricing comparison, Multi-column footer). Do not pass an under-generated site stub with only 2–3 sections.`
+      `- Narrative Substance & Composition: The site must have substance and rhythm tailored to the offer's capabilities (First Viewport, concrete offerings/showcase, specifications or atmospheric story, relevant action, and grounding footer when helpful). Do not pass an under-generated site stub with only 1–2 sparse blocks, but do not mandate generic filler furniture like canned testimonials or forced 3-tier pricing on non-commercial offerings.`,
+      `- Credibility vs Fabricated Claims: Product names, routes, cabin specs, and illustrative pricing are expected; but penalize fabricated authority metrics (e.g. fake safety records, customer review quotes, star ratings, or invented charters) that undermine brand trust.`,
+      `- Direction & Composition as Hypothesis: Faithful execution of the original direction or chosen composition does not make it correct. Return refine if the chosen composition archetype (e.g. attempting a modular bento on a luxury retreat, or a monumental editorial on an operational tool) or visual system contradicts the product's positioning, passenger trust, or actual use scene.`
     );
   }
 
@@ -83,33 +82,28 @@ export function criticMessages(input: {
   screenshotDataUrl?: string;
   screenshots?: { id?: string; name?: string; dataUrl: string; kind?: "screen" | "section" | "viewport"; parentId?: string }[];
   digest: string;
-  direction?: DesignDirection;
   audit?: string;
   context?: ResolvedContext;
 }): Message[] {
-  /*
-   * Deliberately placed after the images rather than beside the brief.
-   *
-   * The reviewer is usually the same model that just built the screen and
-   * wrote this thesis, and reading its own argument before looking at the
-   * screenshot turns the review into a search for confirmation of the story.
-   * Look first, then compare against what was intended.
-   */
-  const direction = input.direction
-    ? `\n\nNow — and only now — the direction this screen was built to. Compare what you just described against it.\nTHESIS: ${input.direction.thesis}\nOWN-WORLD: ${input.direction.ownWorld}\nFIRST VIEWPORT: ${input.direction.firstViewport}\nThis names the hierarchy and experience that were aimed at — the focal subject, the hierarchy, and the first action. Banner or split, one column or several, is not a defect when those are visible. Judge only visible evidence; a static screenshot cannot prove sticky, persistent, animated, or interactive runtime behavior.`
-    : "";
-  const audit = input.audit ? `\n\nDeterministic measurements:\n${input.audit}` : "";
+  const audit = input.audit ? `\n\n${input.audit}` : "";
 
   const contentParts: any[] = [];
   if (input.screenshots && input.screenshots.length > 0) {
-    const hasSections = input.screenshots.some((s) => s.kind === "section");
-    const screensToSend = hasSections
-      ? input.screenshots.filter((s) => s.kind === "section")
-      : input.screenshots;
+    const overviewScreens = input.screenshots.filter((s) => s.kind === "screen" || s.kind === "viewport");
+    const sectionScreens = input.screenshots.filter((s) => s.kind === "section");
+
+    let chosenSections = sectionScreens;
+    if (sectionScreens.length > 4) {
+      const step = (sectionScreens.length - 1) / 3;
+      const indices = [0, Math.round(step), Math.round(2 * step), sectionScreens.length - 1];
+      chosenSections = Array.from(new Set(indices)).map((i) => sectionScreens[i]);
+    }
+    const screensToSend = [...overviewScreens, ...chosenSections];
+    const hasSections = chosenSections.length > 0;
 
     contentParts.push({
       type: "text",
-      text: `Brief:\n${input.brief}${audit}\n\nDigest:\n${input.digest}\n\nAttached screenshots (${hasSections ? "high-resolution section close-ups in layout order" : "full screen"}):`
+      text: `Brief:\n${input.brief}\n\nDigest:\n${input.digest}\n\nAttached screenshots (full screen overview${hasSections ? " and representative section close-ups in layout order" : ""}):`
     });
     for (const s of screensToSend) {
       const header = s.kind === "section"
@@ -128,12 +122,12 @@ export function criticMessages(input: {
     }
   } else {
     contentParts.push(
-      { type: "text", text: `Brief:\n${input.brief}${audit}\n\nDigest:\n${input.digest}` },
+      { type: "text", text: `Brief:\n${input.brief}\n\nDigest:\n${input.digest}` },
       { type: "image_url", image_url: { url: input.screenshotDataUrl || "", detail: "high" } }
     );
   }
 
-  if (direction) contentParts.push({ type: "text", text: direction });
+  if (audit) contentParts.push({ type: "text", text: audit.trim() });
 
   return [
     { role: "system", content: buildCriticSystemPrompt(input.brief, input.context) },
@@ -167,8 +161,7 @@ Return JSON only:
   "verdict": "pass" | "refine",
   "scores": { "specificity": 1-5, "hierarchy": 1-5, "usability": 1-5, "craft": 1-5 },
   "strengths": string[0-2],
-  "issues": [{ "title": string, "reason": string, "instruction": string, "nodeIds"?: string[] }][0-3],
-  "fixes": [{ "nodeId": string, "property": string, "value": any }][0-8]
+  "issues": [{ "title": string, "reason": string, "instruction": string, "nodeIds"?: string[] }][0-3]
 }`
     },
     {
@@ -205,10 +198,6 @@ export function parseDesignReview(raw: unknown, digestText: string): DesignRevie
     issues: parsed.issues.map((issue) => ({
       ...issue,
       nodeIds: issue.nodeIds?.filter((id) => known.has(id))
-    })),
-    // A fix naming a node that is not on the canvas, a property outside the
-    // allowlist, or a value of the wrong shape is dropped rather than applied.
-    // The critic cannot see the schema, so it will occasionally invent one.
-    fixes: parsed.fixes?.filter((fix) => known.has(fix.nodeId) && isValidFixValue(fix.property, fix.value))
+    }))
   };
 }

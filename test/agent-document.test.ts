@@ -7,6 +7,9 @@ import { resolveInstances } from "../src/model/instance";
 import { setProperty } from "../src/model/edit";
 import { createDocumentTools } from "../src/agent/tools";
 import { parseDocument } from "../src/model/parse";
+import { normalizeNodeTree, inferNodeType, type NormalizeReport } from "../src/agent/tools/normalize";
+import { auditDocument } from "../src/design/evaluator";
+import type { Document } from "../src/model/types";
 
 describe("stale agent snapshots must not overwrite user edits", () => {
   it("accepts the first agent document against the request snapshot", () => {
@@ -412,5 +415,82 @@ describe("a property write answers the question the model asks next", () => {
     expect(result).toContain("d");
     // The middle of the chain is scaffolding the model already knows about.
     expect(result).not.toContain("b 200x200px");
+  });
+});
+
+describe("normalizeNodeTree missing type inference and assignment", () => {
+  it("infers and writes type: frame for containers with children and layout", () => {
+    const report: NormalizeReport = { renamed: [], unknown: [], defaulted: [] };
+    const raw = {
+      id: "nav-links",
+      layout: "horizontal",
+      gap: 28,
+      children: [
+        { id: "l1", content: "Overview", fontSize: 14 },
+        { id: "l2", content: "Analytics", fontSize: 14 },
+        { id: "l3", content: "Settings", fontSize: 14 }
+      ]
+    };
+
+    const normalized = normalizeNodeTree(raw, report);
+    expect(normalized.type).toBe("frame");
+    expect(normalized.id).toBe("nav-links");
+    expect(normalized.layout).toBe("horizontal");
+    expect(normalized.gap).toBe(28);
+
+    expect(normalized.children).toHaveLength(3);
+    expect(normalized.children[0].type).toBe("text");
+    expect(normalized.children[0].content).toBe("Overview");
+    expect(normalized.children[1].type).toBe("text");
+    expect(normalized.children[1].content).toBe("Analytics");
+    expect(normalized.children[2].type).toBe("text");
+    expect(normalized.children[2].content).toBe("Settings");
+  });
+
+  it("infers node types from property signatures and preserves explicit types", () => {
+    expect(inferNodeType({ children: [] })).toBe("frame");
+    expect(inferNodeType({ layout: "vertical" })).toBe("frame");
+    expect(inferNodeType({ gap: 16 })).toBe("frame");
+    expect(inferNodeType({ content: "Hello" })).toBe("text");
+    expect(inferNodeType({ fontSize: 24 })).toBe("text");
+    expect(inferNodeType({ icon: "user" })).toBe("icon");
+    expect(inferNodeType({ type: "group", children: [] })).toBe("group");
+    expect(inferNodeType({ type: "rectangle", width: 100 })).toBe("rectangle");
+    expect(inferNodeType({})).toBe("frame");
+  });
+
+  it("executes layout correctly on normalized trees with zero collisions", () => {
+    const report: NormalizeReport = { renamed: [], unknown: [], defaulted: [] };
+    const malformedNav = {
+      id: "nav-links",
+      layout: "horizontal",
+      gap: 28,
+      children: [
+        { id: "l1", content: "Overview", fontSize: 14 },
+        { id: "l2", content: "Analytics", fontSize: 14 },
+        { id: "l3", content: "Settings", fontSize: 14 }
+      ]
+    };
+
+    const normalizedNav = normalizeNodeTree(malformedNav, report);
+
+    const doc: Document = {
+      version: "2.17",
+      children: [
+        {
+          id: "screen",
+          type: "frame",
+          width: 1440,
+          height: 80,
+          layout: "horizontal",
+          children: [normalizedNav]
+        } as any
+      ],
+      variables: {}
+    };
+
+    const findings = auditDocument(doc);
+    const collisions = findings.filter((f) => f.rule === "collision");
+    expect(collisions).toEqual([]);
   });
 });

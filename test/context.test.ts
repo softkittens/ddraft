@@ -206,15 +206,46 @@ describe("Prompt behaviour corpus", () => {
     expect(ctx.traits).not.toContain("commerce_ordering");
   });
 
+  it("resolves banking app to mobile app initial build", () => {
+    const ctx = resolvePromptContext("Design a banking app");
+    expect(ctx.surface).toBe("mobile");
+    expect(ctx.archetype).toBe("app");
+    expect(ctx.lifecycle).toBe("initial_build");
+  });
+
+  it("resolves desktop dashboard to tool archetype", () => {
+    const ctx = resolvePromptContext("Desktop dashboard for fleet operations");
+    expect(ctx.surface).toBe("desktop");
+    expect(ctx.archetype).toBe("tool");
+  });
+
+  it("resolves web dashboard to tool archetype", () => {
+    const ctx = resolvePromptContext("Web dashboard for fleet operations");
+    expect(ctx.surface).toBe("desktop");
+    expect(ctx.archetype).toBe("tool");
+  });
+
   it.each([
     "Make it more polished",
     "Improve the hierarchy",
     "Revise the hero",
     "Add a checkout section",
+    "Add a new section",
+    "Add a new dashboard section",
     "Tighten the spacing",
     "The footer feels weak",
     "Redesign this in dark mode",
-    "Restyle with a warm editorial aesthetic"
+    "Restyle with a warm editorial aesthetic",
+    "Improve the analytics hierarchy",
+    "Fix the telemetry labels",
+    "Make the dashboard more polished",
+    "Dashboard looks crowded",
+    "The app is too dense",
+    "This dashboard should be denser",
+    "Update the dashboard for mobile",
+    "Optimize the site for mobile",
+    "Make the app for older users",
+    "Design the button states"
   ])("treats %j on an existing canvas as a revision", (phrase) => {
     expect(resolvePromptContext(phrase, canvasWithContent()).lifecycle).toBe("revision_edit");
   });
@@ -222,7 +253,8 @@ describe("Prompt behaviour corpus", () => {
   it.each([
     "Create a mobile companion screen",
     "Landing page for a new coffee subscription",
-    "Build a fleet operations dashboard"
+    "Build a fleet operations dashboard",
+    "Design a banking app"
   ])("treats %j on an existing canvas as a new build", (phrase) => {
     expect(resolvePromptContext(phrase, canvasWithContent()).lifecycle).toBe("initial_build");
   });

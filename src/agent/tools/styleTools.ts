@@ -42,10 +42,14 @@ function freezeTokensOnChildren(nodes: PenNode[], oldVariables: Record<string, a
 export const setStyleTool: DocumentToolDefinition = {
   name: "set_style",
   description:
-    "Commit to a design direction, then choose its palette, roundness, elevation and typefaces. Writes the colour and font tokens onto the document and returns the usage rules for the chosen style. Call this before building on an unstyled document, or when the user explicitly requests a redesign, palette change, or theme update. Do not call this for localized element edits, copy changes, or image replacements.",
+    "Commit to a design direction, then choose its composition archetype, palette, roundness, elevation and typefaces. Writes the colour and font tokens onto the document and returns the usage rules for the chosen style. Call this before building on an unstyled document, or when the user explicitly requests a redesign, palette change, or theme update. Do not call this for localized element edits, copy changes, or image replacements.",
   parameters: {
     type: "object",
     properties: {
+      composition: {
+        type: "string",
+        description: "Composition archetype name, e.g. 'Cinematic Hero & Narrative', 'Modular Bento Grid', 'Asymmetric Split Instrument'"
+      },
       palette: {
         type: "string",
         description: "Palette name, e.g. 'Carbon Frost'"
@@ -90,6 +94,7 @@ export const setStyleTool: DocumentToolDefinition = {
       }
     },
     required: [
+      "composition",
       "palette",
       "roundness",
       "elevation",

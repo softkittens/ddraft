@@ -314,10 +314,24 @@ describe("Styling, Colors & Effects", () => {
     );
     const accentText = screenWith(frame("r", "fill_container", 44, [txt("l", "P", 15, { fill: "$accent-primary" })]));
 
+    // Repeated card CTAs in a collection (e.g. 6 identical "Reserve" buttons) represent 1 semantic role.
+    const cardCtas = screenOf(
+      frame("hero-cta", 140, 44, [txt("h_btn", "Check availability", 14)], { fill: "$accent-primary" }),
+      frame("grid", "fill_container", 400, [
+        ...[1, 2, 3, 4, 5, 6].map((i) =>
+          frame(`card-${i}`, 200, 180, [
+            txt(`t-${i}`, `Workspace ${i}`, 16),
+            frame(`btn-${i}`, 100, 36, [txt(`btn-txt-${i}`, "Reserve", 14)], { fill: "$accent-primary" })
+          ])
+        )
+      ])
+    );
+
     expectFinding(threeRoles, "accent_overuse", { severity: "warning", message: "3 separate roles" });
     expect(rules(twoRoles)).not.toContain("accent_overuse");
     expect(rules(series)).not.toContain("accent_overuse");
     expect(rules(accentText)).not.toContain("accent_overuse");
+    expect(rules(cardCtas)).not.toContain("accent_overuse");
   });
 
   it("evaluates shadow quality and neobrutalist exemptions", () => {
@@ -364,8 +378,8 @@ describe("Styling, Colors & Effects", () => {
 
 describe("Composition & Anti-Patterns", () => {
   it("evaluates tap targets and container health", () => {
-    const smallBtn = makeDoc(frame("s", 200, 200, [frame("btn", 32, 32, [], { name: "Close Button" })]));
-    const okBtn = makeDoc(frame("s", 200, 200, [frame("btn", 48, 48, [], { name: "CTA Button" })]));
+    const smallBtn = makeDoc(screen("mobile", [frame("btn", 32, 32, [], { name: "Close Button" })]));
+    const okBtn = makeDoc(screen("mobile", [frame("btn", 48, 48, [], { name: "CTA Button" })]));
     const collapsed = makeDoc(frame("s", 390, 844, [frame("c", 0, 0, [frame("h", "fill_container", 200)])], { layout: "vertical" }));
     const emptyFrame = makeDoc(frame("s", 390, 600, [frame("hole", "fill_container", 300, [], { name: "Gallery" })], { layout: "vertical" }));
 
@@ -373,6 +387,17 @@ describe("Composition & Anti-Patterns", () => {
     expect(rules(okBtn)).not.toContain("tap_target");
     expectFinding(collapsed, "collapsed_container", { severity: "blocker" });
     expectFinding(emptyFrame, "empty_container", { message: "390x300" });
+  });
+
+  it("flags unnamed icon-only commerce actions on mobile, but not desktop", () => {
+    const add = frame("add", 36, 36, [
+      { id: "plus", type: "icon", icon: "plus", width: 16, height: 16 }
+    ], { layout: "horizontal" });
+    const mobile = makeDoc(screen("mobile", [add]));
+    const desktop = makeDoc(screen("desktop", [add], { width: 1440 }));
+
+    expectFinding(mobile, "tap_target", { severity: "warning", message: "36x36px" });
+    expect(rules(desktop)).not.toContain("tap_target");
   });
 
   it("does not measure a label separately from its valid interactive parent", () => {
@@ -1043,16 +1068,41 @@ describe("Scoping, Triage & Tool Integration", () => {
   it("flags uneven card heights in horizontal comparison rows", () => {
     const cardsDoc = makeDoc(
       screen("desktop", [
-        frame("card_row", 1200, "fit_content", [
+        frame("pricing_grid", 1200, "fit_content", [
           frame("card1", 380, 260, [txt("t1", "Day Pass", 20)], { name: "Card 1", fill: "$surface-secondary" }),
           frame("card2", 380, 360, [txt("t2", "Resident", 20)], { name: "Card 2", fill: "$surface-secondary" })
-        ], { layout: "horizontal", gap: 20 })
+        ], { name: "Pricing Plans", layout: "horizontal", gap: 20 })
       ], { width: 1440, height: 900 })
     );
     expectFinding(cardsDoc, "uneven_card_heights", {
       severity: "warning",
       message: "uneven heights"
     });
+  });
+
+  it("does not flag asymmetric hero/image, copy/form, or footer splits as uneven card heights", () => {
+    const splitDoc = makeDoc(
+      screen("desktop", [
+        // 1. Hero split: text column vs photo column
+        frame("hero_split", "fill_container", "fit_content", [
+          frame("hero_text", 560, 480, [txt("title", "Casa Alfama", 48)], { layout: "vertical" }),
+          frame("hero_photo", 520, 585, [], { fill: "$surface-secondary" })
+        ], { name: "Hero Split", layout: "horizontal", gap: 48 }),
+
+        // 2. Availability / Booking split: explanatory copy vs booking form
+        frame("avail_split", "fill_container", "fit_content", [
+          frame("avail_copy", 500, 220, [txt("p", "Reserve your desk", 24)], { layout: "vertical" }),
+          frame("avail_form", 520, 340, [], { layout: "vertical", stroke: "$border-subtle" })
+        ], { name: "Availability Split", layout: "horizontal", gap: 40 }),
+
+        // 3. Footer split: brand column vs 3-column navigation
+        frame("footer_nav_row", "fill_container", "fit_content", [
+          frame("col1", 140, 160, [txt("l1", "Home", 14), txt("l2", "Atelier", 14)], { layout: "vertical" }),
+          frame("col2", 140, 240, [txt("l3", "Press", 14), txt("l4", "Careers", 14), txt("l5", "Journal", 14)], { layout: "vertical" })
+        ], { name: "Footer Nav", layout: "horizontal", gap: 32 })
+      ], { width: 1440, height: 900 })
+    );
+    expect(rules(splitDoc)).not.toContain("uneven_card_heights");
   });
 
   it("flags stray orphan punctuation characters", () => {
@@ -1083,6 +1133,26 @@ describe("Scoping, Triage & Tool Integration", () => {
       severity: "warning",
       message: "inconsistent alignment"
     });
+  });
+
+  it("does not classify booking grouping rows containing child controls as misaligned inputs", () => {
+    const bookingDoc = makeDoc(
+      screen("desktop", [
+        frame("booking_panel", 480, "fit_content", [
+          // Field Row 1: grouping row holding 2 date field children
+          frame("field_row_1", "fill_container", 48, [
+            frame("date_in", 200, 44, [txt("t_in", "Check in", 14)], { layout: "horizontal", stroke: "$border-subtle" }),
+            frame("date_out", 200, 44, [txt("t_out", "Check out", 14)], { layout: "horizontal", stroke: "$border-subtle" })
+          ], { name: "Field Row 1", layout: "horizontal", justifyContent: "space_between" } as any),
+          // Guests Row: grouping row holding a label and a stepper button container
+          frame("guests_row", "fill_container", 48, [
+            txt("g_lbl", "1 Resident", 14),
+            frame("stepper", 100, 36, [txt("minus", "-", 14), txt("plus", "+", 14)], { layout: "horizontal", justifyContent: "center" })
+          ], { name: "Guests Row", layout: "horizontal", justifyContent: "space_between" } as any)
+        ], { name: "Booking Card", layout: "vertical", gap: 16 })
+      ], { width: 1440, height: 900 })
+    );
+    expect(rules(bookingDoc)).not.toContain("misaligned_inputs");
   });
 
   it("does not classify ordinary content and action rows as form inputs", () => {

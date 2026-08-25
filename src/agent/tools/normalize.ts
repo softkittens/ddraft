@@ -191,11 +191,24 @@ export function snapHexToToken(hex: string, variables?: Record<string, any>): st
   return undefined;
 }
 
+export function inferNodeType(node: any): string {
+  if (typeof node?.type === "string" && node.type.trim().length > 0) {
+    return node.type.trim();
+  }
+  if (node?.children !== undefined || node?.layout !== undefined || node?.gap !== undefined) return "frame";
+  if (node?.content !== undefined || node?.fontSize !== undefined) return "text";
+  if (node?.icon !== undefined) return "icon";
+  return "frame";
+}
+
 export function normalizeNodeTree(node: any, report: NormalizeReport, variables?: Record<string, any>): any {
   if (!node || typeof node !== "object") return node;
-  const type = typeof node.type === "string" ? node.type : "frame";
+  const type = inferNodeType(node);
   const allowed = TYPE_KEYS[type];
-  const out: any = {};
+  const out: any = { type };
+  if (typeof node.type !== "string") {
+    report.renamed.push(`missing.type -> ${type}`);
+  }
 
   /*
    * `size` means fontSize on text and a square box on everything else.
@@ -210,6 +223,7 @@ export function normalizeNodeTree(node: any, report: NormalizeReport, variables?
   let squareSize: number | undefined;
 
   for (const [key, value] of Object.entries(node)) {
+    if (key === "type") continue;
     let target = key;
     const known = COMMON_KEYS.has(key) || allowed?.has(key);
     if (!known) {

@@ -21,7 +21,6 @@ import { noteAgentEdits, clearAgentEditTargets, diffChangedNodeIds } from "../ca
 import type { Message } from "../../agent/provider";
 import type { PublicProvider } from "../../agent/credentials";
 import type { Document } from "../../model/types";
-import { findNode, childrenOf } from "../../model/tree";
 import { decideAgentDocument } from "../agentDocument";
 import { parseChoice, choiceValue } from "../ModelSelector";
 import { defaultEffortForModelChoice } from "../../agent/catalog";
@@ -37,7 +36,7 @@ import { pageScopedDocument } from "../../model/pages";
 import { currentDirection } from "../../design/styleSystem";
 import { STYLE_METADATA_KEY } from "../../design/styleKeys";
 import { loadHistory, recordRun, saveHistory } from "../../design/history";
-import { auditDocument, formatAudit } from "../../design/evaluator";
+import { auditDocument, formatAuditForCritic } from "../../design/evaluator";
 import { flushSession } from "../persist";
 import {
   type Entry,
@@ -96,9 +95,9 @@ function sessionTextOf(messages: Message[]): string {
 
 function rememberStyle(doc: Document, brief: string) {
   const recorded = doc.metadata?.[STYLE_METADATA_KEY] as
-    | { palette?: unknown; headings?: unknown; elevation?: unknown; roundness?: unknown }
+    | { composition?: unknown; palette?: unknown; headings?: unknown; elevation?: unknown; roundness?: unknown }
     | undefined;
-  const { palette, headings, elevation, roundness } = recorded ?? {};
+  const { composition, palette, headings, elevation, roundness } = recorded ?? {};
   if (typeof palette !== "string" || typeof headings !== "string" || typeof elevation !== "string") {
     return;
   }
@@ -107,6 +106,7 @@ function rememberStyle(doc: Document, brief: string) {
   saveHistory(recordRun(history, {
     at: new Date().toISOString(),
     brief,
+    composition: typeof composition === "string" ? composition : undefined,
     palette,
     headings,
     elevation,
@@ -271,10 +271,19 @@ export function useChatSession() {
     void flushSession();
   }
 
-  async function runAgentPass(text: string, context: Message[], sessionId: string) {
+  async function runAgentPass(
+    text: string,
+    context: Message[],
+    sessionId: string,
+    pageId: string | undefined,
+    opts: { visibleInput?: boolean } = {}
+  ) {
+    const visibleInput = opts.visibleInput ?? true;
     const next: Message[] = [...context, { role: "user", content: text }];
     const visibleBase = entries();
-    setEntries([...visibleBase, { kind: "message", message: { role: "user", content: text } }]);
+    if (visibleInput) {
+      setEntries([...visibleBase, { kind: "message", message: { role: "user", content: text } }]);
+    }
 
     const controller = new AbortController();
     abort = controller;
@@ -292,7 +301,7 @@ export function useChatSession() {
           messages: next,
           doc: expectedDoc,
           selection: Array.from(selectedIds()),
-          pageId: activePage()?.id,
+          pageId,
           providerId: selected?.providerId,
           model: selected?.model,
           reasoningEffort: effort(),
@@ -356,13 +365,15 @@ export function useChatSession() {
             setStreamReasoning("");
             setStreamText("");
             setPending(null);
+            finished = true;
             finalMessages = event.messages.filter((m) => m.role !== "system");
             setEntries((live) =>
               commitAgentPass({
                 live,
                 visibleBase,
                 finalMessages,
-                contextLength: context.length
+                contextLength: context.length,
+                visibleInput
               })
             );
             setSelectedIds((prev) => {
@@ -371,7 +382,6 @@ export function useChatSession() {
               for (const id of prev) if (valid.has(id)) nextSel.add(id);
               return nextSel;
             });
-            finished = true;
             break;
           case "error":
             failure = event.message;
@@ -397,7 +407,7 @@ export function useChatSession() {
     return { finished, edited, messages: finalMessages, failure, toolsCalled };
   }
 
-  async function runReview(sessionId?: string, focusedNodeIds?: string[]): Promise<{
+  async function runReview(sessionId: string | undefined, _focusedNodeIds: string[] | undefined, pageId: string | undefined): Promise<{
     review?: ReviewResponse;
     thumbnail?: string;
     sectionThumbnails?: { name: string; url: string }[];
@@ -410,11 +420,10 @@ export function useChatSession() {
     const seq = ++reviewSeq;
     const signal = reviewAbort.signal;
     const captured = doc();
-    const capturedPage = activePage()?.id;
-    const pageDoc = pageScopedDocument(captured, capturedPage);
+    const pageDoc = pageScopedDocument(captured, pageId);
 
     setPending({ label: "Rendering the mockup", icon: "review" });
-    const capture = await captureDocumentPng(captured, capturedPage);
+    const capture = await captureDocumentPng(captured, pageId);
     if (seq !== reviewSeq || doc() !== captured) return {};
     if (!capture.ok) return { error: "the canvas could not be captured" };
 
@@ -433,19 +442,8 @@ export function useChatSession() {
         parentId: s.parentId
       }));
 
-      let screensToSend = allScreens;
-      if (focusedNodeIds && focusedNodeIds.length > 0) {
-        const focusedSet = new Set(focusedNodeIds);
-        const matched = allScreens.filter((s) => {
-          if (focusedSet.has(s.id)) return true;
-          const secNode = findNode(pageDoc.children, s.id);
-          if (secNode && focusedNodeIds.some((fid) => findNode(childrenOf(secNode), fid))) return true;
-          return false;
-        });
-        if (matched.length > 0) {
-          screensToSend = matched;
-        }
-      }
+      // Send full representative evidence on every review so the critic evaluates the whole canvas
+      const screensToSend = allScreens;
 
       const review = await fetchAgentReview(
         {
@@ -456,9 +454,8 @@ export function useChatSession() {
           screenshot: capture.dataUrl,
           screenshots: screensToSend,
           digest: digest(pageDoc),
-          direction: currentDirection(captured),
-          audit: formatAudit(auditDocument(pageDoc), "Measured design audit"),
-          pageId: capturedPage,
+          audit: formatAuditForCritic(auditDocument(pageDoc)),
+          pageId,
           context: resolvePromptContext(lastBrief(), pageDoc, [...selectedIds()], sessionTextOf(agentMessages())),
           sessionId
         },
@@ -506,6 +503,7 @@ export function useChatSession() {
     let producedDesign = false;
     let targetedNodes: string[] | undefined;
     const sessionId = crypto.randomUUID();
+    const targetPageId = activePage()?.id;
 
     const initialScreenCount = doc().children.length;
     beginEdit();
@@ -513,13 +511,25 @@ export function useChatSession() {
     try {
       let reviewNumber = 0;
       for (let pass = 0; pass <= AUTO_REVIEW_REVISIONS; pass++) {
-        const result = await runAgentPass(instruction, context, sessionId);
-        context = result.messages;
-        setAgentMessages(context);
+        const passContext = pass === 0 ? context : [];
+        const result = await runAgentPass(instruction, passContext, sessionId, targetPageId, {
+          visibleInput: pass === 0
+        });
+        if (pass === 0) {
+          context = result.messages;
+          setAgentMessages(context);
+        } else if (result.finished) {
+          const closing = [...result.messages].reverse().find(
+            (m: Message) => m.role === "assistant" && typeof m.content === "string" && m.content.trim().length > 0
+          );
+          if (closing) {
+            context = [...context, closing];
+            setAgentMessages(context);
+          }
+        }
 
         if (result.failure) break;
         if (!result.finished || !result.edited) break;
-        producedDesign = true;
 
         const isSubstantiveDesign =
           initialScreenCount === 0 ||
@@ -531,8 +541,9 @@ export function useChatSession() {
         if (!isSubstantiveDesign) {
           break;
         }
+        producedDesign = true;
 
-        const reviewed = await runReview(sessionId, targetedNodes);
+        const reviewed = await runReview(sessionId, targetedNodes, targetPageId);
         if (reviewed.error) {
           note(`Visual review could not run: ${reviewed.error}`, "error");
           break;
@@ -541,7 +552,7 @@ export function useChatSession() {
 
         const finalReview = enforceAuditFindings(
           reviewed.review,
-          auditDocument(pageScopedDocument(doc(), activePage()?.id))
+          auditDocument(pageScopedDocument(doc(), targetPageId))
         );
 
         reviewNumber += 1;
@@ -551,7 +562,6 @@ export function useChatSession() {
             kind: "review",
             pass: reviewNumber,
             review: finalReview,
-            applied: 0,
             thumbnail: reviewed.thumbnail,
             sectionThumbnails: reviewed.sectionThumbnails
           }
@@ -570,14 +580,6 @@ export function useChatSession() {
             targetedNodes = finalReview.issues.flatMap((iss) => iss.nodeIds || []);
             instruction = applyReviewMessage(lastBrief(), finalReview, doc());
             continue;
-          case "apply_last": {
-            instruction = applyReviewMessage(lastBrief(), finalReview, doc());
-            const last = await runAgentPass(instruction, context, sessionId);
-            context = last.messages;
-            setAgentMessages(context);
-            if (last.edited) producedDesign = true;
-            break;
-          }
           default: {
             const _exhaustive: never = next;
             void _exhaustive;

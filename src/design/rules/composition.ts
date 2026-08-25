@@ -32,11 +32,18 @@ import { normalisePadding } from "../../layout/padding";
 
 export function checkTapTargets(ctx: AuditContext): AuditFinding[] {
   const findings: AuditFinding[] = [];
+  const iconOnlyActions = new Set(["plus", "minus", "heart"]);
   function walk(node: LayoutNode, interactiveAncestor = false) {
     const data = ctx.nodes.get(node.id);
     if (data?.enabled === false) return;
-    const named = INTERACTIVE_NAME.test(data?.name ?? "");
-    if (named && !interactiveAncestor && node.box.width > 0 && node.box.height > 0) {
+    const children = childrenOf(data as PenNode);
+    const iconOnlyAction =
+      data?.type === "frame" &&
+      children.length === 1 &&
+      children[0]?.type === "icon" &&
+      iconOnlyActions.has(children[0].icon ?? "");
+    const interactive = INTERACTIVE_NAME.test(data?.name ?? "") || iconOnlyAction;
+    if (interactive && !interactiveAncestor && node.box.width > 0 && node.box.height > 0) {
       const w = Math.round(node.box.width);
       const h = Math.round(node.box.height);
       if (w < MIN_TAP_TARGET || h < MIN_TAP_TARGET) {
@@ -50,9 +57,12 @@ export function checkTapTargets(ctx: AuditContext): AuditFinding[] {
         );
       }
     }
-    for (const child of node.children) walk(child, interactiveAncestor || named);
+    for (const child of node.children) walk(child, interactiveAncestor || interactive);
   }
-  for (const root of ctx.tree) walk(root);
+  for (const root of ctx.tree) {
+    const data = ctx.nodes.get(root.id);
+    if ((data as any)?.metadata?.screenKind === "mobile") walk(root);
+  }
   return findings;
 }
 
@@ -1497,8 +1507,29 @@ export function checkCardRowHeights(ctx: AuditContext): AuditFinding[] {
 
   walkEnabled(ctx.doc.children, (node) => {
     if (node.type !== "frame" || (node as any).layout !== "horizontal") return;
+    const parentName = (node.name ?? "").toLowerCase();
+
+    // Skip asymmetric split layouts, navigation bars, headers, footers, statements, brand blocks, etc.
+    if (
+      /split|hero|header|footer|nav|bar|status|row|brand|bio|story|about|contact|form|statement|bairro|availability|summary|stats|overview|quote/i.test(
+        parentName
+      )
+    ) {
+      return;
+    }
+
     const cards = childrenOf(node).filter((c) => c.type === "frame" && c.enabled !== false);
     if (cards.length < 2) return;
+
+    // For 2 items, only consider them cards if explicitly marked as card / tier / plan containers
+    const isExplicitCardParent = /cards|grid|catalog|pricing|plans|tiers|packages/i.test(parentName);
+    const areExplicitCards = cards.every((c) =>
+      /card|tier|plan|package|pricing|item/i.test(c.name ?? "")
+    );
+
+    if (cards.length === 2 && !isExplicitCardParent && !areExplicitCards) {
+      return;
+    }
 
     const heights: { id: string; height: number }[] = [];
     for (const card of cards) {
@@ -1508,10 +1539,10 @@ export function checkCardRowHeights(ctx: AuditContext): AuditFinding[] {
       }
     }
 
-    if (heights.length >= 2) {
+    if (heights.length >= (isExplicitCardParent || areExplicitCards ? 2 : 3)) {
       const minH = Math.min(...heights.map((h) => h.height));
       const maxH = Math.max(...heights.map((h) => h.height));
-      if (maxH - minH >= 6) {
+      if (maxH - minH >= 24) {
         const worst = heights.find((h) => h.height === minH) || heights[0];
         findings.push(
           warning(
@@ -1534,22 +1565,25 @@ export function checkFormInputAlignment(ctx: AuditContext): AuditFinding[] {
   walkEnabled(ctx.doc.children, (node) => {
     if (node.type !== "frame" || (node as any).layout !== "vertical") return;
     const kids = childrenOf(node).filter((c) => c.type === "frame" && c.enabled !== false);
-    const inputRows = kids.filter((k) => {
-      const name = k.name ?? "";
-      const isInput = /input|field|date|picker|guest|person|time|select|search|email|phone|address|quantity/i.test(name);
-      return isInput && (k as any).layout === "horizontal";
+    const inputControls = kids.filter((k) => {
+      const name = (k.name ?? "").toLowerCase();
+      const isInputName = /input|text_field|search_bar|select_field|date_field|email_field/i.test(name);
+      const isInputShape = (k as any).layout === "horizontal";
+      const childFrames = childrenOf(k).filter((c) => c.type === "frame");
+      const isLeafControl = childFrames.length === 0;
+      return isInputName && isInputShape && isLeafControl;
     });
 
-    if (inputRows.length >= 2) {
-      const aligns = new Set(inputRows.map((r) => (r as any).justifyContent || "start"));
+    if (inputControls.length >= 2) {
+      const aligns = new Set(inputControls.map((r) => (r as any).justifyContent || "start"));
       if (aligns.size > 1) {
-        const misaligned = inputRows.find((r) => (r as any).justifyContent === "center") || inputRows[0];
+        const misaligned = inputControls.find((r) => (r as any).justifyContent === "center") || inputControls[0];
         findings.push(
           warning(
             "misaligned_inputs",
             misaligned.id,
             `Form input fields inside "${node.name ?? node.id}" have inconsistent alignment (some centered, some left-aligned).`,
-            "Set justifyContent: 'start' and padding: [0, 16] on all input fields in the stack for consistent left alignment."
+            "Set justifyContent: 'start' and padding: [10, 16] on all input fields in the stack for consistent left alignment."
           )
         );
       }

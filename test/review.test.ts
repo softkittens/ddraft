@@ -1,12 +1,12 @@
 import { describe, it, expect } from "bun:test";
 import {
   applyReviewMessage,
-  applyReviewFixes,
+  finalizeReview,
   enforceAuditFindings,
-  enforceRejectedFixes,
   type DesignReview
 } from "../src/agent/review";
 import { CRITIC_PROMPT, criticMessages, parseDesignReview } from "../src/agent/critic";
+import { reviewLoopNext } from "../src/ui/chat/reviewLoop";
 import type { Document } from "../src/model/types";
 
 const review: DesignReview = {
@@ -109,39 +109,25 @@ describe("design review contract", () => {
     expect(system).toContain("inventing telemetry to fill it is the defect");
   });
 
-  it("gives the critic the recorded direction contract", () => {
+  it("omits builder thesis/direction from critic to prevent confirmation bias", () => {
     const messages = criticMessages({
       brief: "A reading site",
       screenshotDataUrl: "data:image/png;base64,xx",
       digest: "title Home",
-      direction: {
-        thesis: "A journal, not a dashboard",
-        ownWorld: "Ink, paper and hard rules",
-        firstViewport: "One oversized title above a reading column"
-      },
       audit: "[warning] empty_tail screen: 180px empty"
     });
     const content = messages[1].content;
     expect(Array.isArray(content)).toBe(true);
     const parts = content as { type: string; text?: string }[];
-
-    // The brief and the measurements come before the screenshot; the direction
-    // comes after it. The reviewer is usually the model that wrote that thesis,
-    // and reading its own argument first turns the review into a search for
-    // confirmation of the story rather than a look at the picture.
-    expect(parts[0].text).toContain("Deterministic measurements:");
+    // The brief and digest come before the screenshot; measurements come after it.
+    // The reviewer sees the visual design first without reading its own thesis.
+    expect(parts[0].text).not.toContain("Deterministic measurements:");
     expect(parts[0].text).not.toContain("THESIS:");
 
     const lastImage = parts.map((part) => part.type).lastIndexOf("image_url");
     const afterImage = parts.slice(lastImage + 1).map((part) => part.text ?? "").join("\n");
-    expect(afterImage).toContain("THESIS: A journal, not a dashboard");
-    // Same hedge as the builder prompt: "prefer the stronger composition"
-    // when topology diverges licensed 8ca10dd0's rail photography.
-    expect(afterImage).not.toContain("geometry specification");
-    expect(afterImage).not.toContain("left/right");
-    expect(afterImage).toContain("cannot prove sticky, persistent");
-    expect(afterImage).toContain("Banner or split");
-    expect(afterImage).toContain("not a defect");
+    expect(afterImage).toContain("empty_tail");
+    expect(afterImage).not.toContain("THESIS:");
   });
 
   it("does not treat firstViewport as a composition to rebuild", () => {
@@ -180,7 +166,7 @@ describe("design review contract", () => {
     expect(text).not.toContain("ghost");
   });
 
-  it("ships the cited subtrees with the instruction that cites them", () => {
+  it("omits redundant subtree dumps because system prompt already carries document digest", () => {
     const doc: Document = {
       children: [
         {
@@ -197,18 +183,8 @@ describe("design review contract", () => {
     } as unknown as Document;
 
     const text = applyReviewMessage("A reading site", parseDesignReview(review, "title Home"), doc);
-
-    // One trace opened its revision with six read_digest calls on the ids the
-    // instruction had just quoted. They are already in hand here.
-    expect(text).toContain("The nodes it named, as they stand now:");
-    expect(text).toContain("Read slowly");
-    expect(text).toContain("Three essays a week");
-  });
-
-  it("names only nodes that are still on the canvas", () => {
-    const doc = { children: [] } as unknown as Document;
-    const text = applyReviewMessage("A reading site", parseDesignReview(review, "title Home"), doc);
-    expect(text).not.toContain("The nodes it named");
+    expect(text).not.toContain("The nodes it named, as they stand now:");
+    expect(text).toContain("Weak hierarchy (title): Make the heading 28px and the body 16px.");
   });
 
   it("says a revision is a revision", () => {
@@ -218,196 +194,61 @@ describe("design review contract", () => {
     expect(text).toContain("leave the rest of the canvas alone");
     expect(text).toContain("Never delete a create_screen slot");
   });
+
+  it("tags direction mismatch in review revision message when issues cite direction or style mismatch", () => {
+    const mismatchReview: DesignReview = {
+      verdict: "refine",
+      scores: { specificity: 3, hierarchy: 3, usability: 3, craft: 3 },
+      strengths: [],
+      issues: [{
+        title: "Direction mismatch",
+        reason: "The visual style contradicts the product's trust and positioning.",
+        instruction: "Call set_style to select a credible aerospace palette."
+      }]
+    };
+    const text = applyReviewMessage("Private space tourism landing page", mismatchReview);
+    expect(text).toContain("[Visual review revision - Direction mismatch: restyle permitted]");
+    expect(text).toContain("call set_style or recompose the visual foundation");
+  });
 });
 
-describe("Fixes the critic applies itself", () => {
-  const digestText = "card Card\ntitle Heading\nbody Copy";
-
-  it("keeps a well-formed fix and drops one outside the allowlist", () => {
-    const parsed = parseDesignReview({
-      verdict: "refine",
-      scores: { specificity: 3, hierarchy: 3, usability: 3, craft: 3 },
-      strengths: [],
-      issues: [],
-      fixes: [
-        { nodeId: "title", property: "fontSize", value: 32 },
-        { nodeId: "card", property: "layout", value: "vertical" },
-        { nodeId: "body", property: "content", value: "rewritten" }
-      ]
-    }, digestText);
-    // layout and content restructure or rewrite; those stay the model's call.
-    expect(parsed.fixes).toEqual([{ nodeId: "title", property: "fontSize", value: 32 }]);
-  });
-
-  it("drops a fix that deletes the element instead of adjusting it", () => {
-    const parsed = parseDesignReview({
+describe("Review finalization and pass normalization", () => {
+  it("normalizes a passing review when all scores >= 4 and no issues or severe findings exist", () => {
+    const passingReview: DesignReview = {
       verdict: "pass",
-      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 4 },
-      strengths: [],
-      issues: [],
-      fixes: [
-        { nodeId: "title", property: "fontSize", value: 0 },
-        { nodeId: "body", property: "fontSize", value: 8 },
-        { nodeId: "card", property: "opacity", value: 0 },
-        { nodeId: "card", property: "width", value: 0 },
-        { nodeId: "card", property: "height", value: 0 },
-        { nodeId: "title", property: "fontSize", value: 11 }
-      ]
-    }, digestText);
-    /*
-     * A critic that cannot restructure reaches for the nearest property that
-     * makes the thing it objects to disappear, and the nearest property is a
-     * zero. One logged review returned `fontSize: 0` on all four KPI labels of
-     * a factory dashboard to satisfy an eyebrow warning — a deletion in the
-     * shape of a fix, and applyReviewFixes writes fixes with no model in the
-     * loop. Removing an element belongs in `issues`, where a model decides.
-     */
-    expect(parsed.fixes).toEqual([{ nodeId: "title", property: "fontSize", value: 11 }]);
-  });
-
-  it("drops a fix whose value is the wrong shape for its property", () => {
-    const parsed = parseDesignReview({
-      verdict: "refine",
-      scores: { specificity: 3, hierarchy: 3, usability: 3, craft: 3 },
-      strengths: [],
-      issues: [],
-      fixes: [
-        { nodeId: "card", property: "gap", value: "large" },
-        { nodeId: "card", property: "fill", value: "reddish" },
-        { nodeId: "card", property: "fill", value: "$surface-secondary" },
-        { nodeId: "card", property: "width", value: "fill_container" }
-      ]
-    }, digestText);
-    expect(parsed.fixes).toEqual([
-      { nodeId: "card", property: "fill", value: "$surface-secondary" },
-      { nodeId: "card", property: "width", value: "fill_container" }
-    ]);
-  });
-
-  it("drops a fix naming a node that is not on the canvas", () => {
-    const parsed = parseDesignReview({
-      verdict: "refine",
-      scores: { specificity: 3, hierarchy: 3, usability: 3, craft: 3 },
-      strengths: [],
-      issues: [],
-      fixes: [{ nodeId: "ghost", property: "fontSize", value: 20 }]
-    }, digestText);
-    expect(parsed.fixes).toEqual([]);
-  });
-
-  it("applies surviving fixes to the document without a model turn", () => {
-    const doc: any = {
-      version: "2.17",
-      children: [{
-        type: "frame", id: "card", name: "Card", width: 300, height: 100, gap: 4,
-        children: [{ type: "text", id: "title", name: "Heading", content: "Hi", fontSize: 14 }]
-      }]
+      scores: { specificity: 4, hierarchy: 4, usability: 5, craft: 4 },
+      strengths: ["Clean hierarchy"],
+      issues: []
     };
-    const review = parseDesignReview({
-      verdict: "refine",
-      scores: { specificity: 3, hierarchy: 3, usability: 3, craft: 3 },
-      strengths: [],
-      issues: [],
-      fixes: [
-        { nodeId: "title", property: "fontSize", value: 32 },
-        { nodeId: "card", property: "gap", value: 16 }
-      ]
-    }, digestText);
-
-    const result = applyReviewFixes(doc, review);
-    expect(result.applied).toEqual(["title.fontSize", "card.gap"]);
-    expect(result.doc).not.toBe(doc);
-    expect(result.doc.children[0].gap).toBe(16);
-    expect((result.doc.children[0] as any).children[0].fontSize).toBe(32);
-    // The original is untouched — the caller decides whether to commit.
-    expect(doc.children[0].gap).toBe(4);
+    const finalized = finalizeReview(passingReview, []);
+    expect(finalized.verdict).toBe("pass");
   });
 
-  it("applies a coordinated fill and text-colour correction atomically", () => {
-    const doc: any = {
-      version: "2.17",
-      variables: {
-        "surface-secondary": { type: "color", value: "#FFFFFF" },
-        "foreground-primary": { type: "color", value: "#1A1A1A" },
-        "accent-primary": { type: "color", value: "#6D28D9" }
-      },
-      children: [{
-        type: "frame", id: "button", name: "Action Button", width: 160, height: 44,
-        layout: "horizontal", fill: "$accent-primary", children: [{
-          type: "text", id: "label", name: "Action Label", content: "Continue",
-          fontSize: 14, fill: "$surface-secondary"
-        }]
-      }]
-    };
-    const coordinated = parseDesignReview({
+  it("turns pass into refine if any score is below 4", () => {
+    const weakCraft: DesignReview = {
       verdict: "pass",
-      scores: { specificity: 4, hierarchy: 4, usability: 4, craft: 4 },
-      strengths: [], issues: [],
-      fixes: [
-        { nodeId: "button", property: "fill", value: "$surface-secondary" },
-        { nodeId: "label", property: "fill", value: "$foreground-primary" }
-      ]
-    }, "button Action Button\nlabel Action Label");
-
-    const result = applyReviewFixes(doc, coordinated);
-    expect(result.rejected).toEqual([]);
-    expect(result.applied).toEqual(["button.fill", "label.fill"]);
-    expect(result.doc.children[0].fill).toBe("$surface-secondary");
-    expect(result.doc.children[0].children[0].fill).toBe("$foreground-primary");
-  });
-
-  it("returns the same document when a review carries no fixes", () => {
-    const doc: any = { version: "2.17", children: [] };
-    const review = parseDesignReview({
-      verdict: "pass",
-      scores: { specificity: 4, hierarchy: 4, usability: 4, craft: 4 },
+      scores: { specificity: 4, hierarchy: 4, usability: 4, craft: 3 },
       strengths: [],
       issues: []
-    }, digestText);
-    expect(applyReviewFixes(doc, review).doc).toBe(doc);
+    };
+    const finalized = finalizeReview(weakCraft, []);
+    expect(finalized.verdict).toBe("refine");
   });
 
-  it("rejects an auto-fix that makes a product action icon disappear", () => {
-    const doc: any = {
-      version: "2.17",
-      variables: {
-        "surface-primary": { type: "color", value: "#FFFFFF" },
-        "surface-secondary": { type: "color", value: "#F8F7FC" },
-        "accent-primary": { type: "color", value: "#6D28D9" },
-        "foreground-primary": { type: "color", value: "#18111F" }
-      },
-      children: [{
-        type: "frame", id: "screen", name: "Store", width: 390, height: 844,
-        layout: "vertical", fill: "$surface-primary", children: [{
-          type: "frame", id: "add", name: "Add Button", width: 44, height: 44,
-          layout: "horizontal", justifyContent: "center", alignItems: "center",
-          fill: "$accent-primary", cornerRadius: 22, children: [{
-            type: "icon", id: "plus", name: "Plus", icon: "plus", width: 20, height: 20,
-            stroke: "$surface-secondary"
-          }]
-        }]
+  it("turns pass into refine if issues are present", () => {
+    const withIssues: DesignReview = {
+      verdict: "pass",
+      scores: { specificity: 4, hierarchy: 4, usability: 4, craft: 4 },
+      strengths: [],
+      issues: [{
+        title: "Contrast issue",
+        reason: "Button text contrast low",
+        instruction: "Change to white text",
+        nodeIds: ["btn"]
       }]
     };
-    const unsafe = parseDesignReview({
-      verdict: "pass",
-      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 5 },
-      strengths: [], issues: [],
-      fixes: [{ nodeId: "add", property: "fill", value: "$surface-secondary" }]
-    }, "add Add Button\nplus Plus");
-
-    const result = applyReviewFixes(doc, unsafe);
-    expect(result.applied).toEqual([]);
-    expect(result.rejected).toEqual(["add.fill"]);
-    expect((result.doc.children[0] as any).children[0].fill).toBe("$accent-primary");
-
-    const enforced = enforceRejectedFixes(unsafe, result.rejected);
-    expect(enforced.verdict).toBe("refine");
-    expect(enforced.issues[0].title).toBe("Unsafe automatic correction");
-  });
-
-  it("tells the critic that a single property belongs in fixes", () => {
-    expect(CRITIC_PROMPT).toContain("belongs in 'fixes'");
-    expect(CRITIC_PROMPT).toContain("fontSize");
+    const finalized = finalizeReview(withIssues, []);
+    expect(finalized.verdict).toBe("refine");
   });
 
   it("judges use-scene and leftover viewport, not a factory costume", () => {
@@ -415,21 +256,18 @@ describe("Fixes the critic applies itself", () => {
     expect(CRITIC_PROMPT).toContain("Unused viewport");
     expect(CRITIC_PROMPT).toContain("house as an operations console");
     expect(CRITIC_PROMPT).toContain("Photography that fails its frame");
-    // Both directions: a picture too small to be the subject, and one cropped
-    // past recognition by a frame no photograph fits.
     expect(CRITIC_PROMPT).toContain("not a real share of the viewport");
     expect(CRITIC_PROMPT).toContain("only a sliver of the subject survives the crop");
     expect(CRITIC_PROMPT).toContain("Catalog as page");
     expect(CRITIC_PROMPT).toContain("Data That Is Not Drawn");
     expect(CRITIC_PROMPT).toContain("Pasted-On Overlays");
-    expect(CRITIC_PROMPT).toContain("Cryptic or Placeholder Selection UI");
     expect(CRITIC_PROMPT).toContain("Do not award 5 merely because");
     expect(CRITIC_PROMPT).not.toContain("SYSTEMS NOMINAL");
     expect(CRITIC_PROMPT).not.toContain("Shift Handoff");
     expect(CRITIC_PROMPT).not.toContain("requires dark/mission-critical");
   });
 
-  it("overrides a passing critic verdict to refine when severe audit findings exist", () => {
+  it("overrides a passing critic verdict to refine when blocker audit findings exist", () => {
     const passingReview: DesignReview = {
       verdict: "pass",
       scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 5 },
@@ -439,44 +277,73 @@ describe("Fixes the critic applies itself", () => {
 
     const enforced = enforceAuditFindings(passingReview, [
       {
-        rule: "cropped_photography",
-        severity: "warning",
-        nodeId: "m-hero-photo",
-        message: "390x1320 frame throws away 61% of photograph",
-        fix: "Resize to 390x293 (3:4) or 390x390 (1:1)"
+        rule: "missing_display",
+        severity: "blocker",
+        nodeId: "title",
+        message: "No display-scale title on the screen",
+        fix: "Raise the primary title to 44px."
       }
     ]);
 
     expect(enforced.verdict).toBe("refine");
-    // A warning is worth a refine, not the 2 the rubric reserves for a screen
-    // you cannot use. The score has to stay proportional to the finding,
-    // because the revision the agent writes is scoped to the score.
-    expect(enforced.scores.craft).toBe(3);
+    expect(enforced.scores.craft).toBe(2);
+    expect(enforced.scores.hierarchy).toBe(2);
     expect(enforced.issues).toHaveLength(1);
-    expect(enforced.issues[0].title).toBe("Cropped photograph out of proportion");
-    expect(enforced.issues[0].nodeIds).toEqual(["m-hero-photo"]);
+    expect(enforced.issues[0].title).toBe("missing display");
+    expect(enforced.issues[0].nodeIds).toEqual(["title"]);
+  });
+
+  it("does not let audit warnings override a passing visual critic review", () => {
+    const passingReview: DesignReview = {
+      verdict: "pass",
+      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 5 },
+      strengths: ["Great layout"],
+      issues: []
+    };
+
+    const enforced = enforceAuditFindings(passingReview, [
+      {
+        rule: "cropped_photography",
+        severity: "warning",
+        nodeId: "hero-photo",
+        message: "1440x240 frame throws away photograph overflow",
+        fix: "Resize to 1440x810"
+      },
+      {
+        rule: "empty_tail",
+        severity: "warning",
+        nodeId: "screen",
+        message: "120px empty before the tab bar",
+        fix: "Remove the dead tail."
+      },
+      {
+        rule: "uneven_card_heights",
+        severity: "warning",
+        nodeId: "card1",
+        message: "Sibling cards have uneven heights",
+        fix: "Set height: fill_container"
+      },
+      {
+        rule: "misaligned_inputs",
+        severity: "warning",
+        nodeId: "input1",
+        message: "Form input fields have inconsistent alignment",
+        fix: "Set justifyContent: start"
+      }
+    ]);
+
+    expect(enforced.verdict).toBe("pass");
+    expect(enforced.issues).toHaveLength(0);
   });
 
   it("scores an enforced finding at its own severity, not at blocker level", () => {
-    const passing: DesignReview = {
-      verdict: "pass",
+    const refineReview: DesignReview = {
+      verdict: "refine",
       scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 5 },
-      strengths: [], issues: []
+      strengths: [], issues: [{ title: "Alignment issue", reason: "bad alignment", instruction: "fix", nodeIds: ["row"] }]
     };
 
-    const warned = enforceAuditFindings(passing, [{
-      rule: "misaligned_buttons",
-      severity: "warning",
-      nodeId: "row",
-      message: "CTA baselines differ by 18px",
-      fix: "Set height fill_container on the sibling cards."
-    }]);
-    expect(warned.scores.craft).toBe(3);
-    // A staggered button baseline is a craft defect. Marking hierarchy down for
-    // it asks for a page rebuild over one row of buttons.
-    expect(warned.scores.hierarchy).toBe(5);
-
-    const blocked = enforceAuditFindings(passing, [{
+    const blocked = enforceAuditFindings(refineReview, [{
       rule: "missing_display",
       severity: "blocker",
       nodeId: "title",
@@ -485,23 +352,6 @@ describe("Fixes the critic applies itself", () => {
     }]);
     expect(blocked.scores.craft).toBe(2);
     expect(blocked.scores.hierarchy).toBe(2);
-  });
-
-  it("does not allow a passing critic to ignore finishing warnings", () => {
-    const passingReview: DesignReview = {
-      verdict: "pass",
-      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 5 },
-      strengths: [], issues: []
-    };
-    const enforced = enforceAuditFindings(passingReview, [{
-      rule: "empty_tail",
-      severity: "warning",
-      nodeId: "screen",
-      message: "120px empty before the tab bar",
-      fix: "Remove the dead tail."
-    }]);
-    expect(enforced.verdict).toBe("refine");
-    expect(enforced.issues[0].nodeIds).toEqual(["screen"]);
   });
 
   it("does not send a passed site back to be rebuilt over tall narrative bands", () => {
@@ -528,5 +378,41 @@ describe("Fixes the critic applies itself", () => {
     }]);
     expect(enforced.verdict).toBe("pass");
     expect(enforced.issues).toEqual([]);
+  });
+});
+
+describe("visual review loop", () => {
+  it("stops honestly on refine at review limit instead of applying an unreviewed edit", () => {
+    expect(
+      reviewLoopNext({ pass: 2, maxRevisions: 2, verdict: "refine", hasReview: true })
+    ).toBe("stop");
+  });
+
+  it("keeps revising while the cap still has room", () => {
+    expect(
+      reviewLoopNext({ pass: 0, maxRevisions: 2, verdict: "refine", hasReview: true })
+    ).toBe("revise");
+    expect(
+      reviewLoopNext({ pass: 1, maxRevisions: 2, verdict: "refine", hasReview: true })
+    ).toBe("revise");
+  });
+
+  it("stops on a pass, even if reviews remain", () => {
+    expect(
+      reviewLoopNext({ pass: 0, maxRevisions: 2, verdict: "pass", hasReview: true })
+    ).toBe("stop");
+  });
+
+  it("stops when there is no review to act on", () => {
+    expect(
+      reviewLoopNext({ pass: 1, maxRevisions: 2, verdict: "refine", hasReview: false })
+    ).toBe("stop");
+  });
+
+  it("still revises from a refine even if a later screenshot aborted", () => {
+    // 5f5d9706: DeepSeek's follow-up screenshot aborted and dropped the refine.
+    expect(
+      reviewLoopNext({ pass: 1, maxRevisions: 2, verdict: "refine", hasReview: true })
+    ).toBe("revise");
   });
 });

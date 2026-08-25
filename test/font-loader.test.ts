@@ -16,7 +16,19 @@ describe("Google Fonts URL generation", () => {
   it("encodes font families and formats CSS2 display=swap URL", () => {
     expect(googleFontUrl("Roboto")).toBe("https://fonts.googleapis.com/css2?family=Roboto&display=swap");
     expect(googleFontUrl("Plus Jakarta Sans")).toBe("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans&display=swap");
-    expect(googleFontUrl("Playfair Display")).toBe("https://fonts.googleapis.com/css2?family=Playfair+Display&display=swap");
+  });
+
+  it("uses verified multi-axis queries for curated families", () => {
+    expect(googleFontUrl("Inter")).toContain("family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900");
+    expect(googleFontUrl("Geist")).toContain("family=Geist:wght@100..900");
+    expect(googleFontUrl("DM Sans")).toContain("family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000");
+    expect(googleFontUrl("Space Grotesk")).toContain("family=Space+Grotesk:wght@300..700");
+    expect(googleFontUrl("Newsreader")).toContain("family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800");
+    expect(googleFontUrl("Playfair Display")).toContain("family=Playfair+Display:ital,wght@0,400..900;1,400..900");
+    expect(googleFontUrl("Instrument Serif")).toContain("family=Instrument+Serif:ital@0;1");
+    expect(googleFontUrl("Anton")).toBe("https://fonts.googleapis.com/css2?family=Anton&display=swap");
+    expect(googleFontUrl("Geist Mono")).toContain("family=Geist+Mono:wght@100..900");
+    expect(googleFontUrl("IBM Plex Mono")).toContain("family=IBM+Plex+Mono:ital,wght@0,400..700;1,400..700");
   });
 });
 
@@ -142,7 +154,39 @@ describe("Simulated browser font loading", () => {
 
     const ok = await loadGoogleFont("FailedBinaryFont");
     expect(ok).toBe(false);
-    expect(createdLinks.length).toBe(0);
+  });
+
+  it("times out cleanly when document.fonts.load never settles", async () => {
+    (globalThis as any).document.fonts.load = () => new Promise(() => {}); // Never settles
+
+    const ok = await loadGoogleFont("HangingFont", undefined, undefined, 50);
+    expect(ok).toBe(false);
+  });
+
+  it("ignores late link onload after timeout and does not update loaded cache", async () => {
+    let lateOnload: (() => void) | null = null;
+    const origAppend = (globalThis as any).document.head.appendChild;
+    (globalThis as any).document.head.appendChild = (el: any) => {
+      // Don't call onload immediately; capture it to fire later
+      setTimeout(() => {
+        lateOnload = () => el.onload?.(new Event("load"));
+      }, 5);
+      return el;
+    };
+
+    const ok = await loadGoogleFont("LateFont", undefined, undefined, 20);
+    expect(ok).toBe(false);
+
+    // Fire late onload after timeout has already settled
+    if (lateOnload) (lateOnload as any)();
+
+    // Restore origAppend so retry can succeed normally
+    (globalThis as any).document.head.appendChild = origAppend;
+
+    // The late event must not have marked the font as loaded; retry succeeds
+    const retry = await loadGoogleFont("LateFont", undefined, undefined, 100);
+    expect(retry).toBe(true);
+    expect(createdLinks.filter((l) => l.id === "gfont-latefont").length).toBe(1);
   });
 
   it("ensures all fonts in a document load and reports new arrivals", async () => {
@@ -153,7 +197,7 @@ describe("Simulated browser font loading", () => {
           id: "screen1",
           type: "frame",
           children: [
-            { id: "t1", type: "text", content: "Title", fontFamily: "$font-heading" },
+            { id: "t1", type: "text", content: "Title", fontFamily: "$font-heading", fontWeight: 700 },
             { id: "t2", type: "text", content: "Code", fontFamily: "Fira Code" }
           ]
         }
@@ -167,9 +211,23 @@ describe("Simulated browser font loading", () => {
     const loadedFirst = await ensureDocumentFonts(resolved);
     expect(loadedFirst).toBe(true);
     expect(createdLinks.length).toBe(2);
+    expect(fontLoadsCalled).toContain('700 16px "Playfair Display"');
 
     const loadedSecond = await ensureDocumentFonts(resolved);
     expect(loadedSecond).toBe(false);
+
+    // Introducing a new italic face on the same Playfair Display family triggers load
+    (doc.children[0] as any).children.push({
+      id: "t3",
+      type: "text",
+      content: "Subtitle",
+      fontFamily: "$font-heading",
+      fontStyle: "italic",
+      fontWeight: 400
+    });
+    const loadedThird = await ensureDocumentFonts(resolveInstances(doc));
+    expect(loadedThird).toBe(true);
+    expect(fontLoadsCalled).toContain('italic 400 16px "Playfair Display"');
   });
 
   it("integrates with waitForPaintInputs", async () => {

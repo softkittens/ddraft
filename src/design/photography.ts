@@ -82,7 +82,7 @@ export const SEVERE_CROP = 0.5;
 export function isPanoramicBanner(width: number, height: number): boolean {
   if (width < 900 || height <= 0) return false;
   const ratio = width / height;
-  return height <= 520 && ratio >= 16 / 9 && ratio <= 3.3;
+  return height >= 140 && height <= 520 && ratio >= 16 / 9 && ratio <= 6.5;
 }
 
 export function servableHeights(width: number, ratio: number): string {

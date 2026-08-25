@@ -16,6 +16,7 @@ export interface StyleRun {
   /** ISO timestamp, so a stale entry is visible rather than silently ranked. */
   at: string;
   brief: string;
+  composition?: string;
   palette: string;
   headings: string;
   elevation: string;
@@ -54,10 +55,11 @@ export function avoidanceNote(history: readonly StyleRun[], currentBrief = ""): 
       const brief = run.brief.length > BRIEF_EXCERPT
         ? `${run.brief.slice(0, BRIEF_EXCERPT).trimEnd()}...`
         : run.brief;
-      const composition = run.firstViewport
+      const composition = run.composition ? ` [${run.composition}]` : "";
+      const viewport = run.firstViewport
         ? `\n    first viewport: ${run.firstViewport.slice(0, 180)}`
         : "";
-      return `  "${brief}" — ${run.palette}, ${run.headings}, ${run.elevation}${composition}`;
+      return `  "${brief}" — ${run.palette}, ${run.headings}, ${run.elevation}${composition}${viewport}`;
     });
   return [
     repeated.length > 0
@@ -65,7 +67,7 @@ export function avoidanceNote(history: readonly StyleRun[], currentBrief = ""): 
       : "ALREADY USED (most recent first)",
     ...lines,
     repeated.length > 0
-      ? "  Do not repeat these palette/type choices or the same first-viewport section order. The next result must use a materially different dominant composition and interaction model."
+      ? "  Aim for fresh expression: vary visual details, rhythm, and headline angle. Avoid copying the exact rendered signature if another suitable direction fits, but maintain the interaction model appropriate for this product."
       : "  Reaching for one of these again needs a reason from this brief, not habit."
   ].join("\n");
 }
@@ -97,7 +99,7 @@ export function loadHistory(storage = browserStorage()): StyleRun[] {
           ["at", "brief", "palette", "headings", "elevation"].every(
             (key) => typeof (run as Record<string, unknown>)[key] === "string"
           ) &&
-          ["roundness", "thesis", "firstViewport"].every(
+          ["composition", "roundness", "thesis", "firstViewport"].every(
             (key) =>
               (run as Record<string, unknown>)[key] === undefined ||
               typeof (run as Record<string, unknown>)[key] === "string"

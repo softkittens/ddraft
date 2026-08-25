@@ -194,6 +194,33 @@ export function formatAudit(findings: AuditFinding[], label: string): string {
   return lines.join("\n");
 }
 
+export function formatAuditForCritic(findings: AuditFinding[]): string {
+  if (findings.length === 0) return "";
+  const blockers = findings.filter((f) => f.severity === "blocker");
+  const warnings = findings.filter((f) => f.severity === "warning");
+
+  // Keep all blockers; keep at most 1 representative finding per warning rule and max 5 warnings total
+  const seenRules = new Set<string>();
+  const cappedWarnings: AuditFinding[] = [];
+  for (const w of warnings) {
+    if (!seenRules.has(w.rule) && cappedWarnings.length < 5) {
+      seenRules.add(w.rule);
+      cappedWarnings.push(w);
+    }
+  }
+
+  if (blockers.length === 0 && cappedWarnings.length === 0) return "";
+
+  const lines: string[] = [
+    `Deterministic measurements (${blockers.length} blocker${blockers.length === 1 ? "" : "s"}, ${warnings.length} total warning${warnings.length === 1 ? "" : "s"}):`
+  ];
+  for (const f of [...blockers, ...cappedWarnings]) {
+    lines.push(`[${f.severity}] ${f.rule} on ${f.nodeId}: ${f.message}`);
+    if (f.fix) lines.push(`  fix: ${f.fix}`);
+  }
+  return lines.join("\n");
+}
+
 export const FINISHING_RULES: ReadonlySet<AuditRule> = new Set<AuditRule>([
   "missing_display",
   "empty_tail",

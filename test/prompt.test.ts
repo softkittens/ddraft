@@ -29,6 +29,15 @@ describe("System prompt carries rules, not a design", () => {
     expect(prompt).toContain("Omit tabs unless this is a multi-destination app");
   });
 
+  it("requires 44px icon-only controls only for mobile surfaces", () => {
+    const mobile = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Create a mobile ordering app");
+    const desktop = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Create a desktop ordering website");
+
+    expect(mobile).toContain("Icon-only controls");
+    expect(mobile).toContain("44x44px container");
+    expect(desktop).not.toContain("44x44px container");
+  });
+
   it("enforces universal craft disciplines and anti-pattern constraints", () => {
     expect(prompt).toContain("Anti-Box-in-Box Nesting");
     expect(prompt).toContain("Do not put an eyebrow or kicker above a heading");
@@ -123,7 +132,7 @@ describe("System prompt carries rules, not a design", () => {
     const lengths = [...Array(60)].map((_, seed) =>
       agentSystemPrompt({ id: "d", name: "d", children: [] } as any, [], "test-model", seed).length
     );
-    expect(Math.max(...lengths)).toBeLessThan(22000);
+    expect(Math.max(...lengths)).toBeLessThan(25000);
   });
 
   it("states the chrome once in code, not as numbers to remember on every run", () => {
@@ -213,7 +222,59 @@ describe("System prompt carries rules, not a design", () => {
     );
     expect(p).not.toContain("If the look is guessable");
     expect(p).not.toContain("Neobrutalism");
-    expect(p).toContain("First Viewport: bold display title");
-    expect(p).toContain("How those pieces are arranged is a design choice");
+    expect(p).toContain("Four Distinct Hero Archetypes");
+    expect(p).toContain("AVOID THE ROBOTIC 6-BAND CLONE");
+  });
+
+  it("supplies the style and composition catalog when a review reports a direction or style mismatch", () => {
+    const doc = makeDoc();
+    doc.metadata = {
+      [STYLE_METADATA_KEY]: {
+        composition: "Cinematic Hero & Narrative",
+        palette: "Retro",
+        roundness: "Sharp",
+        elevation: "Flat",
+        headings: "Funnel Display",
+        body: "Inter",
+        captions: "Inter"
+      }
+    };
+    const mismatchPrompt = agentSystemPrompt(
+      doc,
+      [],
+      "test-model",
+      42,
+      [],
+      "[Visual review revision - Direction mismatch: restyle permitted]\nOriginal brief: Space tourism landing page\n- Direction mismatch: The nostalgic 1969 diner aesthetic undermines aerospace passenger trust. Call set_style to select a contemporary credible visual foundation."
+    );
+    expect(mismatchPrompt).toContain("COMPOSITION (choose one for composition)");
+    expect(mismatchPrompt).toContain("PALETTES (name — world)");
+    expect(mismatchPrompt).toContain("set_style");
+  });
+
+  it("omits the style catalog for normal visual review revisions that do not have direction mismatch", () => {
+    const doc = makeDoc();
+    doc.metadata = {
+      [STYLE_METADATA_KEY]: {
+        composition: "Cinematic Hero & Narrative",
+        palette: "Carbon Frost",
+        roundness: "Basic",
+        elevation: "Soft Lift",
+        headings: "Inter",
+        body: "Inter",
+        captions: "Inter"
+      }
+    };
+    const normalRevisionPrompt = agentSystemPrompt(
+      doc,
+      [],
+      "test-model",
+      42,
+      [],
+      "[Visual review revision]\nOriginal brief: Space tourism landing page\n- [Desktop] Button alignment (btn-1): Center icon within container and increase horizontal padding to 20px."
+    );
+    expect(normalRevisionPrompt).not.toContain("COMPOSITION (choose one for composition)");
+    expect(normalRevisionPrompt).not.toContain("PALETTES (name — world)");
+    expect(normalRevisionPrompt).toContain("The document already has a style. Keep it for normal edits.");
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { parseDocument, parseSizing } from "../src/model/parse";
 import { layoutDocument } from "../src/layout/layout";
-import { setProperty, insertChild, removeNode, moveNode, duplicateNode, reorderChild } from "../src/model/edit";
+import { setProperty, insertChild, replaceNode, removeNode, moveNode, duplicateNode, reorderChild } from "../src/model/edit";
 import {
   resolveInstances,
   resolveInstancesWithDiagnostics,
@@ -9,7 +9,7 @@ import {
   splitInstanceId
 } from "../src/model/instance";
 import { digest } from "../src/digest/digest";
-import { evaluateLayoutConstraints } from "../src/design/evaluator";
+import { evaluateLayoutConstraints, auditDocument } from "../src/design/evaluator";
 import { makeDoc, frame, rect, txt } from "./harness";
 
 describe("Model & Design Subsystem", () => {
@@ -254,5 +254,57 @@ describe("document identity is the change signal", () => {
     expect(next).not.toBe(original);
     expect((next.children[0] as any).children.map((c: { id: string }) => c.id)).toEqual(["r2", "r1"]);
     expect((original.children[0] as any).children.map((c: { id: string }) => c.id)).toEqual(["r1", "r2"]);
+  });
+
+  it("replaceNode recursively generates IDs for all replacement descendants and produces audit findings with valid node IDs", () => {
+    const original = doc();
+    // Replacement node with nested children that lack `id`
+    const replacement = {
+      type: "frame",
+      width: 390,
+      height: 200,
+      layout: "vertical",
+      children: [
+        {
+          type: "frame",
+          layout: "horizontal",
+          children: [
+            {
+              type: "text",
+              content: "Tiny unreadable label",
+              fontSize: 6 // will trigger text_too_small audit
+            }
+          ]
+        }
+      ]
+    } as any;
+
+    const next = replaceNode(original, "r1", replacement);
+    expect(next).not.toBe(original);
+
+    // Recursively collect all descendant IDs in the replaced subtree
+    const replaced = (next.children[0] as any).children.find((c: any) => c.children && c.children.length > 0);
+    expect(replaced).toBeDefined();
+    expect(typeof replaced.id).toBe("string");
+    expect(replaced.id.length).toBeGreaterThan(0);
+
+    const childFrame = replaced.children[0];
+    expect(typeof childFrame.id).toBe("string");
+    expect(childFrame.id.length).toBeGreaterThan(0);
+
+    const textNode = childFrame.children[0];
+    expect(typeof textNode.id).toBe("string");
+    expect(textNode.id.length).toBeGreaterThan(0);
+
+    // Ensure audit findings reference real, defined node IDs
+    const findings = auditDocument(next);
+    const textFindings = findings.filter((f) => f.rule === "text_too_small");
+    expect(textFindings.length).toBeGreaterThan(0);
+    for (const f of findings) {
+      expect(f.nodeId).toBeDefined();
+      expect(f.nodeId).not.toBe("undefined");
+      expect(typeof f.nodeId).toBe("string");
+      expect(f.nodeId.length).toBeGreaterThan(0);
+    }
   });
 });

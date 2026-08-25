@@ -3,6 +3,8 @@ import { makeDoc } from "./harness";
 import { contrastRatio } from "../src/design/evaluator";
 import {
   PALETTES,
+  COMPOSITION_ARCHETYPES,
+  dealCompositionArchetypes,
   resolveStyle,
   currentStyle,
   styleGuidelines,
@@ -42,6 +44,7 @@ describe("Style system", () => {
   it("resolves a palette name copied with the scheme parenthetical the old hand printed", () => {
     const p = PALETTES.find((entry) => entry.scheme === "light")!;
     const style = resolveStyle({
+      composition: "Cinematic Hero & Narrative",
       palette: `${p.name} (${p.scheme})`,
       roundness: "Basic",
       elevation: "Soft Lift",
@@ -104,6 +107,7 @@ describe("Style system", () => {
   it("rejects a name that is not in the catalog instead of substituting one", () => {
     expect(() =>
       resolveStyle({
+        composition: "Cinematic Hero & Narrative",
         palette: "Neon Horse",
         roundness: "Basic",
         elevation: "Soft Lift",
@@ -116,6 +120,7 @@ describe("Style system", () => {
 
   it("requires one display step without making it the default title", () => {
     const style = resolveStyle({
+      composition: "Cinematic Hero & Narrative",
       palette: "Carbon Frost",
       roundness: "Basic",
       elevation: "Flat",
@@ -141,6 +146,7 @@ describe("Style system", () => {
   it("set_style writes tokens and the guidelines restate them on later turns", async () => {
     const session = createDocumentTools(makeDoc());
     const result = await session.execute("set_style", {
+      composition: "Monumental Editorial",
       palette: "Carbon Frost",
       roundness: "Basic",
       elevation: "Soft Lift",
@@ -157,6 +163,7 @@ describe("Style system", () => {
     expect((doc.variables as any)["accent-primary"].value).toBe("#5AC8F5");
     expect((doc.variables as any)["font-heading"].value).toBe("Funnel Display");
     expect(doc.metadata?.[STYLE_METADATA_KEY]).toEqual({
+      composition: "Monumental Editorial",
       palette: "Carbon Frost",
       roundness: "Basic",
       elevation: "Soft Lift",
@@ -173,6 +180,20 @@ describe("Style system", () => {
     const recovered = currentStyle(doc);
     expect(recovered).toBeDefined();
     expect(styleGuidelines(recovered!)).toContain("Carbon Frost");
+  });
+
+  it("never points small text at a token that cannot carry it in style guidelines", () => {
+    for (const palette of PALETTES) {
+      const style = resolveStyle({
+        composition: "Cinematic Hero & Narrative",
+        palette: palette.name, roundness: "Rounded", elevation: "Flat",
+        headings: "Inter", body: "Inter", captions: "Inter"
+      });
+      const text = styleGuidelines(style);
+      const line = text.split("\n").find((l: string) => l.includes("$foreground-muted"))!;
+      expect(line).toBeTruthy();
+      expect(line).not.toMatch(/timestamps|inactive tab labels|caption/i);
+    }
   });
 
   it("set_style names the valid options when given a bad one", async () => {
@@ -279,6 +300,7 @@ describe("Status colours are derived per palette", () => {
 
   it("writes the status tokens onto the document with the rest of the style", () => {
     const style = resolveStyle({
+      composition: "Cinematic Hero & Narrative",
       palette: "Carbon Frost", roundness: "Basic", elevation: "Soft Lift",
       headings: "Inter", body: "Inter", captions: "Inter"
     });
@@ -370,6 +392,10 @@ describe("Dealing", () => {
       expect(offered.map((p) => p.name)).not.toContain("Neobrutalism");
       expect(offered.map((p) => p.name)).not.toContain("Trading Terminal");
       expect(offered.map((p) => p.name)).not.toContain("Dithered");
+      expect(offered.map((p) => p.name)).not.toContain("Simple");
+      expect(offered.map((p) => p.name)).not.toContain("Corporate");
+      expect(offered.map((p) => p.name)).not.toContain("Enterprise");
+      expect(offered.map((p) => p.name)).not.toContain("Cobalt Clean");
       expect(catalog).not.toContain("Hard Block");
     }
   });
@@ -403,5 +429,153 @@ describe("Dealing", () => {
     expect(styleCatalog(11, PALETTE_HAND_SIZE, {}, opts)).toBe(
       styleCatalog(11, PALETTE_HAND_SIZE, {}, opts)
     );
+  });
+});
+
+describe("Composition archetypes", () => {
+  it("provides 8 curated distinct composition archetypes", () => {
+    expect(COMPOSITION_ARCHETYPES.length).toBe(8);
+    for (const a of COMPOSITION_ARCHETYPES) {
+      expect(a.name.length).toBeGreaterThan(0);
+      expect(a.signature.length).toBeGreaterThan(0);
+      expect(a.rhythm.length).toBeGreaterThan(0);
+      expect(a.density.length).toBeGreaterThan(0);
+      expect(a.media.length).toBeGreaterThan(0);
+      expect(a.avoid.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("resolves a style with a valid composition archetype", () => {
+    const style = resolveStyle({
+      composition: "Cinematic Hero & Narrative",
+      palette: "Carbon Frost",
+      roundness: "Basic",
+      elevation: "Soft Lift",
+      headings: "Inter",
+      body: "Inter",
+      captions: "Inter"
+    });
+    expect(style.choice.composition).toBe("Cinematic Hero & Narrative");
+    expect(style.composition?.name).toBe("Cinematic Hero & Narrative");
+    expect(style.composition?.signature).toContain("Full-bleed panoramic hero");
+  });
+
+  it("rejects an invalid composition archetype name", () => {
+    expect(() =>
+      resolveStyle({
+        composition: "Random Nonexistent Layout",
+        palette: "Carbon Frost",
+        roundness: "Basic",
+        elevation: "Soft Lift",
+        headings: "Inter",
+        body: "Inter",
+        captions: "Inter"
+      })
+    ).toThrow(StyleChoiceError);
+  });
+
+  it("requires composition for fresh style resolution", () => {
+    expect(() =>
+      resolveStyle({
+        palette: "Carbon Frost",
+        roundness: "Basic",
+        elevation: "Soft Lift",
+        headings: "Inter",
+        body: "Inter",
+        captions: "Inter"
+      })
+    ).toThrow(StyleChoiceError);
+  });
+
+  it("permits missing composition when resolving legacy documents", () => {
+    const style = resolveStyle(
+      {
+        palette: "Carbon Frost",
+        roundness: "Basic",
+        elevation: "Soft Lift",
+        headings: "Inter",
+        body: "Inter",
+        captions: "Inter"
+      },
+      { allowMissingComposition: true }
+    );
+    expect(style.choice.palette).toBe("Carbon Frost");
+    expect(style.composition).toBeUndefined();
+  });
+
+  it("includes composition in styleGuidelines when chosen", () => {
+    const style = resolveStyle({
+      composition: "Modular Bento Grid",
+      palette: "Carbon Frost",
+      roundness: "Basic",
+      elevation: "Soft Lift",
+      headings: "Inter",
+      body: "Inter",
+      captions: "Inter"
+    });
+    const guide = styleGuidelines(style);
+    expect(guide).toContain("COMPOSITION: Modular Bento Grid");
+    expect(guide).toContain("Band Budget: 4 structured modular bands");
+    expect(guide).toContain("Signature:   Interlocking modular cells");
+    expect(guide).toContain("Hero:        Punchy centered display hook");
+    expect(guide).toContain("Rhythm:");
+    expect(guide).toContain("Showcase:");
+    expect(guide).toContain("Density:");
+    expect(guide).toContain("Media:");
+    expect(guide).toContain("Avoid:");
+  });
+
+  it("strictly excludes incompatible compositions for tool surfaces (negative routing)", () => {
+    for (const seed of [1, 2, 7, 42, 99, 1234]) {
+      const toolDeals = dealCompositionArchetypes(seed, { archetype: "tool", surface: "desktop" });
+      const names = toolDeals.map((a) => a.name);
+      // Tool eligible: Operational Workbench, Modular Bento Grid
+      for (const name of names) {
+        expect(["Operational Workbench", "Modular Bento Grid"]).toContain(name);
+      }
+      // Negative checks: site and mobile app archetypes must never appear
+      expect(names).not.toContain("Cinematic Hero & Narrative");
+      expect(names).not.toContain("Monumental Editorial");
+      expect(names).not.toContain("Filtered Catalog & Index Ledger");
+      expect(names).not.toContain("Card-Stage & Thumb Dock");
+      expect(names).not.toContain("Linear Stepwise Journey");
+      expect(names).not.toContain("Asymmetric Split Instrument");
+    }
+  });
+
+  it("strictly excludes Operational Workbench and Card-Stage for site surfaces (negative routing)", () => {
+    for (const seed of [1, 2, 7, 42, 99, 1234]) {
+      const siteDeals = dealCompositionArchetypes(seed, { archetype: "site", surface: "desktop" });
+      const names = siteDeals.map((a) => a.name);
+      expect(names).not.toContain("Operational Workbench");
+      expect(names).not.toContain("Card-Stage & Thumb Dock");
+    }
+  });
+
+  it("strictly routes swipe discovery and mobile apps to mobile archetypes (negative routing)", () => {
+    for (const seed of [1, 2, 7, 42, 99, 1234]) {
+      const mobileDeals = dealCompositionArchetypes(seed, {
+        archetype: "app",
+        surface: "mobile",
+        traits: ["swipe_discovery"]
+      });
+      const names = mobileDeals.map((a) => a.name);
+      expect(names).toContain("Card-Stage & Thumb Dock");
+      expect(names).not.toContain("Operational Workbench");
+      expect(names).not.toContain("Cinematic Hero & Narrative");
+      expect(names).not.toContain("Monumental Editorial");
+      expect(names).not.toContain("Filtered Catalog & Index Ledger");
+    }
+  });
+
+  it("lists composition archetypes in the style catalog", () => {
+    const catalog = styleCatalog(
+      42,
+      PALETTE_HAND_SIZE,
+      {},
+      { brief: "Modern devtools product", context: { archetype: "site", surface: "desktop", traits: [], lifecycle: "initial_build" } }
+    );
+    expect(catalog).toContain("COMPOSITION (choose one for composition)");
+    expect(catalog).toContain("Pass the archetype name to set_style");
   });
 });

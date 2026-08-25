@@ -11,7 +11,6 @@ import { parseResolvedContext } from "./context";
 import type { ReviewResponse } from "./review";
 import type { StyleRun } from "../design/history";
 import { createSessionLog } from "./sessionLog";
-import { designDirection } from "../design/styleSystem";
 import { catalogById } from "./catalog";
 import { z } from "zod";
 
@@ -246,7 +245,6 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
       screenshotDataUrl: body.screenshot,
       screenshots: screenshots && screenshots.length > 0 ? screenshots : undefined,
       digest: body.digest,
-      direction: designDirection(body.direction),
       audit: typeof body.audit === "string" ? body.audit : undefined,
       context: parseResolvedContext(body.context)
     });

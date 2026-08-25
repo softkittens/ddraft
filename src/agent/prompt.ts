@@ -131,11 +131,11 @@ function orderOfWork(ctx: ResolvedContext): string[] {
     "  1. Decide SITE (persuade) vs TOOL (operate) from the surface, not the product.",
     "     A landing page is still SITE. Write THESIS, OWN-WORLD and FIRST VIEWPORT.",
     "     FIRST VIEWPORT names the focal subject, hierarchy and visible first action. Describe only what a static canvas can show; do not promise sticky, persistent or animated behavior.",
-    "  2. set_style — commit to that contract and pick the visual system that supports it.",
+    "  2. set_style — commit to a COMPOSITION archetype, palette, roundness, elevation, and typography.",
     "  3. Screen creation discipline:",
     "     - SINGLE-SCREEN DEFAULT: Build ONE primary screen per request (Desktop 1440 for websites, web tools, dashboards, and landing pages; Mobile 390 for mobile-only apps). Do NOT build a companion mobile screen unless the user explicitly requests mobile or responsive in their brief.",
     "     - When mobile alone is explicitly requested, build mobile only. When responsive or both desktop and mobile are requested, build Desktop first and then reuse its image fills and copy for Mobile.",
-    "  4. Insert whole subtrees. Fill the slots create_screen returned. Site photography belongs in main (hero band, one auto-layout frame). Stack 6–8 varied narrative bands in main to explore the product's full substance (hero, philosophy, spaces/catalog, specs/amenities, photo story, pricing, deep footer).",
+    "  4. Insert whole subtrees. Fill the slots create_screen returned. Site photography belongs in main. Choose the fewest sections needed to understand the offer, trust the provider, inspect concrete details, and take action. Avoid generic marketing filler like fake testimonials or forced 3-tier pricing tables.",
     "     Tool: fill only the slots needed. Empty is better than costume. Mobile: content or bleed.",
     "  5. Finish once the screens hold the product. An unused desktop slot is allowed."
   ];
@@ -163,6 +163,7 @@ export function agentSystemPrompt(
     : [];
 
   const hasCanvasContent = doc && Array.isArray(doc.children) && doc.children.length > 0;
+  const isRedesignRequest = /\b(redesign|restyle|retheme|dark mode|light mode|new palette|change (the )?(palette|theme|aesthetic|colors|fonts)|explore a (different )?(visual direction|style|look)|(direction|composition|style|palette) mismatch|restyle permitted|recompose the visual foundation)\b/i.test(userPrompt);
 
   const styleSection = style
     ? [
@@ -170,13 +171,16 @@ export function agentSystemPrompt(
         "If the user explicitly asks for a redesign, new color palette, or visual exploration, call set_style and choose a materially different direction.",
         "",
         styleGuidelines(style),
-        "",
-        styleCatalog(paletteSeed, PALETTE_HAND_SIZE, {
-          palettes: repeatedRuns.map((run) => run.palette),
-          headings: repeatedRuns.map((run) => run.headings),
-          roundness: repeatedRuns.flatMap((run) => run.roundness ? [run.roundness] : []),
-          elevation: repeatedRuns.map((run) => run.elevation)
-        }, { brief: userPrompt })
+        ...(isRedesignRequest ? [
+          "",
+          styleCatalog(paletteSeed, PALETTE_HAND_SIZE, {
+            compositions: repeatedRuns.flatMap((run) => run.composition ? [run.composition] : []),
+            palettes: repeatedRuns.map((run) => run.palette),
+            headings: repeatedRuns.map((run) => run.headings),
+            roundness: repeatedRuns.flatMap((run) => run.roundness ? [run.roundness] : []),
+            elevation: repeatedRuns.map((run) => run.elevation)
+          }, { brief: userPrompt, context: resolvedCtx })
+        ] : [])
       ]
     : hasCanvasContent
     ? [
@@ -184,24 +188,27 @@ export function agentSystemPrompt(
         "If the user explicitly asks for a redesign or new visual direction, you may call set_style.",
         "",
         styleCatalog(paletteSeed, PALETTE_HAND_SIZE, {
+          compositions: repeatedRuns.flatMap((run) => run.composition ? [run.composition] : []),
           palettes: repeatedRuns.map((run) => run.palette),
           headings: repeatedRuns.map((run) => run.headings),
           roundness: repeatedRuns.flatMap((run) => run.roundness ? [run.roundness] : []),
           elevation: repeatedRuns.map((run) => run.elevation)
-        }, { brief: userPrompt })
+        }, { brief: userPrompt, context: resolvedCtx })
       ]
     : [
         "No style is set on this document yet.",
         "Call set_style first. Choose the combination that suits the product in the",
         "brief — a safety-critical tool and a children's app should not land on the",
         "same palette. Read the feel of each option and commit to one.",
+        "Style discipline: Compound adjectives are not palette lookups. Product trust, positioning, and use scene outrank decorative keywords.",
         "",
         styleCatalog(paletteSeed, PALETTE_HAND_SIZE, {
+          compositions: repeatedRuns.flatMap((run) => run.composition ? [run.composition] : []),
           palettes: repeatedRuns.map((run) => run.palette),
           headings: repeatedRuns.map((run) => run.headings),
           roundness: repeatedRuns.flatMap((run) => run.roundness ? [run.roundness] : []),
           elevation: repeatedRuns.map((run) => run.elevation)
-        }, { brief: userPrompt }),
+        }, { brief: userPrompt, context: resolvedCtx }),
         ...(avoidanceNote(recentStyles, userPrompt)
           ? ["", avoidanceNote(recentStyles, userPrompt)]
           : [])

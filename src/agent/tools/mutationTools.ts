@@ -138,7 +138,7 @@ export const createScreenTool: DocumentToolDefinition = {
 export const insertNodeTool: DocumentToolDefinition = {
   name: "insert_node",
   description:
-    "Insert a node (frame, text, rectangle, ellipse, polygon, path, icon, ref) with all its children. Omit parentId to insert as a top-level canvas frame.",
+    "Insert a node with all its children. Every node must include type; every container uses type: 'frame' (other types: 'text', 'icon', 'rectangle', 'ellipse', 'polygon', 'path', 'ref'). Omit parentId to insert as a top-level canvas frame.",
   parameters: {
     type: "object",
     properties: {
@@ -148,7 +148,7 @@ export const insertNodeTool: DocumentToolDefinition = {
       },
       node: {
         type: "object",
-        description: "Complete node definition with all children"
+        description: "Complete node definition with all children. Every node must include type (e.g. type: 'frame' for containers, 'text', 'icon')."
       },
       index: {
         type: "number",
@@ -440,7 +440,7 @@ export const moveNodeTool: DocumentToolDefinition = {
 export const replaceNodeTool: DocumentToolDefinition = {
   name: "replace_node",
   description:
-    "Atomically replace an existing node and its entire subtree with a new node definition, preserving its position in the parent frame. Use this to redesign or re-layout a section or card without deleting and recreating individual child elements.",
+    "Atomically replace a node and all its children in-place in a single call. Every node must include type; every container uses type: 'frame' (other types: 'text', 'icon', 'rectangle', 'ellipse', 'polygon', 'path', 'ref').",
   parameters: {
     type: "object",
     properties: {
@@ -450,7 +450,7 @@ export const replaceNodeTool: DocumentToolDefinition = {
       },
       node: {
         type: "object",
-        description: "Complete new node definition with all its children"
+        description: "Complete new node definition with all its children. Every node must include type (e.g. type: 'frame' for containers, 'text', 'icon')."
       }
     },
     required: ["id", "node"]

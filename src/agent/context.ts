@@ -25,44 +25,27 @@ export interface ResolvedContext {
   lifecycle: SessionLifecycle;
 }
 
-const MOBILE_PATTERNS = /\b(mobile|phone|ios|android|app screen|handheld)\b/i;
-const DESKTOP_SITE_PATTERNS = /\b(desktop|site|website|landing page|web page|homepage|web)\b/i;
+const MOBILE_SURFACE_PATTERNS = /\b(mobile|phone|ios|android|handheld)\b/i;
+const DESKTOP_SURFACE_PATTERNS = /\b(desktop|web|mac|windows|browser)\b/i;
 
-/**
- * Split deliberately, because these two used to be one list and the seam is
- * where "landing page for an analytics dashboard" became an operations
- * console. An ARTIFACT word names the thing being built; a DOMAIN word only
- * names what the product is about. A domain word may colour the traits. It may
- * never reach past an explicit artifact word and pick the archetype.
- */
+const SITE_ARTIFACT_PATTERNS = /\b(site|website|landing page|web page|homepage|portfolio|storefront)\b/i;
 const TOOL_ARTIFACT_PATTERNS = /\b(dashboard|dashboards|console|consoles|workbench|admin|crm|control room|status monitor)\b/i;
-const DATA_DOMAIN_PATTERNS = /\b(telemetry|metrics|analytics|ops|logs|monitoring)\b/i;
+const APP_ARTIFACT_PATTERNS = /\b(app|apps|application|deck|player)\b/i;
 
-/**
- * Commerce and swipe are mutually exclusive templates — a screen is a
- * storefront or a discovery deck, and dealing both produced pet shops with a
- * cart badge above a Pass/Like dock. STRONG words name the capability itself;
- * WEAK words are just entity nouns that often appear near it, and they only
- * decide when nothing stronger is on the table.
- */
+const DATA_DOMAIN_PATTERNS = /\b(telemetry|metrics|analytics|ops|logs|monitoring|charts|gauges)\b/i;
+const EDITORIAL_PATTERNS = /\b(editorial|magazine|article|story|journal|retreat|luxury|boutique|architectural)\b/i;
+
 const COMMERCE_STRONG = /\b(order|orders|ordering|cart|checkout|shop|shops|store|stores|storefront|buy|retail|ecommerce|menu|menus)\b/i;
 const COMMERCE_WEAK = /\b(cake|cakes|bakery|food|foods|restaurant|restaurants|cafe|cafes|coffee|drop|drops)\b/i;
 const SWIPE_STRONG = /\b(tinder|swipe|swipes|swiping|dating|match|matches|matching|adopt|adoption)\b/i;
 const SWIPE_WEAK = /\b(discovery|pet|pets|cat|cats|dog|dogs)\b/i;
 
 const DATA_VIZ_PATTERNS = /\b(chart|charts|gauge|gauges|telemetry|metric|metrics|graph|graphs|kpi|series|plot)\b/i;
-const EDITORIAL_PATTERNS = /\b(editorial|magazine|article|story|journal|retreat|luxury|boutique|architectural)\b/i;
 
-/**
- * Whether the sentence is asking for something new to exist.
- *
- * Lifecycle used to hang on a list of edit verbs, which meant "make it more
- * polished", "improve the hierarchy" and "revise the hero" were all read as
- * first builds on a canvas that already held a design. Asking the opposite
- * question is far more robust: a new brief names what it wants built, and a
- * revision names a part of what is already there.
- */
-const NEW_BUILD_PATTERNS = /\b(create|creates|build|builds|design|generate|start over|from scratch)\b/i;
+const EXPLICIT_NEW_BUILD_PATTERNS =
+  /\b(create|creates|creating|build|builds|building|generate|generates|start over|from scratch)\b|^\s*design\s+(a|an|the|new|another)\s+(\w+\s+)?(screen|companion|app|site|dashboard|console|page|portfolio|website|version|landing)\b|\bdesign\s+(a|an|new|another)\s+(\w+\s+)?(screen|companion|app|site|dashboard|console|page|portfolio|website|version|landing)\b/i;
+const COMPANION_SCREEN_PATTERNS = /\b(companion screen|another screen|new screen|additional screen|mobile version|desktop version)\b/i;
+const NEW_BRIEF_PATTERNS = /^\s*(a\s+|an\s+|the\s+)?(landing page|website|portfolio|site|mobile app|app|dashboard|console)\s+for\s+/i;
 
 function hasScreenOfKind(doc: Document | undefined, kind: "mobile" | "desktop"): boolean {
   if (!doc || !Array.isArray(doc.children)) return false;
@@ -97,20 +80,6 @@ function selectedScreenSurface(doc: Document | undefined, selection: string[]): 
   return undefined;
 }
 
-/**
- * Resolves context through prioritized signals, highest first:
- * 1. Explicit Prompt Intent (e.g. "create mobile version" on an existing desktop canvas)
- * 2. Active Selection Surface (which screen the user is currently focused on)
- * 3. Ground Truth Canvas State (existing screens on canvas)
- * 4. Direction Metadata recorded by an earlier set_style
- * 5. Session history — traits only, and only for a request that names no
- *    artifact of its own
- *
- * The ordering is the point. Every one of these signals used to be able to win,
- * so a product noun from three turns ago could decide what today's request was
- * for. Anything the user said in this message outranks anything they said
- * before it.
- */
 export function resolvePromptContext(
   userPrompt = "",
   doc?: Document,
@@ -129,30 +98,36 @@ export function resolvePromptContext(
   // Signal 2: Direction Metadata
   const direction = doc ? currentDirection(doc) : undefined;
 
-  // Signal 3: Semantic Matching — the current request only. Session history is
-  // consulted below, and only for traits.
-  const matchesMobile = MOBILE_PATTERNS.test(query);
-  const matchesDesktopSite = DESKTOP_SITE_PATTERNS.test(query);
-  const matchesToolArtifact = TOOL_ARTIFACT_PATTERNS.test(query);
-  const matchesTool = matchesToolArtifact || DATA_DOMAIN_PATTERNS.test(query);
+  // Signal 3: Semantic Matching
+  const matchesMobileSurface = MOBILE_SURFACE_PATTERNS.test(query);
+  const matchesDesktopSurface = DESKTOP_SURFACE_PATTERNS.test(query);
 
-  /** The request names the thing it wants built, rather than a part of what exists. */
-  const namesOwnArtifact = matchesMobile || matchesDesktopSite || matchesTool;
+  const matchesSiteArtifact = SITE_ARTIFACT_PATTERNS.test(query);
+  const matchesToolArtifact = TOOL_ARTIFACT_PATTERNS.test(query);
+  const matchesAppArtifact = APP_ARTIFACT_PATTERNS.test(query);
+
+  const isExplicitNewBuild =
+    EXPLICIT_NEW_BUILD_PATTERNS.test(query) ||
+    COMPANION_SCREEN_PATTERNS.test(query) ||
+    NEW_BRIEF_PATTERNS.test(query);
 
   // Signal 4: Session Lifecycle
+  // On a populated canvas, default to revision_edit unless an explicit build/reset instruction is given.
   const lifecycle: SessionLifecycle =
-    hasExistingContent && !namesOwnArtifact && !NEW_BUILD_PATTERNS.test(query)
+    hasExistingContent && !isExplicitNewBuild
       ? "revision_edit"
       : "initial_build";
 
   // Resolve Surface
   let surface: SurfaceTarget = "unspecified";
-  if (matchesMobile && (!matchesDesktopSite || query.includes("mobile") || query.includes("app screen"))) {
+  if (matchesMobileSurface && (!matchesDesktopSurface || query.includes("mobile") || query.includes("phone"))) {
     surface = "mobile";
-  } else if (matchesDesktopSite && (!matchesMobile || query.includes("desktop") || query.includes("landing page") || query.includes("website"))) {
+  } else if (matchesDesktopSurface && (!matchesMobileSurface || query.includes("desktop") || query.includes("web page") || query.includes("website"))) {
     surface = "desktop";
-  } else if (matchesTool) {
+  } else if (matchesSiteArtifact || matchesToolArtifact) {
     surface = "desktop";
+  } else if (matchesAppArtifact && !matchesDesktopSurface) {
+    surface = "mobile";
   } else if (selectedSurface) {
     surface = selectedSurface;
   } else if (hasMobile && !hasDesktop) {
@@ -161,27 +136,22 @@ export function resolvePromptContext(
     surface = "desktop";
   } else if (hasMobile && hasDesktop) {
     surface = "both";
-  } else if (matchesMobile) {
-    surface = "mobile";
   }
 
   // Resolve Archetype
   //
-  // Strict precedence: the surface the user asked for, then the artifact the
-  // current request names, then the recorded direction, then a bare inference
-  // from the canvas. Session history is not consulted at all — a portfolio
-  // asked for after a telemetry console is a portfolio.
+  // Strict precedence:
+  // 1. Explicit site artifact (landing page, website, portfolio) beats a tool noun describing the product
+  // 2. Explicit tool artifact (dashboard, console, workbench) beats surface words (desktop, web)
+  // 3. Mobile surface or app artifact -> app
+  // 4. Direction metadata
+  // 5. Desktop surface -> site
   let archetype: ProductArchetype = "unspecified";
-  if (surface === "mobile") {
-    // Both archetype blueprints are 1440-wide compositions. A mobile request
-    // that happens to be about telemetry is still a mobile app; the subject
-    // matter reaches the traits instead.
-    archetype = "app";
-  } else if (matchesToolArtifact && !matchesDesktopSite) {
-    archetype = "tool";
-  } else if (matchesDesktopSite) {
+  if (matchesSiteArtifact) {
     archetype = "site";
-  } else if (matchesMobile) {
+  } else if (matchesToolArtifact) {
+    archetype = "tool";
+  } else if (surface === "mobile" || matchesAppArtifact) {
     archetype = "app";
   } else if (direction?.thesis) {
     const thesis = direction.thesis.toLowerCase();
@@ -197,10 +167,7 @@ export function resolvePromptContext(
   }
 
   // Resolve Domain Traits.
-  //
-  // A request that names its own artifact is a fresh brief and reads its traits
-  // from itself. A follow-up that names none ("make the button darker") is
-  // still talking about the last thing built, so it inherits them.
+  const namesOwnArtifact = matchesSiteArtifact || matchesToolArtifact || matchesAppArtifact;
   const traitText = namesOwnArtifact ? query : fullText;
   const traits: DomainTrait[] = [];
 

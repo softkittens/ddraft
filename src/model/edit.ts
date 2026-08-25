@@ -106,10 +106,12 @@ export function removeNode(doc: Document, id: string): Document {
 
 export function replaceNode(doc: Document, id: string, replacement: PenNode): Document {
   const newDoc = cloneDocument(doc);
+  const clonedNode = structuredClone(replacement);
+  ensureNodeIds(clonedNode);
   function doReplace(list: PenNode[]): boolean {
     const idx = list.findIndex((n) => n.id === id);
     if (idx !== -1) {
-      list[idx] = structuredClone(replacement);
+      list[idx] = clonedNode;
       return true;
     }
     for (const item of list) {

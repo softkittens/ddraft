@@ -58,7 +58,7 @@ describe("Style history", () => {
     );
     expect(prompt).toContain("PREVIOUS RESULTS FOR THIS SAME BRIEF");
     expect(prompt).toContain("Header, search, dark hero");
-    expect(prompt).toContain("materially different dominant composition");
+    expect(prompt).toContain("Aim for fresh expression");
     const offeredPalettes = prompt.split("ROUNDNESS")[0];
     expect(offeredPalettes).not.toMatch(new RegExp(`  ${previouslyOffered} \\((light|dark)\\)`));
     const roundnessBlock = prompt.split("ROUNDNESS")[1]?.split("ELEVATION")[0] ?? "";
@@ -97,5 +97,21 @@ describe("Style history", () => {
     expect(loadHistory(store("not json"))).toEqual([]);
     expect(loadHistory(store(null))).toEqual([]);
     expect(loadHistory(store('[{"palette":"P"}]'))).toEqual([]);
+  });
+
+  it("records composition archetype in history and displays it in avoidanceNote", () => {
+    const history: StyleRun[] = [
+      {
+        at: "2026-08-25T00:00:00.000Z",
+        brief: "Luxury space tourism landing page",
+        composition: "Cinematic Hero & Narrative",
+        palette: "Carbon Frost",
+        headings: "Inter",
+        elevation: "Soft Lift"
+      }
+    ];
+    const note = avoidanceNote(history, "Luxury space tourism landing page");
+    expect(note).toContain("[Cinematic Hero & Narrative]");
+    expect(note).toContain("Carbon Frost");
   });
 });

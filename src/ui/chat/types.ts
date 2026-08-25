@@ -14,7 +14,6 @@ export interface ReviewEntry {
   kind: "review";
   pass: number;
   review: ReviewResponse;
-  applied: number;
   thumbnail?: string;
   sectionThumbnails?: { name: string; url: string }[];
 }
@@ -171,10 +170,17 @@ export function commitAgentPass(args: {
   visibleBase: Entry[];
   finalMessages: Message[];
   contextLength: number;
+  visibleInput?: boolean;
 }): Entry[] {
+  const visibleInput = args.visibleInput ?? true;
+  const newEntries = transcriptFromMessages(args.finalMessages).slice(args.contextLength);
+  const filteredNewEntries = visibleInput
+    ? newEntries
+    : newEntries.filter((e, idx) => !(idx === 0 && e.kind === "message" && e.message.role === "user"));
+
   const rebuilt = [
     ...args.visibleBase,
-    ...transcriptFromMessages(args.finalMessages).slice(args.contextLength)
+    ...filteredNewEntries
   ];
   if (rebuilt.filter(isToolMessage).length >= args.live.filter(isToolMessage).length) {
     return rebuilt;

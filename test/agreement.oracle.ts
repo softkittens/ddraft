@@ -4,7 +4,7 @@ import { join } from "path";
 import { parseDocument } from "../src/model/parse";
 import { layoutDocument } from "../src/layout/layout";
 import { useRecordedMetrics, type RecordedMetrics } from "../src/layout/metrics";
-import { compareWithTruth, parseBoundsFile, type BoundsDiff } from "./oracle";
+import { compareWithTruth, parseBoundsFile, type BoundsDiff } from "../src/layout/bounds";
 
 /**
  * # Differential agreement, headless

@@ -9,7 +9,7 @@
  * 5f5d9706: DeepSeek's post-fix screenshot aborted. That used to drop a refine
  * we already had, so the second review also never became a revision.
  */
-export type ReviewLoopNext = "stop" | "revise" | "apply_last";
+export type ReviewLoopNext = "stop" | "revise";
 
 export function reviewLoopNext(input: {
   pass: number;
@@ -20,5 +20,5 @@ export function reviewLoopNext(input: {
   if (!input.hasReview) return "stop";
   if (input.verdict !== "refine") return "stop";
   if (input.pass < input.maxRevisions) return "revise";
-  return "apply_last";
+  return "stop";
 }

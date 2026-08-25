@@ -211,7 +211,16 @@ export function checkAccentOveruse(ctx: AuditContext): AuditFinding[] {
       const fill = (node as any).fill;
       const value = typeof fill === "string" ? fill : fill?.color ?? fill?.value;
       if (typeof value === "string" && /\$accent-primary\b/.test(value)) {
-        roles.set(parentId, [...(roles.get(parentId) ?? []), node]);
+        const texts: string[] = [];
+        for (const child of childrenOf(node)) {
+          if (child.type === "text" && typeof (child as any).content === "string") {
+            const trimmed = (child as any).content.trim().toLowerCase();
+            if (trimmed) texts.push(trimmed);
+          }
+        }
+        const label = texts.join(" ");
+        const roleKey = label ? `btn:${label}` : parentId;
+        roles.set(roleKey, [...(roles.get(roleKey) ?? []), node]);
       }
     }
     for (const child of childrenOf(node)) countIn(child, node.id, roles);

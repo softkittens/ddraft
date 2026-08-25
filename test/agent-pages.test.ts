@@ -154,4 +154,25 @@ describe("A document with no pages behaves exactly as before", () => {
     const created = tools.doc.children[tools.doc.children.length - 1];
     expect(pageIdOf(created)).toBeUndefined();
   });
+
+  it("pins operations to targetPageId across passes even if active page changes", async () => {
+    // Unpaged document pinned to undefined keeps all screens in reach
+    const unpaged = noPages();
+    const toolsUnpaged = createDocumentTools(unpaged, {}, undefined);
+    const digestUnpaged = await toolsUnpaged.execute("read_digest", {});
+    expect(digestUnpaged).toContain("a");
+    expect(digestUnpaged).toContain("b");
+
+    // Multi-page document pinned to "home" stays on "home" even when other pages exist
+    const doc = twoPageDoc();
+    const toolsHome = createDocumentTools(doc, {}, "home");
+    const digestHome = await toolsHome.execute("read_digest", {});
+    expect(digestHome).toContain("home_a");
+    expect(digestHome).not.toContain("shop_a");
+
+    const toolsShop = createDocumentTools(doc, {}, "shop");
+    const digestShop = await toolsShop.execute("read_digest", {});
+    expect(digestShop).toContain("shop_a");
+    expect(digestShop).not.toContain("home_a");
+  });
 });

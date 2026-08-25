@@ -14,6 +14,7 @@ import type { Document, FrameNode } from "../src/model/types";
 
 const styled = (): Document => {
   const style = resolveStyle({
+    composition: "Cinematic Hero & Narrative",
     palette: "Carbon Frost",
     roundness: "Basic",
     elevation: "Soft Lift",

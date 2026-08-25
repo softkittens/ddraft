@@ -122,29 +122,76 @@ export function arrangeNode(measured: MeasuredNode, box: Box, variables?: Record
   const padStartCross = isHoriz ? pad.top : pad.left;
   const padEndCross = isHoriz ? pad.bottom : pad.right;
 
-  const frameMain = isHoriz ? box.width : box.height;
-  const frameCross = isHoriz ? box.height : box.width;
-  const contentMain = frameMain - padStartMain - padEndMain;
-  const contentCross = frameCross - padStartCross - padEndCross;
+  let frameMain = isHoriz ? box.width : box.height;
+  let frameCross = isHoriz ? box.height : box.width;
+  let contentMain = frameMain - padStartMain - padEndMain;
+  let contentCross = frameCross - padStartCross - padEndCross;
 
   // Flow children participate in flex distribution; absolute children leave the flow
   const flow = children.filter((c) => c.node.layoutPosition !== "absolute");
 
-  // In vertical layouts, resolve cross-axis width and recompute wrapped text height
+  // In vertical layouts, resolve cross-axis width and recompute wrapped text/frame height
   // BEFORE computing main-axis flow positions, ensuring siblings never overlap.
   if (!isHoriz) {
     for (const child of flow) {
+      const crossSizing = parseSizing(child.node.width);
+      const isCrossFill = crossSizing.mode === "fill_container";
+      const childW = isCrossFill ? Math.max(0, contentCross) : child.measuredWidth;
       if (child.node.type === "text" && (child.node as TextNode).textGrowth === "fixed-width") {
-        const crossSizing = parseSizing(child.node.width);
-        const isCrossFill = crossSizing.mode === "fill_container";
-        const childW = isCrossFill ? Math.max(0, contentCross) : child.measuredWidth;
         const textMetrics = measureTextNode(child.node as TextNode, childW, variables);
         child.measuredHeight = textMetrics.height;
+      } else if (child.node.type === "frame") {
+        const remeasured = measureNode(child.node, variables, childW);
+        child.measuredHeight = remeasured.measuredHeight;
+        child.children = remeasured.children;
       }
+    }
+
+    const vSizing = parseSizing(frame?.height);
+    if (vSizing.mode === "fit_content" || vSizing.mode === "auto") {
+      const childTotal = flow.reduce((sum, c) => sum + c.measuredHeight, 0);
+      const gapTotal = flow.length > 1 ? gap * (flow.length - 1) : 0;
+      const neededMain = padStartMain + childTotal + gapTotal + padEndMain;
+      const finalMain = vSizing.mode === "fit_content" && vSizing.fallback !== undefined
+        ? Math.max(vSizing.fallback, neededMain)
+        : neededMain;
+      frameMain = Math.max(box.height, finalMain);
+      box.height = frameMain;
+      contentMain = frameMain - padStartMain - padEndMain;
     }
   }
 
-  const flowMainSizes = distributeFlowMainSizes(flow, contentMain, gap, isHoriz, !!measured.isCircularMain);
+  let flowMainSizes = distributeFlowMainSizes(flow, contentMain, gap, isHoriz, !!measured.isCircularMain);
+
+  // In horizontal layouts, resolve main-axis sizes for children first, then remeasure
+  // wrapped child frames/text to propagate height back to the horizontal parent.
+  if (isHoriz) {
+    for (let i = 0; i < flow.length; i++) {
+      const child = flow[i];
+      const childW = flowMainSizes[i] ?? child.measuredWidth;
+      if (child.node.type === "text" && (child.node as TextNode).textGrowth === "fixed-width") {
+        const textMetrics = measureTextNode(child.node as TextNode, childW, variables);
+        child.measuredHeight = textMetrics.height;
+      } else if (child.node.type === "frame") {
+        const remeasured = measureNode(child.node, variables, childW);
+        child.measuredHeight = remeasured.measuredHeight;
+        child.children = remeasured.children;
+      }
+    }
+
+    const hSizing = parseSizing(frame?.height);
+    if (hSizing.mode === "fit_content" || hSizing.mode === "auto") {
+      const maxChildH = flow.reduce((max, c) => Math.max(max, c.measuredHeight), 0);
+      const neededCross = padStartCross + maxChildH + padEndCross;
+      const finalCross = hSizing.mode === "fit_content" && hSizing.fallback !== undefined
+        ? Math.max(hSizing.fallback, neededCross)
+        : neededCross;
+      frameCross = Math.max(box.height, finalCross);
+      box.height = frameCross;
+      contentCross = frameCross - padStartCross - padEndCross;
+    }
+  }
+
   const flowMainPositions = computeMainAxisPositions({
     frameMain,
     padStart: padStartMain,

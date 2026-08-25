@@ -52,6 +52,31 @@ describe("commitAgentPass", () => {
       )
     ).toBe(true);
   });
+
+  it("filters out the internal user revision instruction when visibleInput is false", () => {
+    const internalPrompt = msg("user", "[Visual review revision]\nOriginal brief: Space site\n- Fix button");
+    const tool = msg("tool", "ok: updated", { tool_call_id: "c1" });
+    const assistant = msg("assistant", "Adjusted button alignment and padding.");
+    const visibleBase: Entry[] = [
+      { kind: "message", message: msg("user", "Create a space site") }
+    ];
+    const live: Entry[] = [
+      ...visibleBase,
+      { kind: "message", message: tool, tool: "set_property" }
+    ];
+
+    const next = commitAgentPass({
+      live,
+      visibleBase,
+      finalMessages: [internalPrompt, assistant, tool, assistant],
+      contextLength: 0,
+      visibleInput: false
+    });
+
+    expect(next.some((e) => e.kind === "message" && e.message.content === internalPrompt.content)).toBe(false);
+    expect(next.some((e) => e.kind === "message" && e.message.content === "Create a space site")).toBe(true);
+    expect(next.some((e) => e.kind === "message" && e.message.role === "assistant")).toBe(true);
+  });
 });
 
 describe("groupTranscriptEntries", () => {

@@ -224,4 +224,65 @@ describe("available width reaches text during measure", () => {
     expect(metrics.height).toBe(29); // 24 * 1.2113 rounded = 29, NOT 1px
     expect(metrics.lineHeight).toBe(29);
   });
+
+  it("propagates nested wrapped text height inside a horizontal card and preserves bottom padding", () => {
+    const doc = makeDoc(
+      frame("step_card", 560, "fit_content", [
+        frame("icon_badge", 40, 40, [], { fill: "#FFFF00" }),
+        frame("text_stack", "fill_container", "fit_content", [
+          txt("overline", "T-2 DAYS - KENNEDY", 11, { fontWeight: 700 }),
+          txt(
+            "body",
+            "Apex Ground Complex, velvet T-minus briefings. Medical clearance, egress drill, photo briefing. Sleep at the Annex.",
+            14,
+            { width: "fill_container", textGrowth: "fixed-width" } as any
+          ),
+          txt("meta", "08:00 · 12:00 · KENNEDY COMPLEX", 11)
+        ], { layout: "vertical", gap: 6 })
+      ], { layout: "horizontal", padding: 20, gap: 16 })
+    );
+
+    const layout = layoutDocument(doc);
+    const boxes = flattenBoxes(layout);
+
+    const cardBox = boxes.get("step_card")!;
+    const iconBox = boxes.get("icon_badge")!;
+    const stackBox = boxes.get("text_stack")!;
+    const overlineBox = boxes.get("overline")!;
+    const bodyBox = boxes.get("body")!;
+    const metaBox = boxes.get("meta")!;
+
+    // 1. Text stack receives resolved width (560 - 40 pad - 40 icon - 16 gap = 464)
+    expect(iconBox.width).toBe(40);
+    expect(overlineBox.y).toBe(0);
+    expect(stackBox.width).toBe(464);
+
+    // 2. Body text wrapped to 2 lines, so stack height grew (> 50px)
+    expect(bodyBox.height).toBeGreaterThan(25);
+    expect(stackBox.height).toBeGreaterThanOrEqual(55);
+
+    // 3. Stack contains every child (last child metaBox fits completely inside stackBox)
+    expect(metaBox.y + metaBox.height).toBeLessThanOrEqual(stackBox.height + 0.5);
+
+    // 4. Card height grew around the wrapped stack and preserves 20px bottom padding
+    expect(cardBox.height).toBeGreaterThanOrEqual(stackBox.height + 40);
+    expect(cardBox.height - (stackBox.y + stackBox.height)).toBeGreaterThanOrEqual(19.5);
+
+    // 5. Audit reports zero clipping or overflow findings on correctly resolved layout
+    const findings = auditDesign(layout, doc);
+    expect(findings.filter((f) => f.rule === "clipped" || f.rule === "overflow")).toEqual([]);
+
+    // 6. Deliberately stale/fixed geometry is caught by overflow audit
+    const staleDoc = makeDoc(
+      frame("stale_card", 560, 50, [
+        frame("stale_stack", 464, 40, [
+          txt("t1", "Line one", 14),
+          txt("t2", "Line two extending past parent boundary", 14, { y: 30 } as any)
+        ], { layout: "none" })
+      ], { layout: "none" })
+    );
+    const staleLayout = layoutDocument(staleDoc);
+    const staleFindings = auditDesign(staleLayout, staleDoc);
+    expect(staleFindings.some((f) => f.rule === "clipped")).toBe(true);
+  });
 });

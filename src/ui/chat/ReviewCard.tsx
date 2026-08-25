@@ -81,12 +81,6 @@ export const ReviewCard: Component<{
           </For>
         </div>
 
-        <Show when={props.entry.applied > 0}>
-          <div class="text-[11px] text-neutral-500">
-            {props.entry.applied} propert{props.entry.applied === 1 ? "y" : "ies"} corrected directly.
-          </div>
-        </Show>
-
         <Show when={review().issues.length > 0}>
           <ul class="space-y-1 pt-0.5">
             <For each={review().issues}>
