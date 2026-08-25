@@ -688,5 +688,530 @@
       "accent-primary": "#9B5B32",
       "accent-secondary": "#4F8A4F"
     }
+  },
+  {
+    "name": "Terracotta & Olive",
+    "scheme": "light",
+    "mood": "Warm ochre paper, deep umber text, burnt terracotta and wild olive accents. Mediterranean, unhurried, artisanal.",
+    "tokens": {
+      "surface-primary": "#F8F4EE",
+      "surface-secondary": "#EFE9DF",
+      "foreground-primary": "#1C1713",
+      "foreground-secondary": "#52453B",
+      "foreground-muted": "#7E6E60",
+      "border-subtle": "#DCD3C5",
+      "accent-primary": "#B84A28",
+      "accent-secondary": "#4D6638"
+    }
+  },
+  {
+    "name": "Alentejo Sun",
+    "scheme": "light",
+    "mood": "Chalky limestone, sun-baked clay, and dried fig accents. Natural warmth, slow living, architectural.",
+    "tokens": {
+      "surface-primary": "#FAF7F0",
+      "surface-secondary": "#EFE9DC",
+      "foreground-primary": "#201912",
+      "foreground-secondary": "#554536",
+      "foreground-muted": "#82705E",
+      "border-subtle": "#DFD6C5",
+      "accent-primary": "#9C3826",
+      "accent-secondary": "#7A5825"
+    }
+  },
+  {
+    "name": "Sandstone Courtyard",
+    "scheme": "light",
+    "mood": "Warm oat field, espresso ink, washed rosemary and clay accents. Atmospheric, courtyard focus, quiet.",
+    "tokens": {
+      "surface-primary": "#F6F0EB",
+      "surface-secondary": "#EBE2DA",
+      "foreground-primary": "#1B1512",
+      "foreground-secondary": "#4F433C",
+      "foreground-muted": "#7D6E66",
+      "border-subtle": "#DACEC3",
+      "accent-primary": "#4A6342",
+      "accent-secondary": "#A65329"
+    }
+  },
+  {
+    "name": "Lisbon Azulejo",
+    "scheme": "light",
+    "mood": "Bleached linen ground, deep indigo-black type, ceramic cobalt glaze accent. Portuguese heritage, architectural, crisp.",
+    "tokens": {
+      "surface-primary": "#F7F7FA",
+      "surface-secondary": "#EBECEF",
+      "foreground-primary": "#111625",
+      "foreground-secondary": "#3B465E",
+      "foreground-muted": "#69758F",
+      "border-subtle": "#D2D6E0",
+      "accent-primary": "#1E4E8C",
+      "accent-secondary": "#C46824"
+    }
+  },
+  {
+    "name": "Amalfi Citrus",
+    "scheme": "light",
+    "mood": "Soft ivory plaster, dark charcoal ink, and bittersweet citrus orange. Vibrant coast, sunlit hospitality.",
+    "tokens": {
+      "surface-primary": "#FCFBF7",
+      "surface-secondary": "#F3EFE6",
+      "foreground-primary": "#181716",
+      "foreground-secondary": "#4A4540",
+      "foreground-muted": "#787169",
+      "border-subtle": "#E2DBD0",
+      "accent-primary": "#BA4816",
+      "accent-secondary": "#4B663A"
+    }
+  },
+  {
+    "name": "Mallorca Finca",
+    "scheme": "light",
+    "mood": "Calm limestone plaster, olive-black ink, wild sage and terracotta accents. Mediterranean villa, stone textures.",
+    "tokens": {
+      "surface-primary": "#F6F3EE",
+      "surface-secondary": "#ECE6DC",
+      "foreground-primary": "#1A1D18",
+      "foreground-secondary": "#464C41",
+      "foreground-muted": "#70796B",
+      "border-subtle": "#D7D0C3",
+      "accent-primary": "#445E3F",
+      "accent-secondary": "#A85B33"
+    }
+  },
+  {
+    "name": "Newsprint & Gall Ink",
+    "scheme": "light",
+    "mood": "Unbleached newsprint paper, ferric gall black, vermilion stamp. Archival publishing, broadsheet craft.",
+    "tokens": {
+      "surface-primary": "#F2EFE9",
+      "surface-secondary": "#E5E0D7",
+      "foreground-primary": "#171819",
+      "foreground-secondary": "#424549",
+      "foreground-muted": "#6D727A",
+      "border-subtle": "#CDC6BA",
+      "accent-primary": "#B8281B",
+      "accent-secondary": "#264D6B"
+    }
+  },
+  {
+    "name": "Vellum & Charcoal",
+    "scheme": "light",
+    "mood": "Aged vellum field, bistre brown-black type, seal wax red. Classical monograph, museum catalog, historical depth.",
+    "tokens": {
+      "surface-primary": "#F5EFE3",
+      "surface-secondary": "#E8DFCF",
+      "foreground-primary": "#1E1914",
+      "foreground-secondary": "#4E4237",
+      "foreground-muted": "#7B6C5D",
+      "border-subtle": "#D5C8B4",
+      "accent-primary": "#8E2224",
+      "accent-secondary": "#685135"
+    }
+  },
+  {
+    "name": "Curator Gallery",
+    "scheme": "light",
+    "mood": "Museum white field, jet charcoal typography, and singular Klein ultramarine accent. Fine arts, high-contrast, pure.",
+    "tokens": {
+      "surface-primary": "#FBFBF9",
+      "surface-secondary": "#EFEFEA",
+      "foreground-primary": "#121212",
+      "foreground-secondary": "#3D3D3D",
+      "foreground-muted": "#6E6E6E",
+      "border-subtle": "#DADAD4",
+      "accent-primary": "#002FA7",
+      "accent-secondary": "#8A3D22"
+    }
+  },
+  {
+    "name": "Typographic Monograph",
+    "scheme": "light",
+    "mood": "Off-white paper, Swiss jet black, and international signal orange. Graphic design monograph, precise grid.",
+    "tokens": {
+      "surface-primary": "#F8F9FA",
+      "surface-secondary": "#EDEFF1",
+      "foreground-primary": "#0A0B0C",
+      "foreground-secondary": "#33373D",
+      "foreground-muted": "#676E78",
+      "border-subtle": "#D3D7DC",
+      "accent-primary": "#D93800",
+      "accent-secondary": "#1B5299"
+    }
+  },
+  {
+    "name": "Botanical Herbarium",
+    "scheme": "light",
+    "mood": "Pressed botanical paper, deep forest peat ink, and dried fern green. Organic science, herbalist, calm nature.",
+    "tokens": {
+      "surface-primary": "#F3EFE6",
+      "surface-secondary": "#E6DFC7",
+      "foreground-primary": "#161E16",
+      "foreground-secondary": "#3E4D3E",
+      "foreground-muted": "#687C68",
+      "border-subtle": "#CEC6B4",
+      "accent-primary": "#375E3F",
+      "accent-secondary": "#99582A"
+    }
+  },
+  {
+    "name": "Library Leather",
+    "scheme": "light",
+    "mood": "Warm chamois page, dark oxblood type, antique bronze accent. Private library, rare books, dignified.",
+    "tokens": {
+      "surface-primary": "#F0ECE1",
+      "surface-secondary": "#E3DCCE",
+      "foreground-primary": "#231718",
+      "foreground-secondary": "#543E40",
+      "foreground-muted": "#82696B",
+      "border-subtle": "#CBC1AF",
+      "accent-primary": "#752327",
+      "accent-secondary": "#6B4D24"
+    }
+  },
+  {
+    "name": "Nordic Fog",
+    "scheme": "light",
+    "mood": "Pale mist surface, slate-black typography, deep fjord blue accent. Scandinavian architecture, cool restraint, air.",
+    "tokens": {
+      "surface-primary": "#F1F4F6",
+      "surface-secondary": "#E2E6E9",
+      "foreground-primary": "#14181C",
+      "foreground-secondary": "#38424B",
+      "foreground-muted": "#62707D",
+      "border-subtle": "#C7D0D7",
+      "accent-primary": "#2D5575",
+      "accent-secondary": "#8A5236"
+    }
+  },
+  {
+    "name": "Basalt & Lichen",
+    "scheme": "dark",
+    "mood": "Volcanic charcoal ground, limestone typography, silver lichen accent. Geological, atmospheric, dark quiet.",
+    "tokens": {
+      "surface-primary": "#131517",
+      "surface-secondary": "#1C1F22",
+      "foreground-primary": "#ECF0E8",
+      "foreground-secondary": "#ADB5A8",
+      "foreground-muted": "#788274",
+      "border-subtle": "#2B3035",
+      "accent-primary": "#6E9C7E",
+      "accent-secondary": "#D48D57"
+    }
+  },
+  {
+    "name": "Alpine Quartz",
+    "scheme": "light",
+    "mood": "Glacier-tinted white, deep schist ink, pine needle green accent. Alpine elevation, crisp air, modern outdoor.",
+    "tokens": {
+      "surface-primary": "#F4F6F9",
+      "surface-secondary": "#E5E9EE",
+      "foreground-primary": "#12161D",
+      "foreground-secondary": "#364151",
+      "foreground-muted": "#607084",
+      "border-subtle": "#CBD2DC",
+      "accent-primary": "#265239",
+      "accent-secondary": "#245A8A"
+    }
+  },
+  {
+    "name": "Reykjavik Dusk",
+    "scheme": "dark",
+    "mood": "Midnight indigo ground, crisp frost type, geothermal amber glow. Subarctic evening, moody, luminous contrast.",
+    "tokens": {
+      "surface-primary": "#0E1118",
+      "surface-secondary": "#161B26",
+      "foreground-primary": "#EEF2F7",
+      "foreground-secondary": "#A8B4C4",
+      "foreground-muted": "#6D7C91",
+      "border-subtle": "#242D3D",
+      "accent-primary": "#E08836",
+      "accent-secondary": "#4D88C7"
+    }
+  },
+  {
+    "name": "Copenhagen Studio",
+    "scheme": "light",
+    "mood": "Pale birch surface, warm charcoal ink, muted terracotta. Nordic studio, balanced ergonomics, tactile minimalism.",
+    "tokens": {
+      "surface-primary": "#F5F3EF",
+      "surface-secondary": "#E8E4DD",
+      "foreground-primary": "#171615",
+      "foreground-secondary": "#45413D",
+      "foreground-muted": "#736D67",
+      "border-subtle": "#D1CBC0",
+      "accent-primary": "#A34F36",
+      "accent-secondary": "#3E5B4B"
+    }
+  },
+  {
+    "name": "Silica & Mica",
+    "scheme": "light",
+    "mood": "Cool silver-tinted surface, graphite type, sea glass teal accent. Mineral clarity, restrained, modern.",
+    "tokens": {
+      "surface-primary": "#F0F3F4",
+      "surface-secondary": "#E1E6E8",
+      "foreground-primary": "#151B1D",
+      "foreground-secondary": "#39464B",
+      "foreground-muted": "#64747A",
+      "border-subtle": "#C4CED2",
+      "accent-primary": "#3A6F73",
+      "accent-secondary": "#8A523D"
+    }
+  },
+  {
+    "name": "Obsidian Terminal",
+    "scheme": "dark",
+    "mood": "Deep onyx background, phosphor bone type, electric emerald accent. High-performance developer cockpit, terminal precision.",
+    "tokens": {
+      "surface-primary": "#0C0E12",
+      "surface-secondary": "#141820",
+      "foreground-primary": "#E8ECEF",
+      "foreground-secondary": "#98A3B2",
+      "foreground-muted": "#606C7D",
+      "border-subtle": "#212936",
+      "accent-primary": "#10B981",
+      "accent-secondary": "#38BDF8"
+    }
+  },
+  {
+    "name": "Carbon Monolith",
+    "scheme": "dark",
+    "mood": "Carbon graphite ground, zinc text, signal amber accent. Spacecraft instrumentation, industrial darkness, telemetry.",
+    "tokens": {
+      "surface-primary": "#111113",
+      "surface-secondary": "#1A1A1E",
+      "foreground-primary": "#F4F4F5",
+      "foreground-secondary": "#A1A1AA",
+      "foreground-muted": "#686873",
+      "border-subtle": "#27272F",
+      "accent-primary": "#F59E0B",
+      "accent-secondary": "#E11D48"
+    }
+  },
+  {
+    "name": "Matrix Monochrome",
+    "scheme": "dark",
+    "mood": "Deep jet black, stark white type, bright cyan pulse accent. Cryptographic, high contrast, pure cybernetic.",
+    "tokens": {
+      "surface-primary": "#080A0B",
+      "surface-secondary": "#111417",
+      "foreground-primary": "#FAFAFA",
+      "foreground-secondary": "#A3A8AF",
+      "foreground-muted": "#636972",
+      "border-subtle": "#20262C",
+      "accent-primary": "#06B6D4",
+      "accent-secondary": "#22C55E"
+    }
+  },
+  {
+    "name": "Paper Spec Sheet",
+    "scheme": "light",
+    "mood": "Clinical technical white, deep blueprint ink, cadmium cobalt accent. Engineering datasheet, technical specification.",
+    "tokens": {
+      "surface-primary": "#F8FAFC",
+      "surface-secondary": "#EDF2F7",
+      "foreground-primary": "#0F172A",
+      "foreground-secondary": "#334155",
+      "foreground-muted": "#64748B",
+      "border-subtle": "#CBD5E1",
+      "accent-primary": "#1D4ED8",
+      "accent-secondary": "#D97706"
+    }
+  },
+  {
+    "name": "Telemetry Dark",
+    "scheme": "dark",
+    "mood": "Cosmic navy ground, star-white typography, alert crimson accent. Orbital telemetry, mission control, data streams.",
+    "tokens": {
+      "surface-primary": "#090C14",
+      "surface-secondary": "#121724",
+      "foreground-primary": "#F8FAFC",
+      "foreground-secondary": "#94A3B8",
+      "foreground-muted": "#56657B",
+      "border-subtle": "#1E293B",
+      "accent-primary": "#E11D48",
+      "accent-secondary": "#38BDF8"
+    }
+  },
+  {
+    "name": "Phosphor CRT",
+    "scheme": "dark",
+    "mood": "Deep olive-black glass, pale phosphor text, warm amber beam accent. Vintage radar console, analog computing.",
+    "tokens": {
+      "surface-primary": "#0B0F0C",
+      "surface-secondary": "#131A15",
+      "foreground-primary": "#E0EAE2",
+      "foreground-secondary": "#96A99A",
+      "foreground-muted": "#5D6F61",
+      "border-subtle": "#1F2C22",
+      "accent-primary": "#F59E0B",
+      "accent-secondary": "#10B981"
+    }
+  },
+  {
+    "name": "Riso Fluorescent Pink",
+    "scheme": "light",
+    "mood": "Warm newsprint, soot black type, vibrant fluorescent risograph pink. Independent publishing, art book fair, tactile.",
+    "tokens": {
+      "surface-primary": "#F9F6F0",
+      "surface-secondary": "#EFE9DD",
+      "foreground-primary": "#161618",
+      "foreground-secondary": "#46464D",
+      "foreground-muted": "#74747E",
+      "border-subtle": "#D8D2C4",
+      "accent-primary": "#B81D67",
+      "accent-secondary": "#246B8A"
+    }
+  },
+  {
+    "name": "Riso Sunflower & Teal",
+    "scheme": "light",
+    "mood": "Chalky paper field, deep teal ink, sunflower gold accent. Dual-drum printmaking, zine culture, warm and graphic.",
+    "tokens": {
+      "surface-primary": "#F8F6F1",
+      "surface-secondary": "#EBE7DD",
+      "foreground-primary": "#122C30",
+      "foreground-secondary": "#36585E",
+      "foreground-muted": "#628288",
+      "border-subtle": "#D1CAC0",
+      "accent-primary": "#A35C08",
+      "accent-secondary": "#1B5E66"
+    }
+  },
+  {
+    "name": "Kyoto Matcha & Clay",
+    "scheme": "light",
+    "mood": "Ceramic white paper, sumi ink typography, ceremonial matcha green accent. Japanese tea ritual, pottery, quiet craft.",
+    "tokens": {
+      "surface-primary": "#FAF8F3",
+      "surface-secondary": "#EDE7DD",
+      "foreground-primary": "#181A17",
+      "foreground-secondary": "#464C44",
+      "foreground-muted": "#727A6E",
+      "border-subtle": "#D5CDC1",
+      "accent-primary": "#425E30",
+      "accent-secondary": "#9C4F2B"
+    }
+  },
+  {
+    "name": "Berlin Poster",
+    "scheme": "light",
+    "mood": "Concrete grey field, dense black typography, caution red-orange accent. Bauhaus-inspired exhibition poster, industrial culture.",
+    "tokens": {
+      "surface-primary": "#EBECE8",
+      "surface-secondary": "#DCDDD7",
+      "foreground-primary": "#111112",
+      "foreground-secondary": "#3D3E42",
+      "foreground-muted": "#696B70",
+      "border-subtle": "#C4C6BE",
+      "accent-primary": "#C43208",
+      "accent-secondary": "#1B4A78"
+    }
+  },
+  {
+    "name": "Brutalist Concrete",
+    "scheme": "light",
+    "mood": "Raw cement surface, asphalt black typography, neon safety orange accent. Monumental architecture, bold geometry.",
+    "tokens": {
+      "surface-primary": "#E5E5E2",
+      "surface-secondary": "#D6D6D1",
+      "foreground-primary": "#121212",
+      "foreground-secondary": "#3E3E3E",
+      "foreground-muted": "#6B6B6B",
+      "border-subtle": "#BDBDB6",
+      "accent-primary": "#C23600",
+      "accent-secondary": "#0059B2"
+    }
+  },
+  {
+    "name": "Screenprint Studio",
+    "scheme": "light",
+    "mood": "Bleached cardboard surface, printer's ink, vibrant royal cobalt accent. Silkscreen workshop, poster art, high visual punch.",
+    "tokens": {
+      "surface-primary": "#EEEAE0",
+      "surface-secondary": "#DFDACD",
+      "foreground-primary": "#171615",
+      "foreground-secondary": "#44423E",
+      "foreground-muted": "#706D67",
+      "border-subtle": "#C7C0B0",
+      "accent-primary": "#1A4CB8",
+      "accent-secondary": "#A83B1E"
+    }
+  },
+  {
+    "name": "Sommelier Cellar",
+    "scheme": "dark",
+    "mood": "Dark barrique oak ground, champagne pearl text, pinot noir velvet accent. Grand cru cellar, private dining, evening indulgence.",
+    "tokens": {
+      "surface-primary": "#141012",
+      "surface-secondary": "#1D171A",
+      "foreground-primary": "#F2ECE7",
+      "foreground-secondary": "#B5A49D",
+      "foreground-muted": "#786B66",
+      "border-subtle": "#2D2328",
+      "accent-primary": "#C94255",
+      "accent-secondary": "#D49D48"
+    }
+  },
+  {
+    "name": "Midnight Jazz",
+    "scheme": "dark",
+    "mood": "Smoked velvet ground, warm linen typography, burnished brass gold accent. Late-night jazz club, intimate acoustics, amber warmth.",
+    "tokens": {
+      "surface-primary": "#121014",
+      "surface-secondary": "#1B181E",
+      "foreground-primary": "#F3EFE9",
+      "foreground-secondary": "#B0A69D",
+      "foreground-muted": "#756C64",
+      "border-subtle": "#2B2530",
+      "accent-primary": "#D19E45",
+      "accent-secondary": "#A34A60"
+    }
+  },
+  {
+    "name": "Boutique Perfumery",
+    "scheme": "light",
+    "mood": "Dusty alabaster surface, dark clove typography, rose amber accent. French haute perfumery, delicate scents, Parisian luxury.",
+    "tokens": {
+      "surface-primary": "#FAF7F4",
+      "surface-secondary": "#EFEAE4",
+      "foreground-primary": "#1E1819",
+      "foreground-secondary": "#504345",
+      "foreground-muted": "#7F6F72",
+      "border-subtle": "#DDD4CC",
+      "accent-primary": "#9C3852",
+      "accent-secondary": "#7A5238"
+    }
+  },
+  {
+    "name": "Haute Horlogerie",
+    "scheme": "dark",
+    "mood": "Brushed titanium ground, rhodium silver typography, rose gold accent. Swiss watchmaking complication, mechanical luxury.",
+    "tokens": {
+      "surface-primary": "#131518",
+      "surface-secondary": "#1C1F24",
+      "foreground-primary": "#EDF0F3",
+      "foreground-secondary": "#9FA8B4",
+      "foreground-muted": "#68717D",
+      "border-subtle": "#2A2F37",
+      "accent-primary": "#D48D63",
+      "accent-secondary": "#5E8CB8"
+    }
+  },
+  {
+    "name": "Velvet Speakeasy",
+    "scheme": "dark",
+    "mood": "Midnight emerald ground, warm ivory type, burnished copper accent. Hidden cocktail lounge, Art Deco glamour, atmospheric.",
+    "tokens": {
+      "surface-primary": "#0D1310",
+      "surface-secondary": "#151D19",
+      "foreground-primary": "#F6F3EC",
+      "foreground-secondary": "#ADB5AC",
+      "foreground-muted": "#6E776E",
+      "border-subtle": "#222E28",
+      "accent-primary": "#D97738",
+      "accent-secondary": "#4D9E72"
+    }
   }
 ]

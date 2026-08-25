@@ -274,8 +274,8 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
     width: "fill_container",
     height: hasRails ? "fill_container" : "fit_content",
     layout: "vertical",
-    padding: [0, 8],
-    gap: 14,
+    padding: hasRails ? [0, 8] : [24, 0, 48, 0],
+    gap: hasRails ? 14 : 72,
     children: []
   } as PenNode;
   slots.main = main.id;
@@ -325,8 +325,8 @@ function desktopScreen(spec: ScreenSpec, id: () => string, slots: Record<string,
     height: clampScreenHeight("desktop", spec.height),
     layout: "vertical",
     fill: "$surface-primary",
-    padding: [16, 24, 16, 24],
-    gap: 12,
+    padding: hasRails ? [16, 24, 16, 24] : [16, 48, 48, 48],
+    gap: hasRails ? 12 : 24,
     clip: true,
     metadata: { screenKind: "desktop" },
     children: [

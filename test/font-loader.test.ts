@@ -15,7 +15,7 @@ import type { Document } from "../src/model/types";
 describe("Google Fonts URL generation", () => {
   it("encodes font families and formats CSS2 display=swap URL", () => {
     expect(googleFontUrl("Roboto")).toBe("https://fonts.googleapis.com/css2?family=Roboto&display=swap");
-    expect(googleFontUrl("Plus Jakarta Sans")).toBe("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans&display=swap");
+    expect(googleFontUrl("Open Sans")).toBe("https://fonts.googleapis.com/css2?family=Open+Sans&display=swap");
   });
 
   it("uses verified multi-axis queries for curated families", () => {
@@ -29,6 +29,8 @@ describe("Google Fonts URL generation", () => {
     expect(googleFontUrl("Anton")).toBe("https://fonts.googleapis.com/css2?family=Anton&display=swap");
     expect(googleFontUrl("Geist Mono")).toContain("family=Geist+Mono:wght@100..900");
     expect(googleFontUrl("IBM Plex Mono")).toContain("family=IBM+Plex+Mono:ital,wght@0,400..700;1,400..700");
+    expect(googleFontUrl("Plus Jakarta Sans")).toContain("family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800");
+    expect(googleFontUrl("Fraunces")).toContain("family=Fraunces:ital,opsz,wght@0,9..144,100..900;1,9..144,100..900");
   });
 });
 
@@ -120,7 +122,7 @@ describe("Simulated browser font loading", () => {
     expect(ok).toBe(true);
     expect(createdLinks.length).toBe(1);
     expect(createdLinks[0].id).toBe("gfont-outfit");
-    expect(createdLinks[0].href).toBe("https://fonts.googleapis.com/css2?family=Outfit&display=swap");
+    expect(createdLinks[0].href).toBe(googleFontUrl("Outfit"));
     expect(fontLoadsCalled).toContain('16px "Outfit"');
   });
 

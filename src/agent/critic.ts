@@ -6,7 +6,7 @@
  * client — and this half reads rules.md off disk, which the browser cannot do.
  */
 import type { Message } from "./provider";
-import { designReviewSchema, type DesignReview } from "./review";
+import { designReviewSchema, type DesignReview, type ReviewIssue } from "./review";
 import { rules } from "./rules";
 
 import { resolvePromptContext, type ResolvedContext } from "./context";
@@ -48,7 +48,8 @@ export function buildCriticSystemPrompt(brief: string, resolved?: ResolvedContex
     domainAdditions.push(
       `DOMAIN-SPECIFIC CRITERIA — MARKETING SITE & LANDING PAGE:`,
       `- Narrative Substance & Composition: The site must have substance and rhythm tailored to the offer's capabilities (First Viewport, concrete offerings/showcase, specifications or atmospheric story, relevant action, and grounding footer when helpful). Do not pass an under-generated site stub with only 1–2 sparse blocks, but do not mandate generic filler furniture like canned testimonials or forced 3-tier pricing on non-commercial offerings.`,
-      `- Credibility vs Fabricated Claims: Product names, routes, cabin specs, and illustrative pricing are expected; but penalize fabricated authority metrics (e.g. fake safety records, customer review quotes, star ratings, or invented charters) that undermine brand trust.`,
+      `- Source Grounding: The brief is the source of truth. Product names and illustrative prices may be invented for a mockup, but exact addresses, contacts, hours, live availability, certifications, sustainability claims, policies, coordinates, travel times, history, founders, ratings, and attributed quotes must not be presented as real unless the brief supplies them. Return refine and replace unsupported facts with neutral labels.`,
+      `- Conversion Proportionality: Repeated actions are not automatically consistency. Refine a discovery site that multiplies the same strong booking action across every item and then repeats it in the hero or footer, unless choosing individual items is clearly the central interaction.`,
       `- Direction & Composition as Hypothesis: Faithful execution of the original direction or chosen composition does not make it correct. Return refine if the chosen composition archetype (e.g. attempting a modular bento on a luxury retreat, or a monumental editorial on an operational tool) or visual system contradicts the product's positioning, passenger trust, or actual use scene.`
     );
   }
@@ -199,5 +200,44 @@ export function parseDesignReview(raw: unknown, digestText: string): DesignRevie
       ...issue,
       nodeIds: issue.nodeIds?.filter((id) => known.has(id))
     }))
+  };
+}
+
+const UNSUPPORTED_CLAIM_PATTERNS = [
+  /\b(?:B Corp(?:oration)?(?: Pending| Certified)?|certified\s+organic|100%\s+renewable|government approved|licensed)\b/gi,
+  /\b(?:\d\.\d\s*\/\s*5\s*stars?|\b\d{1,3}(?:,\d{3})*\s+verified\s+reviews?\b)/gi
+];
+
+/** High-risk authority claims presented as facts that were not supplied in the brief. */
+export function sourceGroundingIssue(brief: string, digestText: string): ReviewIssue | undefined {
+  const source = brief.toLowerCase();
+  const unsupported = new Set<string>();
+  for (const pattern of UNSUPPORTED_CLAIM_PATTERNS) {
+    pattern.lastIndex = 0;
+    for (const match of digestText.matchAll(pattern)) {
+      const claim = match[0].trim();
+      if (claim && !source.includes(claim.toLowerCase())) unsupported.add(claim);
+    }
+  }
+  if (unsupported.size === 0) return undefined;
+  const examples = [...unsupported].slice(0, 3);
+  return {
+    title: "Unsupported authority claims",
+    reason: `The generic brief did not supply formal certifications or verified review stats: ${examples.join(", ")}.`,
+    instruction: "Remove unsupported external certifications or review stats."
+  };
+}
+
+export function enforceSourceGrounding(review: DesignReview, brief: string, digestText: string): DesignReview {
+  const issue = sourceGroundingIssue(brief, digestText);
+  if (!issue) return review;
+  const issues = [issue, ...review.issues.filter((existing) => existing.title !== issue.title)].slice(0, 3);
+  
+  // If the critic already affirmed the canvas is presentation-ready, do not force an automatic visual revision
+  const isPresentationReady = Boolean(review.qualityGate?.presentationReady);
+  return {
+    ...review,
+    verdict: isPresentationReady ? review.verdict : "refine",
+    issues
   };
 }

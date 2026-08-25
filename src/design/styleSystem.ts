@@ -61,107 +61,134 @@ export interface CompositionArchetype {
   density: string;
   media: string;
   avoid: string;
-  bandBudget?: string;
-  heroPattern?: string;
-  showcasePattern?: string;
 }
 
 export const COMPOSITION_ARCHETYPES: readonly CompositionArchetype[] = [
   {
     name: "Cinematic Hero & Narrative",
     category: "site",
-    signature: "Full-bleed panoramic hero with an anchored key action/conversion instrument, followed by ground-shifting atmospheric bands.",
-    rhythm: "Full-viewport hero -> tangible entity showcase -> specifications/story deep-dive -> focused primary decision/action -> ground-shift footer.",
-    density: "Generous panoramic whitespace above the fold; rich detail in supporting specs/cards below.",
-    media: "Cohesive wide-angle film photography from one shoot; natural directional light; strictly no 3D clip-art or 2D diagrams.",
-    avoid: "3-column equal card feature grids, generic SaaS icon boxes, centered badge floods.",
-    bandBudget: "4 atmospheric bands",
-    heroPattern: "Full-bleed 16:9 panoramic landscape hero with subtle key action pill overlay",
-    showcasePattern: "Panoramic photo essay band + compact technical telemetry/spec sheet grid -> ground-shift dark reservation dock"
+    signature: "Full-bleed panoramic hero region dominates with an anchored key action.",
+    rhythm: "Alternates between wide panoramic media and structured detail bands.",
+    density: "Generous panoramic whitespace above the fold; rich detail in supporting specs below.",
+    media: "Cohesive wide-angle photography from one shoot; natural directional light.",
+    avoid: "Repetitive 3-column equal card feature grids or cookie-cutter SaaS boxes."
   },
   {
     name: "Asymmetric Split Instrument",
     category: "site",
-    signature: "Asymmetrical split: bold display proposition and primary interactive control/selector pinned beside high-contrast subject imagery.",
-    rhythm: "Interactive split hero -> concrete configuration/item selector -> tangible parameters & inclusions -> primary action dock.",
-    density: "Medium-high functional density; core actions reachable within the first viewport without deep hunting.",
-    media: "Tactile studio tabletop photography with clean drop shadows, authentic material textures, macro details.",
-    avoid: "Abstract marketing manifestos, multi-paragraph corporate copy, buried action buttons.",
-    bandBudget: "4 high-density functional bands",
-    heroPattern: "Interactive split hero: bold display proposition and primary interactive selector beside studio product imagery",
-    showcasePattern: "Tangible parameter matrix & inclusion specs -> direct primary action dock"
+    signature: "Asymmetric split with bold display proposition beside high-contrast subject imagery.",
+    rhythm: "Interactive split hero -> tangible configuration details -> direct primary action.",
+    density: "Medium-high functional density; core actions reachable without deep hunting.",
+    media: "Tactile studio tabletop photography with clean drop shadows and authentic textures.",
+    avoid: "Equal 50/50 text-only column repeats without clear focal media."
   },
   {
     name: "Monumental Editorial",
     category: "site",
-    signature: "Oversized serif headline dominating the viewport with asymmetric typography scaling and offset photographic moments.",
-    rhythm: "Monolithic headline hook -> narrative pull-quote/statement -> asymmetric collection story bands -> curated item ledger with typography-led metadata -> quiet architectural footer.",
-    density: "Ultra-spacious, rhythmic pacing with dramatic typographic contrast and wide margins.",
-    media: "High-fashion or architectural editorial photography, stark natural lighting, muted film tonality.",
-    avoid: "Box-in-box card grids, colored pills/badges everywhere, standard SaaS pricing tables.",
-    bandBudget: "3–4 expansive typography-led bands",
-    heroPattern: "Monolithic oversized serif headline (>56px) dominating the viewport with offset photographic moments (no split column cards)",
-    showcasePattern: "Asymmetric narrative story diptych + pull-quote -> Curated Divided Text Ledger (tabular rows with $border-subtle dividers, monospaced specs, NO rounded cards) -> quiet architectural footer"
+    signature: "Oversized serif headline dominates the viewport with asymmetric typography scaling.",
+    rhythm: "Monolithic statement -> asymmetric story moments -> divided text ledger with subtle dividers.",
+    density: "Spacious rhythmic pacing with dramatic typographic contrast and wide margins.",
+    media: "High-fashion or architectural editorial photography, stark natural lighting.",
+    avoid: "Generic rounded white card containers everywhere or SaaS pricing tables."
   },
   {
     name: "Modular Bento Grid",
     category: "site",
-    signature: "Interlocking modular cells of varied spans showcasing live UI snippets, interactive metrics, or hardware details.",
-    rhythm: "Punchy headline & CTA -> primary multi-cell Bento feature cluster -> interactive workflow/code inspection -> capability comparison or decision tier.",
-    density: "High information density; structured modular containment with visible data, charts, or live UI snippets inside cells.",
-    media: "Crisp product UI captures, dark-mode terminal blocks, or isometric hardware details with unified lighting.",
-    avoid: "Unformatted long prose paragraphs, mismatched corner radii, low-contrast text on colored cards.",
-    bandBudget: "4 structured modular bands",
-    heroPattern: "Punchy centered display hook & primary CTA",
-    showcasePattern: "5-cell asymmetric Bento cluster (2 wide, 1 tall, 2 square) containing live UI snippets, code blocks, or charts inside cells -> capability comparison tier"
+    signature: "Asymmetric multi-cell modular cluster with varied column/row spans.",
+    rhythm: "Punchy headline -> clustered modular feature cells -> focused capability tier.",
+    density: "High information density; structured modular containment with visible data/UI snippets.",
+    media: "Crisp product UI captures or isometric hardware details with unified lighting.",
+    avoid: "Monotonous equal-size square grid or unformatted long prose paragraphs."
   },
   {
     name: "Filtered Catalog & Index Ledger",
     category: "site",
-    signature: "Clean sticky category/filter header bar presiding over a structured multi-column card grid or ledger with locked horizontal baselines.",
-    rhythm: "Emotive hero -> filter & search bar -> featured/curated row -> structured catalog grid with consistent card heights and clear attributes -> clean ledger footer.",
-    density: "High scanability; repetitive structured cards with clear badges, tags, and aligned action buttons.",
-    media: "Uniform aspect-ratio photography (4:3 or 16:9), clean neutral backgrounds, consistent framing.",
-    avoid: "Uneven card heights, staggered button baselines, missing attributes, naked search widgets replacing the hero.",
-    bandBudget: "3-4 structured inventory bands",
-    heroPattern: "Emotive proposition title & subline with integrated category switcher / inline filter control bar",
-    showcasePattern: "Structured multi-column index cards with uniform aspect ratio photography and locked horizontal baselines"
+    signature: "Sticky category/filter control bar over structured catalog cards with locked baselines.",
+    rhythm: "Hero proposition -> filter controls -> consistent item catalog -> clean ledger footer.",
+    density: "High scanability; structured cards with clear tags and aligned action buttons.",
+    media: "Uniform aspect-ratio photography (4:3 or 16:9), clean neutral backgrounds.",
+    avoid: "Uneven card heights, staggered button baselines, or naked search widgets."
   },
   {
     name: "Operational Workbench",
     category: "tool",
-    signature: "Live status bar and metric telemetry rack directly above an interactive subsystem inspection grid.",
-    rhythm: "System state overview at top -> live metric series with varied data -> drilldown subsystem inspector -> command action bar.",
-    density: "Maximum information density; every pixel encodes live state, logs, coordinates, or controls; zero marketing fluff.",
-    media: "Data plots, sparklines, SVG geometry, status dot indicators; zero decorative stock photos.",
-    avoid: "Marketing hero banners, customer testimonials, empty spacer blocks.",
-    bandBudget: "Single-viewport dense operational console (0 marketing bands)",
-    heroPattern: "Live telemetry rack & system state status bar across topBar",
-    showcasePattern: "Subsystem inspection grid with live status dots ($status-ok, $status-warn), sparklines, and metric plots -> command action bar"
+    signature: "Live telemetry rack directly above an interactive subsystem inspection grid.",
+    rhythm: "Dense real-time system state overview -> metric series -> command action bar.",
+    density: "Maximum information density; every pixel encodes live state or controls; zero fluff.",
+    media: "Data plots, sparklines, SVG geometry, status dot indicators; zero stock photos.",
+    avoid: "Marketing hero banners, customer testimonials, or empty spacer blocks."
   },
   {
     name: "Linear Stepwise Journey",
     category: "site",
-    signature: "Centered linear vertical column (680-840px width) with numbered milestone nodes, progressive visual cues, and focused interactive inputs.",
-    rhythm: "Orientation hook -> sequenced stages with inline interactive components -> summary calculation/preview -> direct confirmation action.",
-    density: "Focused, sequential cognitive load; one primary task or concept per section.",
-    media: "Annotated workflow diagrams, step-by-step interface snippets, crisp instructional micro-graphics.",
-    avoid: "Distracting multi-column sidebars, competing secondary offers, disjointed random cards.",
-    bandBudget: "3 focused sequential bands (680–840px centered column)",
-    heroPattern: "Orientation hook + time/milestone estimate",
-    showcasePattern: "Sequenced numbered milestone stages with inline interactive inputs -> summary calculation -> direct confirmation action"
+    signature: "Centered linear column (680–840px) with progressive numbered milestone stages.",
+    rhythm: "Orientation hook -> sequenced stages with inline inputs -> confirmation action.",
+    density: "Focused sequential cognitive load; one primary task or concept per section.",
+    media: "Annotated workflow diagrams or step-by-step interface snippets.",
+    avoid: "Distracting multi-column sidebars or competing secondary offers."
   },
   {
     name: "Card-Stage & Thumb Dock",
     category: "app",
-    signature: "Single-viewport mobile stage: centered focal card in upper viewport, circular thumb action dock in lower thumb zone, pinned bottom tab bar.",
-    rhythm: "Header mode switcher -> centered stage card with metadata pills -> thumb action dock -> pinned bottom tabs.",
+    signature: "Single-viewport mobile stage with centered focal card and thumb action dock.",
+    rhythm: "Header mode switcher -> centered stage card -> thumb action dock -> bottom tabs.",
     density: "Compact single-viewport composition fitting cleanly within 844px mobile height.",
-    media: "Full-bleed portrait photography or dynamic media; edge-to-edge within the stage card.",
-    avoid: "Vertical scroll overflow on single-card apps, touch targets <44px, top-heavy action buttons.",
-    bandBudget: "Single-viewport mobile app (844px max height)",
-    heroPattern: "Mode switcher header -> centered portrait stage card with metadata pills",
-    showcasePattern: "Thumb action dock with circular action buttons -> pinned bottom tabs"
+    media: "Full-bleed portrait photography; edge-to-edge within the stage card.",
+    avoid: "Vertical scrolling on single-card apps or touch targets under 44px."
+  },
+  {
+    name: "Dense Multi-Pane Inspector",
+    category: "tool",
+    signature: "3-pane split workspace with left navigation tree, central viewport stage, and right properties inspector.",
+    rhythm: "Top command toolbar -> 3-column workspace -> bottom status dock.",
+    density: "Maximum functional density; persistent tool rails for deep inspection and editing.",
+    media: "Interactive canvas viewports, wireframes, component nodes, or code panes; zero stock photos.",
+    avoid: "Sprawling vertical landing page bands or centered marketing heroes."
+  },
+  {
+    name: "Tabbed Feed Flow",
+    category: "app",
+    signature: "Pinned top segmented category carousel presiding over a scrollable vertical card feed with bottom navigation tabs.",
+    rhythm: "Category filter bar -> rich media feed cards with action rows -> pinned bottom tabs.",
+    density: "Scannable mobile feed density with consistent card margins and thumb-reach actions.",
+    media: "Rich photography or artwork cards with consistent aspect ratios.",
+    avoid: "Non-scrolling single-card constraints or hidden navigation."
+  },
+  {
+    name: "Bifurcated Dual-Gate Gateway",
+    category: "site",
+    signature: "Full-viewport 50/50 dual-audience split hero dividing into two contrasting personas or product modes.",
+    rhythm: "Split dual-path hero -> shared convergence trust band -> parallel feature ledgers -> dual-action closing dock.",
+    density: "Balanced dual-sided density; clear separation between the two user journeys.",
+    media: "Contrasting dual photography or interface mockups representing both personas.",
+    avoid: "Blurring the two personas into generic copy or burying the secondary audience below the fold."
+  },
+  {
+    name: "Sticky Stage & Scrolly Track",
+    category: "site",
+    signature: "Pinned focal product stage with a continuous vertical stream of narrative timestamps and feature callouts flowing alongside.",
+    rhythm: "Pinned product stage with progressive feature callouts -> wide-angle material/spec breakdown -> conversion dock.",
+    density: "High focal clarity; the visual subject remains visible throughout the narrative scroll.",
+    media: "High-fidelity 3D renders, physical hardware photography, or live product viewports.",
+    avoid: "Stacking detached, unrelated cards or disconnecting the sticky stage from the accompanying milestones."
+  },
+  {
+    name: "Tactile Sticker Sheet & Canvas HUD",
+    category: "site",
+    signature: "Open canvas with asymmetrical floating tactile HUD controls, offset tool chips, and playful interactive badges orbiting a bold display hook.",
+    rhythm: "Playful HUD cluster hero -> interactive widget swatch band -> tactile card grid with thick borders -> creative colophon.",
+    density: "Tactile, playful density with expressive offsets, badges, and tangible micro-controls.",
+    media: "Playful vector iconography, isometric 3D doodles, custom badges, and high-contrast chips.",
+    avoid: "Rigid, sterile corporate grids, cold grey enterprise tables, or generic stock photography."
+  },
+  {
+    name: "Monospace Terminal & API Spec Ledger",
+    category: "site",
+    signature: "Monospace command-line hero with syntax-highlighted code output, interactive CLI parameter flags, and a clean tabular API spec ledger.",
+    rhythm: "Terminal execution snippet with copyable install command -> live parameter/SDK builder -> dense API reference ledger -> quickstart footer.",
+    density: "High technical density; every section carries copyable commands, types, flags, or data schemas.",
+    media: "Code panes, terminal outputs, architecture diagrams, and keyboard badges; zero stock photos.",
+    avoid: "Human lifestyle stock photos, pillowy pastel buttons, or vague marketing copy without code examples."
   }
 ];
 
@@ -229,13 +256,36 @@ export const FONT_FAMILIES = [
   "Geist",
   "DM Sans",
   "Space Grotesk",
-  "Funnel Display",
+  "Plus Jakarta Sans",
+  "Outfit",
+  "Hanken Grotesk",
+  "Chivo",
+  "Epilogue",
   "Newsreader",
   "Playfair Display",
   "Instrument Serif",
+  "Fraunces",
+  "Cormorant Garamond",
+  "EB Garamond",
+  "Cardo",
+  "DM Serif Display",
+  "Bodoni Moda",
+  "Spectral",
+  "Crimson Pro",
+  "Source Serif 4",
+  "Cinzel",
+  "Funnel Display",
   "Anton",
+  "Bricolage Grotesque",
+  "Syne",
+  "Unbounded",
+  "Big Shoulders Display",
   "Geist Mono",
-  "IBM Plex Mono"
+  "IBM Plex Mono",
+  "JetBrains Mono",
+  "Space Mono",
+  "Fira Code",
+  "DM Mono"
 ] as const;
 
 export type FontFamily = (typeof FONT_FAMILIES)[number];
@@ -259,25 +309,63 @@ interface TypefaceGroup {
 const TYPEFACE_GROUPS: readonly TypefaceGroup[] = [
   {
     label: "Text",
-    faces: ["Inter", "Geist", "DM Sans", "Space Grotesk"],
+    faces: [
+      "Inter",
+      "Geist",
+      "DM Sans",
+      "Space Grotesk",
+      "Plus Jakarta Sans",
+      "Outfit",
+      "Hanken Grotesk",
+      "Chivo",
+      "Epilogue"
+    ],
     deal: 2,
     job: "any role"
   },
   {
     label: "Serif",
-    faces: ["Newsreader", "Playfair Display", "Instrument Serif"],
-    deal: 1,
+    faces: [
+      "Newsreader",
+      "Playfair Display",
+      "Instrument Serif",
+      "Fraunces",
+      "Cormorant Garamond",
+      "EB Garamond",
+      "Cardo",
+      "DM Serif Display",
+      "Bodoni Moda",
+      "Spectral",
+      "Crimson Pro",
+      "Source Serif 4",
+      "Cinzel"
+    ],
+    deal: 2,
     job: "headings; body when editorial"
   },
   {
     label: "Display",
-    faces: ["Funnel Display", "Anton"],
+    faces: [
+      "Funnel Display",
+      "Anton",
+      "Bricolage Grotesque",
+      "Syne",
+      "Unbounded",
+      "Big Shoulders Display"
+    ],
     deal: 1,
     job: "headings above 28px only"
   },
   {
     label: "Mono",
-    faces: ["Geist Mono", "IBM Plex Mono"],
+    faces: [
+      "Geist Mono",
+      "IBM Plex Mono",
+      "JetBrains Mono",
+      "Space Mono",
+      "Fira Code",
+      "DM Mono"
+    ],
     deal: 1,
     job: "numbers and code only — never labels, chips or tab bars"
   }
@@ -579,37 +667,56 @@ function reservedPalettes(pool: Palette[], brief: string, seats: number): Palett
 
 export function dealCompositionArchetypes(
   seed: number,
-  context?: Partial<ResolvedContext>
+  context?: Partial<ResolvedContext>,
+  avoidance?: StyleAvoidance
 ): CompositionArchetype[] {
   const archetype = context?.archetype;
   const surface = context?.surface;
   const traits = context?.traits ?? [];
   const next = dealer(seed);
 
+  let eligible: readonly CompositionArchetype[];
   if (archetype === "tool") {
-    // Tool surfaces: only Operational Workbench and Modular Bento Grid are eligible
-    const eligible = COMPOSITION_ARCHETYPES.filter(
-      (a) => a.name === "Operational Workbench" || a.name === "Modular Bento Grid"
+    // Tool surfaces: Operational Workbench, Modular Bento Grid, Dense Multi-Pane Inspector, Monospace Terminal
+    eligible = COMPOSITION_ARCHETYPES.filter(
+      (a) =>
+        a.name === "Operational Workbench" ||
+        a.name === "Modular Bento Grid" ||
+        a.name === "Dense Multi-Pane Inspector" ||
+        a.name === "Monospace Terminal & API Spec Ledger"
     );
-    return deal(eligible, eligible.length, next);
-  }
-
-  if (traits.includes("swipe_discovery") || (archetype === "app" && surface === "mobile")) {
-    // Mobile card swipe / discovery / compact app
-    const eligible = COMPOSITION_ARCHETYPES.filter(
+  } else if (traits.includes("swipe_discovery")) {
+    // Mobile card swipe / discovery
+    eligible = COMPOSITION_ARCHETYPES.filter(
       (a) =>
         a.name === "Card-Stage & Thumb Dock" ||
         a.name === "Asymmetric Split Instrument" ||
         a.name === "Linear Stepwise Journey"
     );
-    return deal(eligible, eligible.length, next);
+  } else if (archetype === "app" && surface === "mobile") {
+    // Mobile apps: Tabbed Feed Flow, Card-Stage, Asymmetric Split, Linear Stepwise, Tactile Sticker Sheet
+    eligible = COMPOSITION_ARCHETYPES.filter(
+      (a) =>
+        a.name === "Tabbed Feed Flow" ||
+        a.name === "Card-Stage & Thumb Dock" ||
+        a.name === "Asymmetric Split Instrument" ||
+        a.name === "Linear Stepwise Journey" ||
+        a.name === "Tactile Sticker Sheet & Canvas HUD"
+    );
+  } else {
+    // Site surfaces and general: strictly exclude pure tool consoles and single-card thumb stages
+    eligible = COMPOSITION_ARCHETYPES.filter(
+      (a) =>
+        a.name !== "Operational Workbench" &&
+        a.name !== "Dense Multi-Pane Inspector" &&
+        a.name !== "Card-Stage & Thumb Dock"
+    );
   }
 
-  // Site surfaces and general: strictly exclude Operational Workbench and Card-Stage & Thumb Dock
-  const eligible = COMPOSITION_ARCHETYPES.filter(
-    (a) => a.name !== "Operational Workbench" && a.name !== "Card-Stage & Thumb Dock"
-  );
-  return deal(eligible, 4, next);
+  const avoided = new Set((avoidance?.compositions ?? []).map((c) => c.toLowerCase()));
+  const fresh = eligible.filter((a) => !avoided.has(a.name.toLowerCase()));
+  const pool = fresh.length >= 2 ? fresh : eligible;
+  return deal([...pool], Math.min(pool.length, 4), next);
 }
 
 export function styleCatalog(
@@ -656,7 +763,7 @@ export function styleCatalog(
   const lines: string[] = [];
   lines.push("COMPOSITION (choose one for composition)");
   lines.push("  Pass the archetype name to set_style to commit to its structural gesture.");
-  for (const c of dealCompositionArchetypes(seed, dealOpts.context)) {
+  for (const c of dealCompositionArchetypes(seed, dealOpts.context, avoidance)) {
     lines.push(`  ${c.name} — ${c.signature}`);
   }
   lines.push("");
@@ -710,14 +817,9 @@ export function styleGuidelines(style: ResolvedStyle): string {
     ...(style.composition ? [
       "",
       `COMPOSITION: ${style.composition.name}`,
-      ...(style.composition.bandBudget ? [`  Band Budget: ${style.composition.bandBudget}`] : []),
-      `  Signature:   ${style.composition.signature}`,
-      ...(style.composition.heroPattern ? [`  Hero:        ${style.composition.heroPattern}`] : []),
-      `  Rhythm:      ${style.composition.rhythm}`,
-      ...(style.composition.showcasePattern ? [`  Showcase:    ${style.composition.showcasePattern}`] : []),
-      `  Density:     ${style.composition.density}`,
-      `  Media:       ${style.composition.media}`,
-      `  Avoid:       ${style.composition.avoid}`
+      `  Dominant Geometry: ${style.composition.signature}`,
+      `  Rhythm Principle:  ${style.composition.rhythm}`,
+      `  Avoid:             ${style.composition.avoid}`
     ] : []),
     "",
     "COLOUR — where each token may appear",

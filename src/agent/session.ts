@@ -86,13 +86,21 @@ export async function* runSession(
   const promptDoc = pageScopedDocument(doc, opts.pageId);
   const { latest, all } = extractUserPrompts(messages);
   const resolved = resolvePromptContext(latest, promptDoc, opts.selection ?? [], all);
+
   const session = createDocumentTools(doc, {
     providerId: provider.id,
     apiKey: provider.apiKey,
     fetch: opts.fetch
   }, opts.pageId, resolved.archetype);
   const maxTurns = opts.maxTurns ?? MAX_MODEL_ROUNDS;
-  const out = withSystemPrompt(messages, promptDoc, opts.selection ?? [], provider.model, opts.recentStyles ?? [], maxTurns);
+  const out = withSystemPrompt(
+    messages,
+    promptDoc,
+    opts.selection ?? [],
+    provider.model,
+    opts.recentStyles ?? [],
+    maxTurns
+  );
 
   // Attach canvas reference image if selected
   if (opts.selection && opts.selection.length > 0) {

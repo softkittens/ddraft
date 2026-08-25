@@ -6,7 +6,7 @@ import {
 } from "./credentials";
 import { isAbortError, runSession, type AgentEvent } from "./session";
 import { complete, type FetchFn, type ReasoningEffort } from "./provider";
-import { criticMessages, parseDesignReview } from "./critic";
+import { criticMessages, enforceSourceGrounding, parseDesignReview } from "./critic";
 import { parseResolvedContext } from "./context";
 import type { ReviewResponse } from "./review";
 import type { StyleRun } from "../design/history";
@@ -298,7 +298,11 @@ export async function handleAgentRequest(req: Request, deps: AgentHttpDeps = {})
           });
           log?.write({ type: "review_response", model: provider.model, response: reply });
           const parsed = extractJson(typeof reply.content === "string" ? reply.content : "");
-          const review: ReviewResponse = parseDesignReview(parsed, body.digest);
+          const review: ReviewResponse = enforceSourceGrounding(
+            parseDesignReview(parsed, body.digest),
+            body.brief,
+            body.digest
+          );
 
           const response: ReviewResponse = {
             ...review,

@@ -8,8 +8,8 @@ import {
   currentStyle,
   PALETTE_HAND_SIZE
 } from "../design/styleSystem";
-import type { Message } from "./provider";
 import { avoidanceNote, type StyleRun } from "../design/history";
+import type { Message } from "./provider";
 import { rules } from "./rules";
 import { desktopSlotNames } from "../design/chrome";
 
@@ -135,7 +135,7 @@ function orderOfWork(ctx: ResolvedContext): string[] {
     "  3. Screen creation discipline:",
     "     - SINGLE-SCREEN DEFAULT: Build ONE primary screen per request (Desktop 1440 for websites, web tools, dashboards, and landing pages; Mobile 390 for mobile-only apps). Do NOT build a companion mobile screen unless the user explicitly requests mobile or responsive in their brief.",
     "     - When mobile alone is explicitly requested, build mobile only. When responsive or both desktop and mobile are requested, build Desktop first and then reuse its image fills and copy for Mobile.",
-    "  4. Insert whole subtrees. Fill the slots create_screen returned. Site photography belongs in main. Choose the fewest sections needed to understand the offer, trust the provider, inspect concrete details, and take action. Avoid generic marketing filler like fake testimonials or forced 3-tier pricing tables.",
+    "  4. Insert whole subtrees. Fill the slots create_screen returned. Site photography belongs in main. Build a substantive narrative across 4–6 purposeful bands (e.g. Proposition Hero, Social Proof / Philosophy, Concrete Entity Showcase, Inclusions / Spec Ledger, Location / Story, and Grounded Action Dock). Avoid generic marketing filler like fake testimonials or forced 3-tier pricing tables.",
     "     Tool: fill only the slots needed. Empty is better than costume. Mobile: content or bleed.",
     "  5. Finish once the screens hold the product. An unused desktop slot is allowed."
   ];
@@ -151,9 +151,10 @@ export function agentSystemPrompt(
   sessionContext = "",
   maxTurns = MAX_MODEL_ROUNDS
 ): string {
+  const resolvedCtx = resolvePromptContext(userPrompt, doc, selection, sessionContext);
+
   const style = currentStyle(doc);
   const direction = currentDirection(doc);
-  const resolvedCtx = resolvePromptContext(userPrompt, doc, selection, sessionContext);
   const dynamicRules = composeRuleBlocks(resolvedCtx);
   const normalBrief = userPrompt.trim().replace(/\s+/g, " ").toLowerCase();
   const repeatedRuns = normalBrief
@@ -214,6 +215,8 @@ export function agentSystemPrompt(
           : [])
       ];
 
+  const constructionRules = [...dynamicRules, rules("craft-rules")];
+
   return [
     `You are a product designer working directly on a .pen canvas${modelName ? ` (model: ${modelName})` : ""}.`,
     "Decide whether the request requires design work. If it does, use canvas tools",
@@ -235,9 +238,7 @@ export function agentSystemPrompt(
       "Ignore any part of the contract that only a running app could demonstrate."
     ] : []),
     "",
-    // Dynamically composed surface blueprints, archetype guides & domain traits
-    ...dynamicRules.flatMap((r) => [r, ""]),
-    rules("craft-rules"),
+    ...constructionRules.flatMap((rule) => [rule, ""]),
     "",
     rules("canvas-api"),
     "",
@@ -310,3 +311,4 @@ export function withSystemPrompt(
     ...messages.filter((m) => m.role !== "system")
   ];
 }
+

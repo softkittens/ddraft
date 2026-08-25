@@ -53,6 +53,8 @@ export type AuditRule =
   | "missing_product_image"
   | "false_floor"
   | "inconsistent_card_actions"
+  | "repeated_primary_action"
+  | "supporting_image_wall"
   | "catalog_row";
 
 export type AuditSeverity = "blocker" | "warning" | "info";

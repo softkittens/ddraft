@@ -1026,6 +1026,39 @@ describe("Scoping, Triage & Tool Integration", () => {
     expect(cropFindings).toHaveLength(0);
   });
 
+  it("blocks the same solid primary action repeated across a site", () => {
+    const repeatedActions = makeDoc(
+      screen("desktop", [
+        frame("hero_cta", 220, 48, [txt("hero_label", "Check availability", 14)], {
+          name: "Hero CTA", fill: "$accent-primary", layout: "horizontal"
+        }),
+        frame("footer_cta", 220, 48, [txt("footer_label", "Check availability", 14)], {
+          name: "Footer CTA", fill: "$accent-primary", layout: "horizontal"
+        })
+      ], { width: 1440, height: 900 })
+    );
+    expectFinding(repeatedActions, "repeated_primary_action", {
+      severity: "blocker",
+      nodeId: "footer_cta",
+      message: "appears 2 times"
+    });
+  });
+
+  it("blocks a non-hero support photograph that consumes most of a desktop viewport", () => {
+    const wall = makeDoc(
+      screen("desktop", [
+        frame("support_photo", 1376, 774, [], {
+          name: "Support Image", fill: { type: "image", url: "room.png" }
+        })
+      ], { width: 1440, height: 1200 })
+    );
+    expectFinding(wall, "supporting_image_wall", {
+      severity: "blocker",
+      nodeId: "support_photo",
+      message: "1376x774"
+    });
+  });
+
   it("flags staggered button baselines in horizontal card rows", () => {
     const cardsDoc = makeDoc(
       screen("desktop", [

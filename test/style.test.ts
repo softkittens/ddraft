@@ -314,9 +314,9 @@ describe("Status colours are derived per palette", () => {
 
 describe("Dealing", () => {
   it("offers a typeface for every job it asks the model to fill", () => {
-    const sans = ["Inter", "Geist", "DM Sans", "Space Grotesk"];
-    const serif = ["Newsreader", "Playfair Display", "Instrument Serif"];
-    const display = ["Funnel Display", "Anton"];
+    const sans = ["Inter", "Geist", "DM Sans", "Space Grotesk", "Plus Jakarta Sans", "Outfit", "Hanken Grotesk", "Chivo", "Epilogue"];
+    const serif = ["Newsreader", "Playfair Display", "Instrument Serif", "Fraunces", "Cormorant Garamond", "EB Garamond", "Cardo", "DM Serif Display", "Bodoni Moda", "Spectral", "Crimson Pro", "Source Serif 4", "Cinzel"];
+    const display = ["Funnel Display", "Anton", "Bricolage Grotesque", "Syne", "Unbounded", "Big Shoulders Display"];
     for (const seed of [1, 2, 7, 99, 1234, -5000]) {
       const hand = dealTypefaces(seed);
       for (const group of [sans, serif, display]) {
@@ -326,7 +326,7 @@ describe("Dealing", () => {
   });
 
   it("makes monospace an occasional card rather than one in every hand", () => {
-    const mono = ["Geist Mono", "IBM Plex Mono"];
+    const mono = ["Geist Mono", "IBM Plex Mono", "JetBrains Mono", "Space Mono", "Fira Code", "DM Mono"];
     const N = 800;
     const rate =
       [...Array(N)].filter((_, i) => dealTypefaces(i + 1).some((f) => mono.includes(f))).length / N;
@@ -335,9 +335,10 @@ describe("Dealing", () => {
   });
 
   it("prints each dealt face beside the job it is allowed to do", () => {
+    const mono = ["Geist Mono", "IBM Plex Mono", "JetBrains Mono", "Space Mono", "Fira Code", "DM Mono"];
     const withMono = [...Array(200)]
       .map((_, i) => i + 1)
-      .find((s) => dealTypefaces(s).some((f) => ["Geist Mono", "IBM Plex Mono"].includes(f)))!;
+      .find((s) => dealTypefaces(s).some((f) => mono.includes(f)))!;
     const catalog = styleCatalog(withMono);
     expect(catalog).toContain("Display");
     expect(catalog).toContain("headings above 28px only");
@@ -433,8 +434,8 @@ describe("Dealing", () => {
 });
 
 describe("Composition archetypes", () => {
-  it("provides 8 curated distinct composition archetypes", () => {
-    expect(COMPOSITION_ARCHETYPES.length).toBe(8);
+  it("provides 14 curated distinct composition archetypes", () => {
+    expect(COMPOSITION_ARCHETYPES.length).toBe(14);
     for (const a of COMPOSITION_ARCHETYPES) {
       expect(a.name.length).toBeGreaterThan(0);
       expect(a.signature.length).toBeGreaterThan(0);
@@ -515,23 +516,23 @@ describe("Composition archetypes", () => {
     });
     const guide = styleGuidelines(style);
     expect(guide).toContain("COMPOSITION: Modular Bento Grid");
-    expect(guide).toContain("Band Budget: 4 structured modular bands");
-    expect(guide).toContain("Signature:   Interlocking modular cells");
-    expect(guide).toContain("Hero:        Punchy centered display hook");
-    expect(guide).toContain("Rhythm:");
-    expect(guide).toContain("Showcase:");
-    expect(guide).toContain("Density:");
-    expect(guide).toContain("Media:");
-    expect(guide).toContain("Avoid:");
+    expect(guide).toContain("Dominant Geometry: Asymmetric multi-cell modular cluster");
+    expect(guide).toContain("Rhythm Principle:  Punchy headline");
+    expect(guide).toContain("Avoid:             Monotonous equal-size square grid");
   });
 
   it("strictly excludes incompatible compositions for tool surfaces (negative routing)", () => {
     for (const seed of [1, 2, 7, 42, 99, 1234]) {
       const toolDeals = dealCompositionArchetypes(seed, { archetype: "tool", surface: "desktop" });
       const names = toolDeals.map((a) => a.name);
-      // Tool eligible: Operational Workbench, Modular Bento Grid
+      // Tool eligible: Operational Workbench, Modular Bento Grid, Dense Multi-Pane Inspector, Monospace Terminal
       for (const name of names) {
-        expect(["Operational Workbench", "Modular Bento Grid"]).toContain(name);
+        expect([
+          "Operational Workbench",
+          "Modular Bento Grid",
+          "Dense Multi-Pane Inspector",
+          "Monospace Terminal & API Spec Ledger"
+        ]).toContain(name);
       }
       // Negative checks: site and mobile app archetypes must never appear
       expect(names).not.toContain("Cinematic Hero & Narrative");
@@ -540,6 +541,8 @@ describe("Composition archetypes", () => {
       expect(names).not.toContain("Card-Stage & Thumb Dock");
       expect(names).not.toContain("Linear Stepwise Journey");
       expect(names).not.toContain("Asymmetric Split Instrument");
+      expect(names).not.toContain("Bifurcated Dual-Gate Gateway");
+      expect(names).not.toContain("Sticky Stage & Scrolly Track");
     }
   });
 
@@ -548,6 +551,7 @@ describe("Composition archetypes", () => {
       const siteDeals = dealCompositionArchetypes(seed, { archetype: "site", surface: "desktop" });
       const names = siteDeals.map((a) => a.name);
       expect(names).not.toContain("Operational Workbench");
+      expect(names).not.toContain("Dense Multi-Pane Inspector");
       expect(names).not.toContain("Card-Stage & Thumb Dock");
     }
   });
@@ -562,6 +566,7 @@ describe("Composition archetypes", () => {
       const names = mobileDeals.map((a) => a.name);
       expect(names).toContain("Card-Stage & Thumb Dock");
       expect(names).not.toContain("Operational Workbench");
+      expect(names).not.toContain("Dense Multi-Pane Inspector");
       expect(names).not.toContain("Cinematic Hero & Narrative");
       expect(names).not.toContain("Monumental Editorial");
       expect(names).not.toContain("Filtered Catalog & Index Ledger");

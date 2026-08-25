@@ -31,6 +31,8 @@ const HIERARCHY_RULES = new Set<AuditFinding["rule"]>([
   "false_floor",
   "empty_tail",
   "oversized_section_height",
+  "repeated_primary_action",
+  "supporting_image_wall",
   "accent_overuse"
 ]);
 
@@ -67,6 +69,12 @@ export const designReviewSchema = z.preprocess((val) => {
     usability: z.number().min(1).max(5),
     craft: z.number().min(1).max(5)
   }),
+  qualityGate: z.object({
+    distinctive: z.boolean(),
+    proportional: z.boolean(),
+    presentationReady: z.boolean(),
+    reason: z.string()
+  }).optional(),
   strengths: z.array(z.string()).max(10).optional().default([]),
   issues: z.array(reviewIssueSchema).max(10).optional().default([])
 }));
@@ -129,10 +137,15 @@ export function applyReviewMessage(
     "has already been said."
   ];
 
-  if (review.issues.length === 0) {
+  const actionableIssues = review.issues.filter(
+    (issue) => (issue.nodeIds && issue.nodeIds.length > 0) || /(?:mismatch|restyle)/i.test(issue.title)
+  );
+
+  if (actionableIssues.length === 0 && review.issues.length === 0) {
     lines.push("- Address layout alignment, button centering, media breathing room, and visual hierarchy to bring the design to production polish.");
   } else {
-    for (const issue of review.issues) {
+    const list = actionableIssues.length > 0 ? actionableIssues : review.issues;
+    for (const issue of list) {
       const firstId = issue.nodeIds?.[0];
       const screenName = firstId ? findRootScreenForNode(doc, firstId) : undefined;
       const screenTag = screenName ? `[${screenName}] ` : "";
@@ -151,6 +164,11 @@ export function finalizeReview(
   const severeFindings = findings.filter((f) => f.severity === "blocker");
 
   const nextIssues = [...(review.issues || [])];
+  const qualityReady = Boolean(
+    review.qualityGate?.distinctive &&
+    review.qualityGate?.proportional &&
+    review.qualityGate?.presentationReady
+  );
   for (const f of severeFindings) {
     const title =
       f.rule === "oversized_section_height"
@@ -184,11 +202,12 @@ export function finalizeReview(
     scores.usability >= 4 &&
     scores.craft >= 4;
 
-  const isPass = allScoresAtLeastFour && nextIssues.length === 0 && severeFindings.length === 0;
+  const isPass = qualityReady && allScoresAtLeastFour && nextIssues.length === 0 && severeFindings.length === 0;
 
   return {
     verdict: isPass ? "pass" : "refine",
     scores,
+    qualityGate: review.qualityGate,
     strengths: review.strengths || [],
     issues: nextIssues
   };

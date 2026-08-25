@@ -71,6 +71,7 @@ export type FetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<
 export interface CompleteOptions {
   fetch?: FetchFn;
   signal?: AbortSignal;
+  tools?: Tool[];
 }
 
 export function isValidImageUrl(url: string | undefined | null): boolean {
@@ -237,15 +238,22 @@ export async function complete(
     ? {
         model: p.model,
         input: toResponsesInput(messages),
+        ...(opts.tools?.length ? { tools: opts.tools.map((t) => ({ type: "function", name: t.name, description: t.description, parameters: t.parameters })) } : {}),
         ...(toWireReasoningEffort(p)
           ? { reasoning: { effort: toWireReasoningEffort(p) } }
           : {})
       }
     : api === "messages"
-      ? { model: p.model, max_tokens: p.maxOutputTokens ?? 4096, ...messagesInput }
+      ? {
+          model: p.model,
+          max_tokens: p.maxOutputTokens ?? 4096,
+          ...(opts.tools?.length ? { tools: opts.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })) } : {}),
+          ...messagesInput
+        }
     : {
         model: p.model,
         messages: toApiMessages(messages, p),
+        ...(opts.tools?.length ? { tools: opts.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })) } : {}),
         ...(usesMaxCompletionTokens(p)
           ? { max_completion_tokens: p.maxOutputTokens ?? 4096 }
           : { max_tokens: p.maxOutputTokens ?? 4096 }),
@@ -285,18 +293,57 @@ export async function complete(
 
   const data = (await res.json()) as {
     choices?: { message?: { role?: string; content?: string | null; tool_calls?: ToolCall[] } }[];
-    output?: { type?: string; content?: { type?: string; text?: string }[] }[];
-    content?: { type?: string; text?: string }[];
+    output?: { type?: string; name?: string; call_id?: string; id?: string; arguments?: unknown; content?: { type?: string; text?: string }[] }[];
+    content?: { type?: string; name?: string; id?: string; input?: unknown; text?: string }[];
   };
-  if (api !== "chat") {
-    const parts = api === "responses"
-      ? (data.output ?? []).flatMap((item) => item.content ?? [])
-      : data.content ?? [];
+  if (api === "responses") {
+    const parts = (data.output ?? []).flatMap((item) => item.content ?? []);
     const content = parts
       .filter((part) => part.type === "output_text" || part.type === "text")
       .map((part) => part.text ?? "")
       .join("");
-    return { role: "assistant", content };
+    const toolCalls: ToolCall[] = [];
+    for (const item of (data.output ?? [])) {
+      if (item.type === "function_call" && item.name) {
+        toolCalls.push({
+          id: item.call_id ?? item.id ?? "call_0",
+          type: "function",
+          function: {
+            name: item.name,
+            arguments: typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments ?? {})
+          }
+        });
+      }
+    }
+    return {
+      role: "assistant",
+      content,
+      tool_calls: toolCalls.length > 0 ? toolCalls : undefined
+    };
+  }
+  if (api === "messages") {
+    const content = (data.content ?? [])
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("");
+    const toolCalls: ToolCall[] = [];
+    for (const part of (data.content ?? [])) {
+      if (part.type === "tool_use" && part.name) {
+        toolCalls.push({
+          id: part.id ?? "call_0",
+          type: "function",
+          function: {
+            name: part.name,
+            arguments: JSON.stringify(part.input ?? {})
+          }
+        });
+      }
+    }
+    return {
+      role: "assistant",
+      content,
+      tool_calls: toolCalls.length > 0 ? toolCalls : undefined
+    };
   }
   const msg = data.choices?.[0]?.message;
   return {

@@ -31,10 +31,13 @@ function locate(relative: string): string {
   }
 }
 
-const SECTIONS = new Map<string, string>();
-for (const block of readFileSync(locate("src/agent/rules.md"), "utf8").split(/^## /m).slice(1)) {
-  const heading = block.indexOf("\n");
-  SECTIONS.set(block.slice(0, heading).trim(), block.slice(heading + 1).trim());
+function loadSections(): Map<string, string> {
+  const sections = new Map<string, string>();
+  for (const block of readFileSync(locate("src/agent/rules.md"), "utf8").split(/^## /m).slice(1)) {
+    const heading = block.indexOf("\n");
+    sections.set(block.slice(0, heading).trim(), block.slice(heading + 1).trim());
+  }
+  return sections;
 }
 
 /**
@@ -43,9 +46,10 @@ for (const block of readFileSync(locate("src/agent/rules.md"), "utf8").split(/^#
  * code while the sentence around it stays in the prose.
  */
 export function rules(slug: string, vars: Record<string, string> = {}): string {
-  const body = SECTIONS.get(slug);
+  const sections = loadSections();
+  const body = sections.get(slug);
   if (body === undefined) {
-    throw new Error(`rules.md has no "${slug}" section — it has ${[...SECTIONS.keys()].join(", ")}`);
+    throw new Error(`rules.md has no "${slug}" section — it has ${[...sections.keys()].join(", ")}`);
   }
   return body.replace(/\{(\w+)\}/g, (whole, name: string) => vars[name] ?? whole);
 }

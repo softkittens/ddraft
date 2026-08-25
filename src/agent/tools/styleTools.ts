@@ -7,11 +7,12 @@ import {
   styleGuidelines,
   StyleChoiceError,
   DIRECTION_METADATA_KEY,
-  STYLE_METADATA_KEY
+  STYLE_METADATA_KEY,
+  type ResolvedStyle
 } from "../../design/styleSystem";
 import type { DocumentToolDefinition } from "./types";
 
-function freezeTokensOnChildren(nodes: PenNode[], oldVariables: Record<string, any>): void {
+export function freezeTokensOnChildren(nodes: PenNode[], oldVariables: Record<string, any>): void {
   walkNodes(nodes, (node) => {
     if (typeof (node as any).fill === "string" && (node as any).fill.startsWith("$")) {
       const resolved = resolveVariable((node as any).fill, oldVariables);
@@ -37,6 +38,21 @@ function freezeTokensOnChildren(nodes: PenNode[], oldVariables: Record<string, a
       }
     }
   });
+}
+
+export function applyResolvedStyleToDocument(
+  doc: Document,
+  style: ResolvedStyle
+): Document {
+  if (doc.children.length > 0 && doc.variables && Object.keys(doc.variables).length > 0) {
+    freezeTokensOnChildren(doc.children, doc.variables);
+  }
+  doc.variables = { ...(doc.variables ?? {}), ...style.variables };
+  doc.metadata = {
+    ...(doc.metadata ?? {}),
+    [STYLE_METADATA_KEY]: style.choice
+  };
+  return doc;
 }
 
 export const setStyleTool: DocumentToolDefinition = {

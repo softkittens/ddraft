@@ -42,8 +42,8 @@ describe("System prompt carries rules, not a design", () => {
     expect(prompt).toContain("Anti-Box-in-Box Nesting");
     expect(prompt).toContain("Do not put an eyebrow or kicker above a heading");
     expect(prompt).toContain("at most two visible roles per screen");
-    expect(prompt).toContain("Never invent a claim");
-    expect(prompt).toContain("marketing, not content");
+    expect(prompt).toContain("Unless supplied by the brief, do not invent addresses");
+    expect(prompt).toContain("fictional brand and clearly illustrative product names or prices are allowed");
   });
 
   it("tells the model it can name an icon without looking it up first", () => {
@@ -222,8 +222,9 @@ describe("System prompt carries rules, not a design", () => {
     );
     expect(p).not.toContain("If the look is guessable");
     expect(p).not.toContain("Neobrutalism");
-    expect(p).toContain("Four Distinct Hero Archetypes");
+    expect(p).toContain("Four Distinct Hero Topologies");
     expect(p).toContain("AVOID THE ROBOTIC 6-BAND CLONE");
+    expect(p).toContain("Horizontal Toolbars & Filters");
   });
 
   it("supplies the style and composition catalog when a review reports a direction or style mismatch", () => {

@@ -688,7 +688,8 @@ describe("answer_user after the canvas has been designed", () => {
     const events = await collect(
       runSession(testProvider, [{ role: "user", content: "Warm minimal booking site" }], makeDoc(), {
         fetch: async (_u, init) => {
-          bodies.push(JSON.parse(String(init?.body)));
+          const bodyStr = String(init?.body);
+          bodies.push(JSON.parse(bodyStr));
           calls += 1;
           if (calls === 1) return callsSse("create_screen", { name: "Home", kind: "mobile" });
           if (calls === 2) return callsSse("answer_user", { reply: "A Lisbon booking site is on the canvas." });

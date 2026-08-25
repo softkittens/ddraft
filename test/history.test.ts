@@ -45,6 +45,7 @@ describe("Style history", () => {
     expect(previouslyOffered).toBeDefined();
     const previous: StyleRun = {
       ...run("Playful ordering app for matcha cakes", previouslyOffered!),
+      composition: "Card-Stage & Thumb Dock",
       roundness: "Rounded",
       firstViewport: "Header, search, dark hero, two cards, promo, bottom tabs."
     };
@@ -59,6 +60,8 @@ describe("Style history", () => {
     expect(prompt).toContain("PREVIOUS RESULTS FOR THIS SAME BRIEF");
     expect(prompt).toContain("Header, search, dark hero");
     expect(prompt).toContain("Aim for fresh expression");
+    const compositionBlock = prompt.split("PALETTES")[0];
+    expect(compositionBlock).not.toContain("Card-Stage & Thumb Dock");
     const offeredPalettes = prompt.split("ROUNDNESS")[0];
     expect(offeredPalettes).not.toMatch(new RegExp(`  ${previouslyOffered} \\((light|dark)\\)`));
     const roundnessBlock = prompt.split("ROUNDNESS")[1]?.split("ELEVATION")[0] ?? "";

@@ -750,6 +750,67 @@ export function checkPhotographCrop(ctx: AuditContext): AuditFinding[] {
   return findings;
 }
 
+function rootScreen(ctx: AuditContext, node: PenNode): PenNode | undefined {
+  let current: PenNode | undefined = node;
+  while (current) {
+    if (isScreen(current)) return current;
+    current = ctx.parents.get(current.id);
+  }
+  return undefined;
+}
+
+function descendantText(node: PenNode): string {
+  const own = node.type === "text" ? (node as TextNode).content || "" : "";
+  return [own, ...childrenOf(node).map(descendantText)].filter(Boolean).join(" ").trim();
+}
+
+/** One commissioned primary action must not become hero + footer + nav CTAs. */
+export function checkRepeatedPrimaryActions(ctx: AuditContext): AuditFinding[] {
+  const byScreen = new Map<string, Map<string, PenNode[]>>();
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type !== "frame" || (node as any).fill !== "$accent-primary") return;
+    if (!/(?:cta|button|booking|reserve|primary action)/i.test(node.name ?? "")) return;
+    const label = descendantText(node).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (!label) return;
+    const screen = rootScreen(ctx, node);
+    if (!screen) return;
+    const labels = byScreen.get(screen.id) ?? new Map<string, PenNode[]>();
+    labels.set(label, [...(labels.get(label) ?? []), node]);
+    byScreen.set(screen.id, labels);
+  });
+
+  const findings: AuditFinding[] = [];
+  for (const labels of byScreen.values()) {
+    for (const [label, nodes] of labels) {
+      if (nodes.length < 2) continue;
+      findings.push(blocker(
+        "repeated_primary_action",
+        nodes[1].id,
+        `The solid primary action "${label}" appears ${nodes.length} times on one screen. Repetition turns hierarchy into conversion wallpaper.`,
+        `Keep one solid primary action and convert the other ${nodes.length - 1} occurrence${nodes.length === 2 ? "" : "s"} to plain navigation or remove it.`
+      ));
+    }
+  }
+  return findings;
+}
+
+/** A supporting photograph must not consume most of a desktop viewport. */
+export function checkSupportingImageWalls(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  walkEnabled(ctx.doc.children, (node) => {
+    if (!hasImageFill(node) || /(?:hero|first viewport)/i.test(node.name ?? "")) return;
+    const box = ctx.boxes.get(node.id)?.box;
+    if (!box || box.width < 900 || box.height < 680) return;
+    findings.push(blocker(
+      "supporting_image_wall",
+      node.id,
+      `Supporting photograph "${node.name ?? node.id}" is ${Math.round(box.width)}x${Math.round(box.height)}px and consumes most of a desktop viewport.`,
+      `Crop or recompose this supporting media into a 280–480px-tall band, or pair a photograph-native frame with copy. Do not enlarge it merely to match the generated aspect ratio.`
+    ));
+  });
+  return findings;
+}
+
 function getContentSections(screen: PenNode, ctx: AuditContext): PenNode[] {
   const sections: PenNode[] = [];
 
