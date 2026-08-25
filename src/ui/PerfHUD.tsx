@@ -1,32 +1,63 @@
-import { Component, Show, For, createSignal, createEffect, onCleanup } from "solid-js";
+import { Component, Show, For, createSignal, onCleanup } from "solid-js";
 import { Activity, ChevronDown, ChevronUp, AlertTriangle } from "lucide-solid";
 import { telemetry, type FrameSample, type LogEntry } from "../telemetry/logger";
+import { buildPerformanceTrace } from "../telemetry/trace";
 
 export const PerfHUD: Component = () => {
   const [isOpen, setIsOpen] = createSignal(false);
   const [latestSample, setLatestSample] = createSignal<FrameSample | null>(null);
-  const [fps, setFps] = createSignal(60);
+  const [fps, setFps] = createSignal(0);
   const [recentLogs, setRecentLogs] = createSignal<LogEntry[]>([]);
+  const [recording, setRecording] = createSignal(false);
+  const [traceLog, setTraceLog] = createSignal("");
+  const [traceStatus, setTraceStatus] = createSignal("");
+  let traceStartedAt = 0;
 
-  // Subscribe to telemetry only when HUD is open
-  createEffect(() => {
-    if (!isOpen()) return;
-
+  setRecentLogs(telemetry.getRecentLogs());
+  const unsubscribe = telemetry.subscribe((sample, currentFps) => {
+    setLatestSample(sample);
+    setFps(currentFps);
     setRecentLogs(telemetry.getRecentLogs());
-    const unsubscribe = telemetry.subscribe((sample, currentFps) => {
-      setLatestSample(sample);
-      setFps(currentFps);
-      setRecentLogs(telemetry.getRecentLogs());
-    });
-
-    onCleanup(unsubscribe);
   });
+  onCleanup(unsubscribe);
 
   const getFpsColor = () => {
     const f = fps();
-    if (f >= 55) return "text-emerald-600 bg-emerald-50 border-emerald-200";
-    if (f >= 30) return "text-amber-600 bg-amber-50 border-amber-200";
+    if (f >= 110) return "text-emerald-600 bg-emerald-50 border-emerald-200";
+    if (f >= 80) return "text-amber-600 bg-amber-50 border-amber-200";
     return "text-rose-600 bg-rose-50 border-rose-200";
+  };
+
+  const toggleTrace = () => {
+    if (!recording()) {
+      traceStartedAt = performance.now();
+      setTraceLog("");
+      setTraceStatus("Recording… pan and zoom now");
+      setRecording(true);
+      return;
+    }
+
+    const samples = telemetry.getRecentSamples().filter((sample) => sample.timestamp >= traceStartedAt);
+    const report = buildPerformanceTrace(samples, {
+      renderer: "Canvas2D",
+      userAgent: navigator.userAgent,
+      devicePixelRatio: window.devicePixelRatio,
+      viewport: { width: window.innerWidth, height: window.innerHeight }
+    });
+    const log = JSON.stringify(report, null, 2);
+    setTraceLog(log);
+    setRecording(false);
+    setTraceStatus(`${samples.length} frames captured`);
+    console.info("[CanvasPerfTrace]", report);
+  };
+
+  const copyTrace = async () => {
+    try {
+      await navigator.clipboard.writeText(traceLog());
+      setTraceStatus("Trace copied — paste it into Codex");
+    } catch {
+      setTraceStatus("Copy failed; use the CanvasPerfTrace console entry");
+    }
   };
 
   return (
@@ -38,7 +69,7 @@ export const PerfHUD: Component = () => {
           isOpen() ? "bg-white/95 border-neutral-300" : "bg-white/80 border-neutral-200 hover:bg-white"
         }`}
       >
-        <Activity size={13} class={fps() >= 50 ? "text-emerald-500" : "text-amber-500"} />
+        <Activity size={13} class={fps() >= 110 ? "text-emerald-500" : "text-amber-500"} />
         <span class={`font-bold px-1.5 py-0.5 rounded border text-[10px] ${getFpsColor()}`}>
           {fps()} FPS
         </span>
@@ -83,6 +114,29 @@ export const PerfHUD: Component = () => {
                 {(latestSample()?.hitTestTime || 0).toFixed(2)} ms
               </span>
             </div>
+            <div class="flex items-center justify-between">
+              <span class="text-neutral-500">Paint Calls:</span>
+              <span class="font-bold text-neutral-800">{latestSample()?.paintCalls || 0}</span>
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-neutral-100 space-y-1.5">
+            <div class="flex gap-1.5">
+              <button
+                onClick={toggleTrace}
+                class={`flex-1 rounded-lg px-2 py-1.5 font-semibold text-white ${recording() ? "bg-rose-600" : "bg-neutral-800"}`}
+              >
+                {recording() ? "Stop trace" : "Record trace"}
+              </button>
+              <Show when={traceLog()}>
+                <button onClick={copyTrace} class="rounded-lg border border-neutral-300 bg-white px-2 py-1.5 font-semibold">
+                  Copy log
+                </button>
+              </Show>
+            </div>
+            <Show when={traceStatus()}>
+              <div class="text-[9px] text-neutral-500">{traceStatus()}</div>
+            </Show>
           </div>
 
           {/* Warnings List */}
@@ -93,7 +147,7 @@ export const PerfHUD: Component = () => {
             <div class="max-h-24 overflow-y-auto custom-scrollbar space-y-1">
               <Show
                 when={recentLogs().length > 0}
-                fallback={<div class="text-neutral-400 text-[10px]">No issues detected (60 FPS solid)</div>}
+                fallback={<div class="text-neutral-400 text-[10px]">No performance warnings</div>}
               >
                 <For each={recentLogs().slice(-3)}>
                   {(log) => (

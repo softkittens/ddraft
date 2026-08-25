@@ -1,5 +1,5 @@
 import { createSignal, onMount, onCleanup, type Accessor } from "solid-js";
-import { screenToWorld, panCamera, zoomAtScreenPoint, type Point } from "../../interaction/camera";
+import { screenToWorld, panCamera, applyWheelToCamera, type Point } from "../../interaction/camera";
 import { hitTestScene, hitTestSceneWorld, findNodeWorldBox, findNodesInMarquee } from "../../interaction/hittest";
 import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../../interaction/drag";
 import {
@@ -31,7 +31,8 @@ import {
   layoutTree,
   nodeMap,
   selectNode,
-  setEditingTextId
+  setEditingTextId,
+  stopCameraAnimation
 } from "../store";
 import { insertNodeAtWorld } from "./types";
 
@@ -39,12 +40,25 @@ export function useCanvasPointer(opts: {
   getCanvas: () => HTMLCanvasElement | undefined;
   isSpace: () => boolean;
   isAltHeld: Accessor<boolean>;
+  flushCameraPaint: () => void;
 }) {
   let isPanning = false;
   let startPan = { x: 0, y: 0 };
   let pendingPress: DragSession | null = null;
   let lastWorldMouse: Point | null = null;
   let initialMarqueeSelection = new Set<string>();
+  let canvasRect: DOMRect | null = null;
+
+  function invalidateCanvasRect() {
+    canvasRect = null;
+  }
+
+  function screenPointOf(e: { clientX: number; clientY: number; offsetX: number; offsetY: number }): Point {
+    const canvas = opts.getCanvas();
+    if (!canvas) return { x: e.offsetX, y: e.offsetY };
+    if (!canvasRect) canvasRect = canvas.getBoundingClientRect();
+    return { x: e.clientX - canvasRect.left, y: e.clientY - canvasRect.top };
+  }
 
   const [dragSession, setDragSession] = createSignal<DragSession | null>(null);
   const [shapeStart, setShapeStart] = createSignal<Point | null>(null);
@@ -106,13 +120,14 @@ export function useCanvasPointer(opts: {
     const canvas = opts.getCanvas();
     if (!canvas) return;
     if (e.button === 1 || (e.button === 0 && opts.isSpace())) {
+      stopCameraAnimation();
       isPanning = true;
       startPan = { x: e.clientX, y: e.clientY };
+      invalidateCanvasRect();
       return;
     }
 
-    const rectBounds = canvas.getBoundingClientRect();
-    const screenPt = { x: e.clientX - rectBounds.left, y: e.clientY - rectBounds.top };
+    const screenPt = screenPointOf(e);
     const world = screenToWorld(screenPt, camera());
 
     // Before hit testing: a handle sits on its node's edge, so whichever is
@@ -187,11 +202,11 @@ export function useCanvasPointer(opts: {
       const dy = e.clientY - startPan.y;
       startPan = { x: e.clientX, y: e.clientY };
       setCamera((c) => panCamera(c, dx, dy));
+      opts.flushCameraPaint();
       return;
     }
 
-    const rectBounds = canvas.getBoundingClientRect();
-    const screenPt = { x: e.clientX - rectBounds.left, y: e.clientY - rectBounds.top };
+    const screenPt = screenPointOf(e);
     const world = screenToWorld(screenPt, camera());
     lastWorldMouse = world;
     snapDisabled = e.metaKey || e.ctrlKey;
@@ -358,12 +373,11 @@ export function useCanvasPointer(opts: {
 
   const handleWheel = (e: WheelEvent) => {
     e.preventDefault();
-    const screenPt = { x: e.offsetX, y: e.offsetY };
+    stopCameraAnimation();
+    const screenPt = screenPointOf(e);
 
-    // Standardize delta for line / page scroll modes (external mouse wheels)
-    const lineScale = e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? 400 : 1;
-    let dx = e.deltaX * lineScale;
-    let dy = e.deltaY * lineScale;
+    let dx = e.deltaX;
+    let dy = e.deltaY;
 
     // Shift + Wheel -> horizontal pan (Figma convention)
     if (e.shiftKey && dx === 0) {
@@ -371,13 +385,8 @@ export function useCanvasPointer(opts: {
       dy = 0;
     }
 
-    if (e.ctrlKey || e.metaKey) {
-      const delta = Math.max(-80, Math.min(80, dy));
-      const zoomFactor = Math.exp(-delta * 0.01);
-      setCamera((c) => zoomAtScreenPoint(c, screenPt, c.zoom * zoomFactor));
-    } else {
-      setCamera((c) => panCamera(c, -dx, -dy));
-    }
+    setCamera((c) => applyWheelToCamera(c, screenPt, dx, dy, e.ctrlKey, e.deltaMode));
+    opts.flushCameraPaint();
   };
 
   const handleBlur = () => {
@@ -396,8 +405,7 @@ export function useCanvasPointer(opts: {
     const canvas = opts.getCanvas();
     if (!canvas) return;
 
-    const bounds = canvas.getBoundingClientRect();
-    const world = screenToWorld({ x: e.clientX - bounds.left, y: e.clientY - bounds.top }, camera());
+    const world = screenToWorld(screenPointOf(e), camera());
     const hit = hitTestSceneWorld(layoutTree(), world, nodeMap());
     if (hit) {
       const textNode = hit.node.type === "text" ? hit.node : hit.path.slice().reverse().find((n) => n.type === "text");
@@ -413,6 +421,7 @@ export function useCanvasPointer(opts: {
     window.addEventListener("mouseup", handleMouseUp);
     window.addEventListener("dblclick", handleDoubleClick);
     window.addEventListener("blur", handleBlur);
+    window.addEventListener("resize", invalidateCanvasRect);
   });
 
   onCleanup(() => {
@@ -420,6 +429,7 @@ export function useCanvasPointer(opts: {
     window.removeEventListener("mouseup", handleMouseUp);
     window.removeEventListener("dblclick", handleDoubleClick);
     window.removeEventListener("blur", handleBlur);
+    window.removeEventListener("resize", invalidateCanvasRect);
   });
 
   return {
@@ -431,6 +441,7 @@ export function useCanvasPointer(opts: {
     marqueeCurrent,
     handleMouseDown,
     handleWheel,
+    invalidateCanvasRect,
     onAltModifierChange: (held: boolean) => {
       const canvas = opts.getCanvas();
       if (dragSession() && lastWorldMouse) {

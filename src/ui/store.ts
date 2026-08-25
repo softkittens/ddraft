@@ -264,15 +264,18 @@ export function setNodeProperty(
 
 let cameraAnimFrame: number | null = null;
 
+export function stopCameraAnimation(): void {
+  if (cameraAnimFrame === null) return;
+  cancelAnimationFrame(cameraAnimFrame);
+  cameraAnimFrame = null;
+}
+
 export function animateCameraTo(target: Camera, duration = 380): void {
   if (typeof window === "undefined" || typeof requestAnimationFrame === "undefined") {
     setCamera(target);
     return;
   }
-  if (cameraAnimFrame !== null) {
-    cancelAnimationFrame(cameraAnimFrame);
-    cameraAnimFrame = null;
-  }
+  stopCameraAnimation();
   const start = camera();
   const startTime = performance.now();
 
@@ -371,12 +374,14 @@ export const sessionReady = hydrated;
 const HYDRATE_TIMEOUT_MS = 2000;
 
 export async function hydrateSession(): Promise<void> {
+  let restored = false;
   try {
     const saved = await Promise.race([
       loadSession(),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), HYDRATE_TIMEOUT_MS))
     ]);
     if (saved) {
+      restored = true;
       setDocState(saved.doc);
       setHistoryState(createHistory(saved.doc));
       if (saved.camera) setCamera(saved.camera);
@@ -387,6 +392,9 @@ export async function hydrateSession(): Promise<void> {
     // A failed read must not leave the app unable to save for the rest of the
     // session, so this is reached on both paths.
     setHydrated(true);
+    if (!restored) {
+      saveSession({ doc: doc(), camera: camera(), activePageId: activePageId() });
+    }
   }
 }
 
@@ -397,9 +405,15 @@ export function persistChat(snapshot: ChatSnapshot): void {
 
 createRoot(() => {
   createEffect(
-    on([doc, camera, activePageId], ([currentDoc, currentCamera, page]) => {
+    on([doc, activePageId], ([currentDoc, page]) => {
       if (!hydrated()) return;
-      saveSession({ doc: currentDoc, camera: currentCamera, activePageId: page });
+      saveSession({ doc: currentDoc, camera: camera(), activePageId: page });
+    })
+  );
+  createEffect(
+    on(camera, (currentCamera) => {
+      if (!hydrated()) return;
+      saveSession({ camera: currentCamera });
     })
   );
 });

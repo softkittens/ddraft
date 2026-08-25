@@ -13,6 +13,7 @@ export interface FrameSample {
   dragTime: number;
   hitTestTime: number;
   nodeCount: number;
+  paintCalls: number;
 }
 
 export interface LogEntry {
@@ -26,15 +27,18 @@ export interface LogEntry {
 class TelemetrySubsystem {
   private samples: FrameSample[] = [];
   private logs: LogEntry[] = [];
-  private maxSamples = 120;
+  private maxSamples = 2400;
   private maxLogs = 300;
 
   private activeSpans = new Map<string, number>();
   private currentFrameMetrics: Partial<FrameSample> = {};
 
-  private lastFrameTimestamp = performance.now();
-  private frameCount = 0;
-  private currentFps = 60;
+  private frameTimestamps: number[] = [];
+  private pendingFrame: number | null = null;
+  private pendingNodeCount = 0;
+  private pendingPaintCalls = 0;
+  private lastListenerUpdate = 0;
+  private currentFps = 0;
 
   private enabled = true;
 
@@ -42,7 +46,7 @@ class TelemetrySubsystem {
   private listeners = new Set<(sample: FrameSample, currentFps: number) => void>();
 
   startSpan(name: string): () => number {
-    if (!this.enabled) return () => 0;
+    if (!this.enabled || this.listeners.size === 0) return () => 0;
     const start = performance.now();
     this.activeSpans.set(name, start);
     return () => {
@@ -50,10 +54,13 @@ class TelemetrySubsystem {
       const dur = end - start;
       this.activeSpans.delete(name);
 
-      if (name.includes("layout")) this.currentFrameMetrics.layoutTime = dur;
-      else if (name.includes("paint") || name.includes("render")) this.currentFrameMetrics.paintTime = dur;
-      else if (name.includes("drag")) this.currentFrameMetrics.dragTime = dur;
-      else if (name.includes("hittest")) this.currentFrameMetrics.hitTestTime = dur;
+      if (name.includes("layout")) this.currentFrameMetrics.layoutTime = (this.currentFrameMetrics.layoutTime || 0) + dur;
+      else if (name.includes("paint") || name.includes("render")) {
+        this.currentFrameMetrics.paintTime = (this.currentFrameMetrics.paintTime || 0) + dur;
+      } else if (name.includes("drag")) this.currentFrameMetrics.dragTime = (this.currentFrameMetrics.dragTime || 0) + dur;
+      else if (name.includes("hittest")) {
+        this.currentFrameMetrics.hitTestTime = (this.currentFrameMetrics.hitTestTime || 0) + dur;
+      }
 
       if (dur > 50) {
         this.log("warn", "perf", `Slow operation detected in [${name}]: ${dur.toFixed(2)}ms (> 50ms)`, { duration: dur });
@@ -65,14 +72,45 @@ class TelemetrySubsystem {
 
   recordFrame(nodeCount: number) {
     if (!this.enabled) return;
-    const now = performance.now();
-    const delta = now - this.lastFrameTimestamp;
-    this.frameCount++;
+    if (this.listeners.size === 0) {
+      this.currentFrameMetrics = {};
+      this.pendingPaintCalls = 0;
+      return;
+    }
 
-    if (delta >= 500) {
-      this.currentFps = Math.round((this.frameCount * 1000) / delta);
-      this.frameCount = 0;
-      this.lastFrameTimestamp = now;
+    this.pendingPaintCalls += 1;
+    this.pendingNodeCount = nodeCount;
+    if (this.pendingFrame !== null) return;
+
+    if (typeof requestAnimationFrame === "undefined") {
+      this.samplePresentedFrame(performance.now());
+      return;
+    }
+
+    this.pendingFrame = requestAnimationFrame((timestamp) => {
+      this.pendingFrame = null;
+      // Include any other renderer callbacks submitted in this display tick.
+      window.setTimeout(() => {
+        if (this.pendingPaintCalls === 0) return;
+        this.samplePresentedFrame(timestamp);
+      }, 0);
+    });
+  }
+
+  private samplePresentedFrame(now: number) {
+    const cutoff = now - 1000;
+    this.frameTimestamps.push(now);
+    while (this.frameTimestamps.length > 1 && this.frameTimestamps[0] < cutoff) {
+      this.frameTimestamps.shift();
+    }
+
+    if (this.frameTimestamps.length > 1) {
+      const elapsed = now - this.frameTimestamps[0];
+      this.currentFps = elapsed > 0
+        ? Math.round(((this.frameTimestamps.length - 1) * 1000) / elapsed)
+        : 0;
+    } else {
+      this.currentFps = 0;
     }
 
     const sample: FrameSample = {
@@ -87,9 +125,9 @@ class TelemetrySubsystem {
       layoutTime: this.currentFrameMetrics.layoutTime || 0,
       dragTime: this.currentFrameMetrics.dragTime || 0,
       hitTestTime: this.currentFrameMetrics.hitTestTime || 0,
-      nodeCount
+      nodeCount: this.pendingNodeCount,
+      paintCalls: this.pendingPaintCalls
     };
-
 
     this.samples.push(sample);
     if (this.samples.length > this.maxSamples) {
@@ -97,8 +135,13 @@ class TelemetrySubsystem {
     }
 
     this.currentFrameMetrics = {};
-    for (const listener of this.listeners) {
-      listener(sample, this.currentFps);
+    this.pendingPaintCalls = 0;
+    // The HUD must not become part of the cost it measures.
+    if (now - this.lastListenerUpdate >= 200) {
+      this.lastListenerUpdate = now;
+      for (const listener of this.listeners) {
+        listener(sample, this.currentFps);
+      }
     }
   }
 

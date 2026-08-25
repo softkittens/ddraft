@@ -68,6 +68,28 @@ export function panCamera(camera: Camera, dx: number, dy: number): Camera {
   };
 }
 
+/** Figma's trackpad covers more ground than raw Chrome wheel pixels. */
+const TRACKPAD_PAN_SPEED = 1.6;
+const TRACKPAD_PINCH_SPEED = 1.4;
+
+/** Apply normalized wheel input without replacing the OS's own inertia. */
+export function applyWheelToCamera(
+  camera: Camera,
+  screenAnchor: Point,
+  deltaX: number,
+  deltaY: number,
+  pinch: boolean,
+  deltaMode = 0
+): Camera {
+  const deltaScale = deltaMode === 1 ? 20 : deltaMode === 2 ? 400 : 1;
+  const dx = deltaX * deltaScale;
+  const dy = deltaY * deltaScale;
+  if (pinch) {
+    return zoomAtScreenPoint(camera, screenAnchor, camera.zoom * Math.exp(-dy * 0.01 * TRACKPAD_PINCH_SPEED));
+  }
+  return panCamera(camera, -dx * TRACKPAD_PAN_SPEED, -dy * TRACKPAD_PAN_SPEED);
+}
+
 export interface ViewportBounds {
   width: number;
   height: number;
@@ -119,4 +141,3 @@ export function calculateFitCamera(
     y: viewCenterY - contentCenterY * targetZoom
   };
 }
-

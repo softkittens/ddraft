@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import type { LayoutNode } from "../src/layout/types";
 import type { PenNode } from "../src/model/types";
-import { createCamera, worldToScreen, screenToWorld, zoomAtScreenPoint, panCamera, calculateFitCamera } from "../src/interaction/camera";
+import { createCamera, worldToScreen, screenToWorld, zoomAtScreenPoint, panCamera, calculateFitCamera, applyWheelToCamera } from "../src/interaction/camera";
 import { hitTestScene, hitTestSceneWorld, nearestFrameHit, worldPointToFrameLocal, findNodesInMarquee, findNodeWorldBox } from "../src/interaction/hittest";
 import { createSelectionState, paintSelectionOverlay, getComponentKind } from "../src/interaction/selection";
 import { handleDragMove, commitDragDrop, pastDragThreshold, computeSmartGuides, type DragSession } from "../src/interaction/drag";
@@ -27,6 +27,22 @@ describe("camera coordinate transformations & zoom anchors", () => {
     const panned = panCamera(camera, -20, 30);
     expect(panned.x).toBe(80);
     expect(panned.y).toBe(80);
+  });
+
+  it("applies the tuned trackpad pan and pinch multipliers", () => {
+    const panned = applyWheelToCamera(createCamera(10, 20, 1), { x: 0, y: 0 }, 40, -12, false);
+    expect(panned).toEqual({ x: -54, y: 39.2, zoom: 1 });
+
+    const cursor = { x: 100, y: 80 };
+    const pinched = applyWheelToCamera(createCamera(), cursor, 0, 200, true);
+    expect(pinched.zoom).toBeCloseTo(Math.exp(-2.8));
+    expect(screenToWorld(cursor, pinched).x).toBeCloseTo(100);
+    expect(screenToWorld(cursor, pinched).y).toBeCloseTo(80);
+  });
+
+  it("normalizes line-wheel deltas before applying the pan multiplier", () => {
+    const lineWheel = applyWheelToCamera(createCamera(), { x: 0, y: 0 }, 1, -2, false, 1);
+    expect(lineWheel).toEqual({ x: -32, y: 64, zoom: 1 });
   });
 
   it("calculates camera fitting multi-screen content bounds with viewport paddings", () => {

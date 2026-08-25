@@ -37,7 +37,8 @@ export const CanvasView: Component = () => {
   const pointer = useCanvasPointer({
     getCanvas: () => canvasRef,
     isSpace: () => keyboard.isSpace,
-    isAltHeld: keyboard.isAltHeld
+    isAltHeld: keyboard.isAltHeld,
+    flushCameraPaint
   });
 
   const fileDrop = useFileDrop(() => canvasRef);
@@ -48,6 +49,33 @@ export const CanvasView: Component = () => {
       animFrameId = undefined;
       render();
     });
+  }
+
+  let cameraInputActive = false;
+  let cameraInputIdleTimer: number | undefined;
+
+  function paintImmediate() {
+    if (animFrameId !== undefined) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = undefined;
+    }
+    render();
+  }
+
+  // Paint the first input immediately, then coalesce the rest of the gesture.
+  function flushCameraPaint() {
+    if (cameraInputActive) {
+      requestRender();
+    } else {
+      cameraInputActive = true;
+      paintImmediate();
+    }
+
+    if (cameraInputIdleTimer !== undefined) clearTimeout(cameraInputIdleTimer);
+    cameraInputIdleTimer = window.setTimeout(() => {
+      cameraInputActive = false;
+      cameraInputIdleTimer = undefined;
+    }, 80);
   }
 
   let viewportWidth = 0;
@@ -124,6 +152,7 @@ export const CanvasView: Component = () => {
           viewportWidth = entry.contentRect.width;
           viewportHeight = entry.contentRect.height;
         }
+        pointer.invalidateCanvasRect();
         requestRender();
       });
       resizeObserver.observe(containerRef);
@@ -137,6 +166,7 @@ export const CanvasView: Component = () => {
     }
     if (resizeObserver) resizeObserver.disconnect();
     if (animFrameId) cancelAnimationFrame(animFrameId);
+    if (cameraInputIdleTimer !== undefined) clearTimeout(cameraInputIdleTimer);
   });
 
   const handleLoadDemo = async () => {
@@ -174,7 +204,7 @@ export const CanvasView: Component = () => {
       <canvas
         ref={canvasRef}
         onMouseDown={pointer.handleMouseDown}
-        class="w-full h-full block"
+        class="w-full h-full block touch-none [overscroll-behavior:none]"
       />
       <Show when={fileDrop.isDragOverCanvas()}>
         <div class="absolute inset-0 bg-blue-500/10 border-2 border-dashed border-blue-500 pointer-events-none flex items-center justify-center z-50">

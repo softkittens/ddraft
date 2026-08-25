@@ -179,7 +179,15 @@ export function saveSession(patch: Partial<PersistedSession>): void {
     activePageId: "activePageId" in patch ? patch.activePageId : cachedSession?.activePageId
   };
 
-  if (maxWaitTimer === null) {
+  // Camera motion waits for the gesture to end. A max-wait write clones the
+  // whole document mid-pan even though only the viewport changed.
+  const cameraOnly =
+    patch.camera !== undefined &&
+    patch.doc === undefined &&
+    patch.chat === undefined &&
+    !("activePageId" in patch);
+
+  if (!cameraOnly && maxWaitTimer === null) {
     maxWaitTimer = setTimeout(() => {
       maxWaitTimer = null;
       writeQueue = writeQueue.then(write, write);
