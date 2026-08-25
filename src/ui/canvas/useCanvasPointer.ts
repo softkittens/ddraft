@@ -40,7 +40,6 @@ export function useCanvasPointer(opts: {
   getCanvas: () => HTMLCanvasElement | undefined;
   isSpace: () => boolean;
   isAltHeld: Accessor<boolean>;
-  flushCameraPaint: () => void;
 }) {
   let isPanning = false;
   let startPan = { x: 0, y: 0 };
@@ -202,7 +201,6 @@ export function useCanvasPointer(opts: {
       const dy = e.clientY - startPan.y;
       startPan = { x: e.clientX, y: e.clientY };
       setCamera((c) => panCamera(c, dx, dy));
-      opts.flushCameraPaint();
       return;
     }
 
@@ -386,7 +384,6 @@ export function useCanvasPointer(opts: {
     }
 
     setCamera((c) => applyWheelToCamera(c, screenPt, dx, dy, e.ctrlKey, e.deltaMode));
-    opts.flushCameraPaint();
   };
 
   const handleBlur = () => {

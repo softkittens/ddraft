@@ -37,8 +37,7 @@ export const CanvasView: Component = () => {
   const pointer = useCanvasPointer({
     getCanvas: () => canvasRef,
     isSpace: () => keyboard.isSpace,
-    isAltHeld: keyboard.isAltHeld,
-    flushCameraPaint
+    isAltHeld: keyboard.isAltHeld
   });
 
   const fileDrop = useFileDrop(() => canvasRef);
@@ -49,33 +48,6 @@ export const CanvasView: Component = () => {
       animFrameId = undefined;
       render();
     });
-  }
-
-  let cameraInputActive = false;
-  let cameraInputIdleTimer: number | undefined;
-
-  function paintImmediate() {
-    if (animFrameId !== undefined) {
-      cancelAnimationFrame(animFrameId);
-      animFrameId = undefined;
-    }
-    render();
-  }
-
-  // Paint the first input immediately, then coalesce the rest of the gesture.
-  function flushCameraPaint() {
-    if (cameraInputActive) {
-      requestRender();
-    } else {
-      cameraInputActive = true;
-      paintImmediate();
-    }
-
-    if (cameraInputIdleTimer !== undefined) clearTimeout(cameraInputIdleTimer);
-    cameraInputIdleTimer = window.setTimeout(() => {
-      cameraInputActive = false;
-      cameraInputIdleTimer = undefined;
-    }, 80);
   }
 
   let viewportWidth = 0;
@@ -166,7 +138,6 @@ export const CanvasView: Component = () => {
     }
     if (resizeObserver) resizeObserver.disconnect();
     if (animFrameId) cancelAnimationFrame(animFrameId);
-    if (cameraInputIdleTimer !== undefined) clearTimeout(cameraInputIdleTimer);
   });
 
   const handleLoadDemo = async () => {

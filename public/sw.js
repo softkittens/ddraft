@@ -47,11 +47,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Exclude API requests, agent endpoints, and dev server sockets
+  // Exclude API requests, agent endpoints, dev server paths, and node_modules
   if (
     event.request.method !== 'GET' ||
     url.pathname.startsWith('/agent') ||
     url.pathname.startsWith('/demo-project') ||
+    url.pathname.startsWith('/node_modules') ||
     url.pathname.startsWith('/@') ||
     url.pathname.startsWith('/src')
   ) {
@@ -67,19 +68,14 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Stale-while-revalidate for static assets & fonts
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache).catch(() => {});
-          }).catch(() => {});
-        }
-        return networkResponse;
-      }).catch(() => cachedResponse);
+  const networkResponse = fetch(event.request);
+  const cacheUpdate = networkResponse.then((response) => {
+    if (!response || response.status !== 200) return;
+    return caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
+  });
 
-      return cachedResponse || fetchPromise;
-    })
+  event.waitUntil(cacheUpdate.catch(() => {}));
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => cachedResponse || networkResponse)
   );
 });
