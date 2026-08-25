@@ -1,4 +1,6 @@
-import type { Document } from "../../model/types";
+import type { Document, PenNode, TextNode } from "../../model/types";
+import { walkNodes } from "../../model/tree";
+import { resolveVariable } from "../../model/variables";
 import {
   designDirection,
   resolveStyle,
@@ -8,6 +10,34 @@ import {
   STYLE_METADATA_KEY
 } from "../../design/styleSystem";
 import type { DocumentToolDefinition } from "./types";
+
+function freezeTokensOnChildren(nodes: PenNode[], oldVariables: Record<string, any>): void {
+  walkNodes(nodes, (node) => {
+    if (typeof (node as any).fill === "string" && (node as any).fill.startsWith("$")) {
+      const resolved = resolveVariable((node as any).fill, oldVariables);
+      if (resolved) (node as any).fill = resolved;
+    } else if (
+      (node as any).fill &&
+      typeof (node as any).fill === "object" &&
+      typeof (node as any).fill.color === "string" &&
+      (node as any).fill.color.startsWith("$")
+    ) {
+      const resolved = resolveVariable((node as any).fill.color, oldVariables);
+      if (resolved) (node as any).fill.color = resolved;
+    }
+    if (typeof (node as any).stroke === "string" && (node as any).stroke.startsWith("$")) {
+      const resolved = resolveVariable((node as any).stroke, oldVariables);
+      if (resolved) (node as any).stroke = resolved;
+    }
+    if (node.type === "text") {
+      const text = node as TextNode;
+      if (typeof text.fontFamily === "string" && text.fontFamily.startsWith("$")) {
+        const resolved = resolveVariable(text.fontFamily, oldVariables);
+        if (resolved) text.fontFamily = resolved;
+      }
+    }
+  });
+}
 
 export const setStyleTool: DocumentToolDefinition = {
   name: "set_style",
@@ -83,6 +113,9 @@ export const setStyleTool: DocumentToolDefinition = {
     if (!direction) return "error: thesis, ownWorld and firstViewport are required";
 
     const newDoc: Document = structuredClone(ctx.doc);
+    if (newDoc.children.length > 0 && newDoc.variables && Object.keys(newDoc.variables).length > 0) {
+      freezeTokensOnChildren(newDoc.children, newDoc.variables);
+    }
     newDoc.variables = { ...(newDoc.variables ?? {}), ...style.variables };
     newDoc.metadata = {
       ...(newDoc.metadata ?? {}),

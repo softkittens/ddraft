@@ -42,10 +42,21 @@ export const CanvasView: Component = () => {
 
   const fileDrop = useFileDrop(() => canvasRef);
 
+  function requestRender() {
+    if (animFrameId !== undefined) return;
+    animFrameId = requestAnimationFrame(() => {
+      animFrameId = undefined;
+      render();
+    });
+  }
+
+  let viewportWidth = 0;
+  let viewportHeight = 0;
+
   function render() {
     if (!canvasRef || !containerRef) return;
-    const width = containerRef.clientWidth;
-    const height = containerRef.clientHeight;
+    const width = viewportWidth || containerRef.clientWidth;
+    const height = viewportHeight || containerRef.clientHeight;
     if (width === 0 || height === 0) return;
 
     const stopPaint = telemetry.startSpan("render:paint");
@@ -73,8 +84,7 @@ export const CanvasView: Component = () => {
     telemetry.recordFrame(nodeMap().size);
 
     if (hasActiveAnimations()) {
-      if (animFrameId) cancelAnimationFrame(animFrameId);
-      animFrameId = requestAnimationFrame(render);
+      requestRender();
     }
   }
 
@@ -93,14 +103,12 @@ export const CanvasView: Component = () => {
     pointer.marqueeCurrent();
     workingFrameIds();
 
-    if (animFrameId) cancelAnimationFrame(animFrameId);
-    animFrameId = requestAnimationFrame(render);
+    requestRender();
   });
 
   onMount(() => {
     setImageInvalidator(() => {
-      if (animFrameId) cancelAnimationFrame(animFrameId);
-      animFrameId = requestAnimationFrame(render);
+      requestRender();
     });
 
     if (canvasRef) {
@@ -108,9 +116,15 @@ export const CanvasView: Component = () => {
     }
 
     if (containerRef) {
-      resizeObserver = new ResizeObserver(() => {
-        if (animFrameId) cancelAnimationFrame(animFrameId);
-        animFrameId = requestAnimationFrame(render);
+      viewportWidth = containerRef.clientWidth;
+      viewportHeight = containerRef.clientHeight;
+      resizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (entry) {
+          viewportWidth = entry.contentRect.width;
+          viewportHeight = entry.contentRect.height;
+        }
+        requestRender();
       });
       resizeObserver.observe(containerRef);
     }

@@ -78,6 +78,15 @@ describe("Layout Subsystem (Unit B)", () => {
     const pctNode = txt("t4", "Pct text", 20, { lineHeight: "140%" } as any);
     const mPct = measureTextNode(pctNode);
     expect(mPct.lineHeight).toBe(28); // 20 * 1.4
+
+    const wrapped = txt("t5", "A very long line of text that wraps into multiple lines", 16, {
+      textGrowth: "fixed-width",
+      width: 100
+    } as any);
+    const first = measureTextNode(wrapped, 100);
+    const second = measureTextNode(wrapped, 100);
+    expect(second).toBe(first);
+    expect(measureTextNode({ ...wrapped, content: first.lines[0] + " extra" }, 100)).not.toBe(first);
   });
 
   it("positions absolute children, groups, and rotated nodes", () => {
@@ -132,6 +141,10 @@ describe("Layout Subsystem (Unit B)", () => {
     const midBox2 = numTree[0].children[1].box;
     const botBox2 = numTree[0].children[2].box;
     expect(midBox2.y + midBox2.height).toBeLessThanOrEqual(botBox2.y);
+
+    const midLayout = numTree[0].children[1];
+    expect(midLayout.text?.lines.length).toBeGreaterThan(1);
+    expect(midLayout.text?.lineHeight).toBeGreaterThan(0);
   });
 });
 

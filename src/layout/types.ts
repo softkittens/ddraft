@@ -13,13 +13,19 @@ export interface Box {
  * A node in the resolved layout tree.
  * Retains hierarchy and computed Box coordinates, separated from the document model.
  */
+export interface LayoutText {
+  lines: string[];
+  lineHeight: number;
+}
+
 export interface LayoutNode {
   id: string;
   type: string;
   box: Box;
   rotation?: number; // In degrees, clockwise around top-left (0, 0) in screen coordinates
   children: LayoutNode[];
-
+  /** Wrapped glyphs from layout. Paint reads this so pan does not re-wrap. */
+  text?: LayoutText;
 }
 
 /**

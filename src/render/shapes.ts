@@ -47,15 +47,18 @@ export function setupCanvas(
 
   if (canvas.style.width !== `${cssWidth}px`) {
     canvas.style.width = `${cssWidth}px`;
+  }
+  if (canvas.style.height !== `${cssHeight}px`) {
     canvas.style.height = `${cssHeight}px`;
   }
-  if (canvas.width === bufferW && canvas.height === bufferH) {
-    return canvas.getContext("2d");
+  if (canvas.width !== bufferW || canvas.height !== bufferH) {
+    canvas.width = bufferW;
+    canvas.height = bufferH;
   }
-  canvas.width = bufferW;
-  canvas.height = bufferH;
-  const ctx = canvas.getContext("2d");
-  if (ctx) ctx.scale(dpr, dpr);
+  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+  if (ctx) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
   return ctx;
 }
 
@@ -223,11 +226,11 @@ export function drawShape(
           startX = 0;
         }
 
-        const metrics = measureTextNode(textNode, box.width, variables);
-        let curY = metrics.lineHeight / 2;
-        for (const line of metrics.lines) {
+        const wrapped = layoutNode.text ?? measureTextNode(textNode, box.width, variables);
+        let curY = wrapped.lineHeight / 2;
+        for (const line of wrapped.lines) {
           ctx.fillText(line, startX, curY);
-          curY += metrics.lineHeight;
+          curY += wrapped.lineHeight;
         }
       }
       break;

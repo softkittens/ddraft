@@ -19,6 +19,8 @@ function getDotPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
   const offCtx = offscreen.getContext("2d");
   if (!offCtx) return null;
 
+  offCtx.fillStyle = "#e8eaed";
+  offCtx.fillRect(0, 0, 20, 20);
   offCtx.fillStyle = "rgba(15, 23, 42, 0.176)";
   offCtx.beginPath();
   offCtx.arc(10, 10, 1, 0, Math.PI * 2);
@@ -26,6 +28,19 @@ function getDotPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
 
   dotPattern = ctx.createPattern(offscreen, "repeat");
   return dotPattern;
+}
+
+let sharedMatrix: DOMMatrix | null = null;
+function getSharedMatrix(x: number, y: number, zoom: number): DOMMatrix | null {
+  if (typeof DOMMatrix === "undefined") return null;
+  if (!sharedMatrix) sharedMatrix = new DOMMatrix();
+  sharedMatrix.a = zoom;
+  sharedMatrix.b = 0;
+  sharedMatrix.c = 0;
+  sharedMatrix.d = zoom;
+  sharedMatrix.e = x;
+  sharedMatrix.f = y;
+  return sharedMatrix;
 }
 
 export function renderScene(
@@ -50,20 +65,22 @@ export function renderScene(
   } = state;
 
   ctx.save();
-  ctx.fillStyle = "#e8eaed";
-  ctx.fillRect(0, 0, width, height);
 
-  // Background grid dots (GPU-accelerated pattern transformed with camera matrix)
+  // Single-pass background + grid dots
   const pattern = getDotPattern(ctx);
   if (pattern && camera.zoom >= 0.25) {
-    ctx.save();
-    if (typeof DOMMatrix !== "undefined" && pattern.setTransform) {
-      const mat = new DOMMatrix().translate(camera.x, camera.y).scale(camera.zoom);
+    const mat = getSharedMatrix(camera.x, camera.y, camera.zoom);
+    if (mat && pattern.setTransform) {
       pattern.setTransform(mat);
       ctx.fillStyle = pattern;
       ctx.fillRect(0, 0, width, height);
+    } else {
+      ctx.fillStyle = "#e8eaed";
+      ctx.fillRect(0, 0, width, height);
     }
-    ctx.restore();
+  } else {
+    ctx.fillStyle = "#e8eaed";
+    ctx.fillRect(0, 0, width, height);
   }
 
   // World coordinate transform
@@ -106,7 +123,6 @@ export function renderScene(
     }
   }
 
-  // Paint scene nodes (frustum-culled at the root level and child level)
   const viewBounds = {
     left: viewLeft - cullingMargin,
     top: viewTop - cullingMargin,
@@ -152,7 +168,7 @@ export function renderScene(
   // Selection & hover bounding box overlays (frustum-culled at the root level)
   for (const root of tree) {
     if (isVisible(root.box)) {
-      paintSelectionOverlay(ctx, root, selectedIds, hoveredId, camera.zoom, map, skipId);
+      paintSelectionOverlay(ctx, root, selectedIds, hoveredId, camera.zoom, map, skipId, 0, 0, viewBounds);
     }
   }
 

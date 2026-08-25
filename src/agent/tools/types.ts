@@ -293,10 +293,7 @@ export function replacementScreenError(
     if (!hasAuthoredContent(node)) return false;
     const existingName = (node.name ?? "").trim().toLowerCase();
     if (!normalizedNew) return true;
-    if (normalizedNew === existingName || existingName === kind) return true;
-    if (normalizedNew.includes(existingName) || existingName.includes(normalizedNew)) return true;
-    if (/\b(final|rebuild|copy|new|v2|draft|version)\b/i.test(normalizedNew)) return true;
-    return false;
+    return normalizedNew === existingName || existingName === kind;
   });
 
   if (!duplicate) return undefined;

@@ -35,7 +35,17 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+  let url;
+  try {
+    url = new URL(event.request.url);
+  } catch {
+    return;
+  }
+
+  // Only handle standard HTTP/HTTPS requests
+  if (!url.protocol.startsWith('http')) {
+    return;
+  }
 
   // Exclude API requests, agent endpoints, and dev server sockets
   if (
@@ -63,8 +73,8 @@ self.addEventListener('fetch', (event) => {
         if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
+            cache.put(event.request, responseToCache).catch(() => {});
+          }).catch(() => {});
         }
         return networkResponse;
       }).catch(() => cachedResponse);

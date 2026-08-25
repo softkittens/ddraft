@@ -12,7 +12,9 @@ import {
   persistChat,
   zoomToFit,
   activePage,
-  setAgentRunning
+  setAgentRunning,
+  beginEdit,
+  endEdit
 } from "../store";
 import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
 import { noteAgentEdits, clearAgentEditTargets, diffChangedNodeIds } from "../canvas/workingFrames";
@@ -506,6 +508,7 @@ export function useChatSession() {
     const sessionId = crypto.randomUUID();
 
     const initialScreenCount = doc().children.length;
+    beginEdit();
 
     try {
       let reviewNumber = 0;
@@ -584,6 +587,7 @@ export function useChatSession() {
         break;
       }
     } finally {
+      endEdit();
       abort = null;
       setPending(null);
       setStreamReasoning("");

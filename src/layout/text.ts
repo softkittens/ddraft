@@ -19,6 +19,8 @@ export interface TextMetricsResult {
 
 let cachedCanvasCtx: CanvasRenderingContext2D | null = null;
 const liveWidthCache = new Map<string, number>();
+const nodeResultCache = new Map<string, TextMetricsResult>();
+const NODE_RESULT_CACHE_MAX = 2048;
 
 function getCanvasContext(): CanvasRenderingContext2D | null {
   if (cachedCanvasCtx) return cachedCanvasCtx;
@@ -181,33 +183,45 @@ export function measureTextNode(
   const targetWidth = canWrap ? (containerWidth ?? (typeof node.width === "number" ? node.width : 200)) : 0;
 
   const lineHeight = getLineHeight(node, variables);
+  const resolvedFam = resolveFontFamily(fontFamily, variables);
+  const cacheKey = `${content}\0${fontSize}\0${resolvedFam}\0${fontWeight}\0${letterSpacing}\0${growth}\0${canWrap ? 1 : 0}\0${targetWidth}\0${lineHeight}`;
+  const cached = nodeResultCache.get(cacheKey);
+  if (cached) return cached;
 
+  let result: TextMetricsResult;
   if (growth === "auto" || !canWrap) {
     const width = measureTextWidth(content, fontSize, fontFamily, fontWeight, letterSpacing, variables);
-    return { width, height: lineHeight, lineHeight, lines: [content] };
-  }
+    result = { width, height: lineHeight, lineHeight, lines: [content] };
+  } else {
+    const words = content.split(" ");
+    const lines: string[] = [];
+    let currentLine = "";
 
-  const words = content.split(" ");
-  const lines: string[] = [];
-  let currentLine = "";
-
-  for (const word of words) {
-    const testLine = currentLine ? `${currentLine} ${word}` : word;
-    const testWidth = measureTextWidth(testLine, fontSize, fontFamily, fontWeight, letterSpacing, variables);
-    if (testWidth > targetWidth && currentLine) {
-      lines.push(currentLine);
-      currentLine = word;
-    } else {
-      currentLine = testLine;
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const testWidth = measureTextWidth(testLine, fontSize, fontFamily, fontWeight, letterSpacing, variables);
+      if (testWidth > targetWidth && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
     }
-  }
-  if (currentLine) lines.push(currentLine);
+    if (currentLine) lines.push(currentLine);
 
-  return {
-    width: targetWidth,
-    height: Math.max(1, lines.length) * lineHeight,
-    lineHeight,
-    lines
-  };
+    result = {
+      width: targetWidth,
+      height: Math.max(1, lines.length) * lineHeight,
+      lineHeight,
+      lines
+    };
+  }
+
+  if (nodeResultCache.size >= NODE_RESULT_CACHE_MAX) {
+    const oldest = nodeResultCache.keys().next().value;
+    if (oldest !== undefined) nodeResultCache.delete(oldest);
+  }
+  nodeResultCache.set(cacheKey, result);
+  return result;
 }
 

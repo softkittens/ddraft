@@ -12,7 +12,6 @@ import {
 import { duplicateNode, getNextNodeId } from "../../model/edit";
 import { splitInstanceId } from "../../model/instance";
 import { cloneDocument } from "../../model/tree";
-import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
 import { telemetry } from "../../telemetry/logger";
 import type { PenNode } from "../../model/types";
 import type { Box } from "../../layout/types";
@@ -338,8 +337,6 @@ export function useCanvasPointer(opts: {
 
     const current = dragSession();
     if (current) {
-      const oldPositions = snapshotPositions(layoutTree());
-
       if (opts.isAltHeld()) {
         const dup = duplicateNode(doc(), current.nodeId);
         if (dup) {
@@ -354,8 +351,6 @@ export function useCanvasPointer(opts: {
         updateDoc(nextDoc);
       }
 
-      trackLayoutTransitionsFromSnapshot(oldPositions, layoutTree(), 220);
-
       setDragSession(null);
       if (canvas) canvas.style.cursor = "default";
     }
@@ -365,12 +360,23 @@ export function useCanvasPointer(opts: {
     e.preventDefault();
     const screenPt = { x: e.offsetX, y: e.offsetY };
 
+    // Standardize delta for line / page scroll modes (external mouse wheels)
+    const lineScale = e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? 400 : 1;
+    let dx = e.deltaX * lineScale;
+    let dy = e.deltaY * lineScale;
+
+    // Shift + Wheel -> horizontal pan (Figma convention)
+    if (e.shiftKey && dx === 0) {
+      dx = dy;
+      dy = 0;
+    }
+
     if (e.ctrlKey || e.metaKey) {
-      const delta = Math.max(-100, Math.min(100, e.deltaY));
-      const zoomFactor = Math.exp(-delta * 0.008);
+      const delta = Math.max(-80, Math.min(80, dy));
+      const zoomFactor = Math.exp(-delta * 0.01);
       setCamera((c) => zoomAtScreenPoint(c, screenPt, c.zoom * zoomFactor));
     } else {
-      setCamera((c) => panCamera(c, -e.deltaX, -e.deltaY));
+      setCamera((c) => panCamera(c, -dx, -dy));
     }
   };
 

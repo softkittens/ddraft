@@ -365,7 +365,7 @@ describe("create_screen tool", () => {
       parentId: main.id,
       node: { type: "text", id: "heroTitle", content: "A house of light above the Tagus", fontSize: 48 }
     });
-    const out = await session.execute("create_screen", { name: "Casa Pátio — Final", kind: "desktop" });
+    const out = await session.execute("create_screen", { name: "Casa Pátio", kind: "desktop" });
     expect(out).toMatch(/error:.*already exists/i);
     expect(session.doc.children).toHaveLength(1);
   });

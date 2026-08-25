@@ -78,9 +78,25 @@ export function paintSelectionOverlay(
   hoveredId: string | null,
   zoom = 1,
   nodeMap?: Map<string, PenNode>,
-  skipNodeId?: string
+  skipNodeId?: string,
+  worldX = 0,
+  worldY = 0,
+  viewBounds?: { left: number; top: number; right: number; bottom: number }
 ): void {
   if (skipNodeId && layoutNode.id === skipNodeId) return;
+
+  const curX = worldX + layoutNode.box.x;
+  const curY = worldY + layoutNode.box.y;
+  if (viewBounds) {
+    if (
+      curX + layoutNode.box.width < viewBounds.left ||
+      curX > viewBounds.right ||
+      curY + layoutNode.box.height < viewBounds.top ||
+      curY > viewBounds.bottom
+    ) {
+      return;
+    }
+  }
 
   const isSelected = selectedIds.has(layoutNode.id);
   const isHovered = hoveredId === layoutNode.id && !isSelected;
@@ -127,7 +143,7 @@ export function paintSelectionOverlay(
   }
 
   for (const child of layoutNode.children) {
-    paintSelectionOverlay(ctx, child, selectedIds, hoveredId, zoom, nodeMap, skipNodeId);
+    paintSelectionOverlay(ctx, child, selectedIds, hoveredId, zoom, nodeMap, skipNodeId, curX, curY, viewBounds);
   }
   ctx.restore();
 }

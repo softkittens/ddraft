@@ -72,11 +72,27 @@ function layoutRootNode(node: PenNode, variables?: Record<string, any>): LayoutN
   return arrangeNode(measured, rootBox, variables);
 }
 
+function layoutLeaf(measured: MeasuredNode, box: Box, variables?: Record<string, any>): LayoutNode {
+  const { node } = measured;
+  const layout: LayoutNode = {
+    id: node.id,
+    type: node.type,
+    box,
+    rotation: node.rotation,
+    children: []
+  };
+  if (node.type === "text") {
+    const metrics = measureTextNode(node as TextNode, box.width, variables);
+    layout.text = { lines: metrics.lines, lineHeight: metrics.lineHeight };
+  }
+  return layout;
+}
+
 export function arrangeNode(measured: MeasuredNode, box: Box, variables?: Record<string, any>): LayoutNode {
   const { node, children } = measured;
 
   if (children.length === 0) {
-    return { id: node.id, type: node.type, box, rotation: node.rotation, children: [] };
+    return layoutLeaf(measured, box, variables);
   }
 
   // Handle group and layout: "none" (children positioned by their own explicit x/y)

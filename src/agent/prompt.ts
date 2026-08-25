@@ -21,6 +21,14 @@ function describe(node: PenNode): string {
   return `${node.id} (${node.type}${name})${isImg ? " [has an image fill]" : ""}`;
 }
 
+function findRootScreen(doc: Document, nodeId: string): PenNode | undefined {
+  if (!doc || !Array.isArray(doc.children)) return undefined;
+  for (const root of doc.children) {
+    if (root.id === nodeId || findNode([root], nodeId)) return root;
+  }
+  return undefined;
+}
+
 function selectionLines(doc: Document, selection: string[]): string[] {
   const found = selection
     .map((id) => findNode(doc.children, id))
@@ -30,11 +38,16 @@ function selectionLines(doc: Document, selection: string[]): string[] {
     return ['Selection: nothing is selected. "this" and "the canvas" mean the whole document.'];
   }
   if (found.length === 1) {
-    return [
-      `Selection: ${describe(found[0])}. "this", "the selection" and "it" mean that node.`,
-      "Selected subtree:",
-      digestSubtree(doc, found[0].id)
+    const node = found[0];
+    const rootScreen = findRootScreen(doc, node.id);
+    const lines = [
+      `Selection: ${describe(node)}. "this", "the selection" and "it" mean that node.`
     ];
+    if (rootScreen && rootScreen.id !== node.id) {
+      lines.push(`Enclosing Screen: ${describe(rootScreen)}.`);
+    }
+    lines.push("Selected subtree:", digestSubtree(doc, node.id));
+    return lines;
   }
   return [
     `Selection: ${found.length} nodes — ${found.map(describe).join(", ")}.`,
