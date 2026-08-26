@@ -6,7 +6,7 @@
  * client — and this half reads rules.md off disk, which the browser cannot do.
  */
 import type { Message } from "./provider";
-import { designReviewSchema, type DesignReview, type ReviewIssue } from "./review";
+import { designReviewSchema, type DesignReview } from "./review";
 import { rules } from "./rules";
 
 import { resolvePromptContext, type ResolvedContext } from "./context";
@@ -25,44 +25,17 @@ export function buildCriticSystemPrompt(brief: string, resolved?: ResolvedContex
   const sections = [BASE_CRITIC_PROMPT];
   const domainAdditions: string[] = [];
 
-  if (ctx.traits.includes("commerce_ordering")) {
-    domainAdditions.push(
-      `DOMAIN-SPECIFIC CRITERIA — E-COMMERCE & FOOD ORDERING APP:`,
-      `- Judge capabilities, not template compliance: the seller is recognizable, real purchasable items have photography and prices, and selection or ordering is visibly possible. Do not require a hero, search row, promo banner, circular quick-add, badges, or bottom tabs.`,
-      `- Product specificity: Refine a polished but interchangeable storefront shell. The composition or interaction should express this seller and use scene even if its labels are hidden.`,
-      `- Consistency: Repeated purchasable items need equally visible actions and aligned pricing, but the action shape is a design choice.`,
-      `- Scroll affordance vs clipping: Content crossing a contextual viewport crop is expected. Report clipping only when content is visibly cut by its own parent or the actual screen boundary.`,
-      `- If a featured hero exists, it should remain under 420px on mobile and leave a clear cue that more content follows.`
-    );
-  }
-
-  if (ctx.traits.includes("swipe_discovery")) {
-    domainAdditions.push(
-      `DOMAIN-SPECIFIC CRITERIA — CARD SWIPE / SOCIAL DISCOVERY:`,
-      `- Single-Viewport Ceiling: All elements (header, photo card, bio/tags, thumb dock, and tab bar) MUST fit within the 844px viewport without vertical scrolling.`,
-      `- Thumb Dock Reach: Centered horizontal action bar with distinct circular buttons (Pass, Star, Like in solid accent).`
-    );
-  }
-
   if (ctx.archetype === "site") {
     domainAdditions.push(
       `DOMAIN-SPECIFIC CRITERIA — MARKETING SITE & LANDING PAGE:`,
       `- Narrative Substance & Composition: The site must have substance and rhythm tailored to the offer's capabilities (First Viewport, concrete offerings/showcase, specifications or atmospheric story, relevant action, and grounding footer when helpful). Do not pass an under-generated site stub with only 1–2 sparse blocks, but do not mandate generic filler furniture like canned testimonials or forced 3-tier pricing on non-commercial offerings.`,
-      `- Source Grounding: The brief is the source of truth. Product names and illustrative prices may be invented for a mockup, but exact addresses, contacts, hours, live availability, certifications, sustainability claims, policies, coordinates, travel times, history, founders, ratings, and attributed quotes must not be presented as real unless the brief supplies them. Return refine and replace unsupported facts with neutral labels.`,
+      `- Copy Conciseness & Fit: Text is judged on visual fit, length, and hierarchy (e.g. trimming bloated blurbs, ensuring labels fit containers cleanly, keeping numbers and units readable). Fictional and illustrative mockup copy (realistic transit times, hours, desk counts, quotes) is encouraged and must NOT be flagged as unsupported.`,
       `- Conversion Proportionality: Repeated actions are not automatically consistency. Refine a discovery site that multiplies the same strong booking action across every item and then repeats it in the hero or footer, unless choosing individual items is clearly the central interaction.`,
       `- Direction & Composition as Hypothesis: Faithful execution of the original direction or chosen composition does not make it correct. Return refine if the chosen composition archetype (e.g. attempting a modular bento on a luxury retreat, or a monumental editorial on an operational tool) or visual system contradicts the product's positioning, passenger trust, or actual use scene.`
     );
   }
 
   if (ctx.archetype === "tool") {
-    /*
-     * This block used to require a sidebar, a metrics row, a table and a queue.
-     * The builder is told the opposite in the same run — "an unused rail or
-     * aside is better than fake telemetry or a fake queue" — so a console that
-     * correctly left a rail empty was marked down for it, and the revision
-     * filled the rail with invented data. Judge the capability, as the commerce
-     * block above already does.
-     */
     domainAdditions.push(
       `DOMAIN-SPECIFIC CRITERIA — DASHBOARD & OPERATIONS CONSOLE:`,
       `- Judge capabilities, not template compliance: the operator can read current state, the numbers are specific to this system, and the primary operational action is reachable. Do not require a sidebar, a metric tile row, a table, or an alert queue.`,
@@ -200,44 +173,5 @@ export function parseDesignReview(raw: unknown, digestText: string): DesignRevie
       ...issue,
       nodeIds: issue.nodeIds?.filter((id) => known.has(id))
     }))
-  };
-}
-
-const UNSUPPORTED_CLAIM_PATTERNS = [
-  /\b(?:B Corp(?:oration)?(?: Pending| Certified)?|certified\s+organic|100%\s+renewable|government approved|licensed)\b/gi,
-  /\b(?:\d\.\d\s*\/\s*5\s*stars?|\b\d{1,3}(?:,\d{3})*\s+verified\s+reviews?\b)/gi
-];
-
-/** High-risk authority claims presented as facts that were not supplied in the brief. */
-export function sourceGroundingIssue(brief: string, digestText: string): ReviewIssue | undefined {
-  const source = brief.toLowerCase();
-  const unsupported = new Set<string>();
-  for (const pattern of UNSUPPORTED_CLAIM_PATTERNS) {
-    pattern.lastIndex = 0;
-    for (const match of digestText.matchAll(pattern)) {
-      const claim = match[0].trim();
-      if (claim && !source.includes(claim.toLowerCase())) unsupported.add(claim);
-    }
-  }
-  if (unsupported.size === 0) return undefined;
-  const examples = [...unsupported].slice(0, 3);
-  return {
-    title: "Unsupported authority claims",
-    reason: `The generic brief did not supply formal certifications or verified review stats: ${examples.join(", ")}.`,
-    instruction: "Remove unsupported external certifications or review stats."
-  };
-}
-
-export function enforceSourceGrounding(review: DesignReview, brief: string, digestText: string): DesignReview {
-  const issue = sourceGroundingIssue(brief, digestText);
-  if (!issue) return review;
-  const issues = [issue, ...review.issues.filter((existing) => existing.title !== issue.title)].slice(0, 3);
-  
-  // If the critic already affirmed the canvas is presentation-ready, do not force an automatic visual revision
-  const isPresentationReady = Boolean(review.qualityGate?.presentationReady);
-  return {
-    ...review,
-    verdict: isPresentationReady ? review.verdict : "refine",
-    issues
   };
 }

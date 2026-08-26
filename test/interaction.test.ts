@@ -1,12 +1,21 @@
 import { describe, it, expect } from "bun:test";
 import type { LayoutNode } from "../src/layout/types";
 import type { PenNode } from "../src/model/types";
-import { createCamera, worldToScreen, screenToWorld, zoomAtScreenPoint, panCamera, calculateFitCamera, applyWheelToCamera } from "../src/interaction/camera";
+import {
+  createCamera,
+  worldToScreen,
+  screenToWorld,
+  zoomAtScreenPoint,
+  panCamera,
+  calculateFitCamera,
+  applyWheelToCamera
+} from "../src/interaction/camera";
+import { findAncestorsOfNode } from "../src/model/tree";
 import { hitTestScene, hitTestSceneWorld, nearestFrameHit, worldPointToFrameLocal, findNodesInMarquee, findNodeWorldBox } from "../src/interaction/hittest";
 import { createSelectionState, paintSelectionOverlay, getComponentKind } from "../src/interaction/selection";
 import { handleDragMove, commitDragDrop, pastDragThreshold, computeSmartGuides, type DragSession } from "../src/interaction/drag";
 import { trackLayoutTransitions, hasActiveAnimations, getAnimatedPosition } from "../src/interaction/animate";
-import { createHistory, pushDocument, undo, redo } from "../src/model/history";
+import { createHistory, pushHistory, undo, redo } from "../src/model/history";
 import { reorderChild } from "../src/model/edit";
 import { resolveInstances } from "../src/model/instance";
 import { layoutDocument } from "../src/layout/layout";
@@ -71,6 +80,67 @@ describe("camera coordinate transformations & zoom anchors", () => {
 
     expect(Math.round(screenCenter.x)).toBe(Math.round(availableCenterX));
     expect(Math.round(screenCenter.y)).toBe(Math.round(availableCenterY));
+  });
+
+  it("calculates camera fitting with maxZoom preserving current zoom for small nodes", () => {
+    const viewport = {
+      width: 1440,
+      height: 900,
+      leftPadding: 400,
+      rightPadding: 380,
+      topPadding: 70,
+      bottomPadding: 60
+    };
+    // Available area: width 660, height 770
+
+    // Small node at (1200, 200, 100, 50)
+    const node = { x: 1200, y: 200, width: 100, height: 50 };
+    const fit = calculateFitCamera(node, viewport, 1.0);
+    expect(fit.zoom).toBe(1.0);
+
+    const screenPos = worldToScreen({ x: 1200 + 50, y: 200 + 25 }, fit);
+    const availableCenterX = viewport.leftPadding + (viewport.width - viewport.leftPadding - viewport.rightPadding) / 2;
+    const availableCenterY = viewport.topPadding + (viewport.height - viewport.topPadding - viewport.bottomPadding) / 2;
+    expect(Math.round(screenPos.x)).toBe(Math.round(availableCenterX));
+    expect(Math.round(screenPos.y)).toBe(Math.round(availableCenterY));
+
+    // Large frame scaling down
+    const huge = { x: 2000, y: 2000, width: 1000, height: 1200 };
+    const fitHuge = calculateFitCamera(huge, viewport, 1.0);
+    expect(fitHuge.zoom).toBeLessThan(1.0);
+  });
+
+  it("finds ancestor path from root down to immediate parent", () => {
+    const tree: PenNode[] = [
+      {
+        id: "screen1",
+        type: "frame",
+        children: [
+          {
+            id: "card",
+            type: "frame",
+            children: [
+              {
+                id: "btn",
+                type: "frame",
+                children: [{ id: "label", type: "text", content: "Click" } as PenNode]
+              } as PenNode
+            ]
+          } as PenNode
+        ]
+      } as PenNode,
+      {
+        id: "screen2",
+        type: "frame",
+        children: []
+      } as PenNode
+    ];
+
+    expect(findAncestorsOfNode(tree, "screen1").map((n) => n.id)).toEqual([]);
+    expect(findAncestorsOfNode(tree, "card").map((n) => n.id)).toEqual(["screen1"]);
+    expect(findAncestorsOfNode(tree, "btn").map((n) => n.id)).toEqual(["screen1", "card"]);
+    expect(findAncestorsOfNode(tree, "label").map((n) => n.id)).toEqual(["screen1", "card", "btn"]);
+    expect(findAncestorsOfNode(tree, "nonExistent")).toEqual([]);
   });
 });
 
@@ -177,11 +247,28 @@ describe("drag thresholds, reparenting & drop targets", () => {
 describe("history undo/redo, inspector bindings & selection overlays", () => {
   it("tracks history undo/redo stacks, layer ordering, and inspector properties", () => {
     const doc = makeDoc(frame("p", 100, 100, [rect("a"), rect("b")]));
-    let hist = createHistory(doc);
+    let hist = createHistory({ doc, selectedIds: ["a"] });
     const doc2 = reorderChild(doc, "p", 0, 1);
-    hist = pushDocument(hist, doc2);
-    expect(undo(hist)!.doc).toEqual(doc);
-    expect(redo(undo(hist)!.history)!.doc).toEqual(doc2);
+    hist = pushHistory(hist, { doc: doc2, selectedIds: ["b"] });
+    const undone = undo(hist);
+    expect(undone!.doc).toEqual(doc);
+    expect(undone!.selectedIds).toEqual(["a"]);
+    const redone = redo(undone!.history);
+    expect(redone!.doc).toEqual(doc2);
+    expect(redone!.selectedIds).toEqual(["b"]);
+
+    // Pure selection change in history
+    let selHist = createHistory({ doc, selectedIds: ["a"] });
+    selHist = pushHistory(selHist, { doc, selectedIds: ["b"] });
+    selHist = pushHistory(selHist, { doc, selectedIds: ["a", "b"] });
+    const u1 = undo(selHist);
+    expect(u1!.selectedIds).toEqual(["b"]);
+    const u2 = undo(u1!.history);
+    expect(u2!.selectedIds).toEqual(["a"]);
+    const r1 = redo(u2!.history);
+    expect(r1!.selectedIds).toEqual(["b"]);
+    const r2 = redo(r1!.history);
+    expect(r2!.selectedIds).toEqual(["a", "b"]);
 
     // Inspector computed dimensions & instance resolution
     const inspDoc = makeDoc(frame("f", 300, 100, [rect("r", "fill_container" as any, 60)], { padding: 20 }));
@@ -216,7 +303,8 @@ describe("end-to-end editor driver reality tests", () => {
     const { calls: initialCalls } = editor.renderView();
     expect(initialCalls.some((c) => c.startsWith("translate:0,0"))).toBe(true);
 
-    editor.pointerDown(600, 45);
+    // Deep select header with Cmd/Meta
+    editor.pointerDown(600, 45, { meta: true });
     expect(editor.selectedIds.has("jUqCC")).toBe(true);
 
     const widthField = editor.getInspector().find((f) => f.label === "Width");
@@ -248,9 +336,9 @@ describe("end-to-end editor driver reality tests", () => {
     flexEditor.undo();
     expect(flexEditor.doc.children.length).toBe(2);
 
-    // Alt-duplicate mid-drag
+    // Alt-duplicate inner node mid-drag (using meta: true to deep-select inner btn)
     const altEditor = new EditorDriver(makeDoc(frame("root", 500, 400, [rect("btn", 100, 40, { x: 20, y: 20 } as any)], { layout: "none" })));
-    altEditor.pointerDown(30, 30);
+    altEditor.pointerDown(30, 30, { meta: true });
     altEditor.pointerMove(50, 50);
     altEditor.pointerMove(150, 150, { alt: true });
     altEditor.pointerUp();
@@ -265,7 +353,7 @@ describe("end-to-end editor driver reality tests", () => {
       ], { layout: "vertical" })
     );
     const heroEditor = new EditorDriver(heroDoc);
-    heroEditor.pointerDown(100, 100);
+    heroEditor.pointerDown(100, 100, { meta: true });
     heroEditor.pointerMove(600, 200);
     heroEditor.pointerUp();
     expect(heroEditor.doc.children.length).toBe(2);
@@ -274,6 +362,32 @@ describe("end-to-end editor driver reality tests", () => {
     expect(movedHero?.height).toBe(380);
     expect(flattenBoxes(heroEditor.layoutTree).get("hero_img")?.width).toBe(390);
     expect(flattenBoxes(heroEditor.layoutTree).get("hero_img")?.height).toBe(380);
+
+    // Figma top-level vs drilled selection:
+    const parentDoc = makeDoc(
+      frame("parentFrame", 300, 200, [rect("childWidget", 100, 50, { x: 20, y: 20 } as any)], { x: 100, y: 100 } as any)
+    );
+    const parentEditor = new EditorDriver(parentDoc);
+    // 1. Initial click on child location selects top-level parentFrame
+    parentEditor.pointerDown(130, 130);
+    expect(parentEditor.selectedIds.has("parentFrame")).toBe(true);
+    // 2. Dragging moves the selected parentFrame
+    parentEditor.pointerMove(230, 230);
+    parentEditor.pointerUp();
+    expect((parentEditor.doc.children[0] as any).x).toBe(200);
+    expect((parentEditor.doc.children[0] as any).y).toBe(200);
+
+    // 3. Second click drills down into childWidget
+    parentEditor.pointerDown(230, 230);
+    expect(parentEditor.selectedIds.has("childWidget")).toBe(true);
+
+    // 4. Hovering a text node draws only an underline indicator without a bounding box frame
+    const textNode: LayoutNode = { id: "txt1", type: "text", box: { x: 0, y: 0, width: 80, height: 20 }, children: [] };
+    const { ctx: hoverCtx, calls: hoverCalls } = createMockCanvas();
+    paintSelectionOverlay(hoverCtx, textNode, new Set(), "txt1");
+    expect(hoverCalls.some((c) => c.startsWith("moveTo:0,20"))).toBe(true);
+    expect(hoverCalls.some((c) => c.startsWith("lineTo:80,20"))).toBe(true);
+    expect(hoverCalls.some((c) => c.startsWith("strokeRect"))).toBe(false);
   });
 
   it("finds intersecting nodes with marquee bounding box on canvas and inside containers", () => {
@@ -614,5 +728,94 @@ describe("smart guides inside a frame, which is where design actually happens", 
 
     expect(session.snapOffset).toEqual({ x: 0, y: 0 });
     expect(session.guides).toHaveLength(0);
+  });
+});
+
+describe("Figma-style Auto-Layout Live Drag Reordering & Sibling Displacement", () => {
+  it("displaces siblings live when dragging an item across another sibling's midpoint", () => {
+    // Parent frame with 3 items: [c1, c2, c3]
+    const doc = makeDoc(
+      frame("parent", 600, 200, [
+        rect("c1", 100, 80),
+        rect("c2", 100, 80),
+        rect("c3", 100, 80)
+      ], { layout: "horizontal", gap: 20 } as any)
+    );
+    const tree = layoutDocument(doc);
+    // c1 is at x:0..100, c2 is at x:120..220 (midpoint 170), c3 is at x:240..340 (midpoint 290)
+    const session: DragSession = {
+      nodeId: "c1",
+      startWorld: { x: 50, y: 40 },
+      currentWorld: { x: 50, y: 40 },
+      initialNodeX: 0,
+      initialNodeY: 0,
+      worldOffset: { x: 0, y: 0 },
+      dimensions: { width: 100, height: 80 }
+    };
+
+    // Drag c1 past c2's midpoint (cursor at x: 180)
+    handleDragMove(doc, session, { x: 180, y: 40 }, tree, undefined, 1);
+
+    expect(session.insertIndex).toBe(1);
+    expect(session.reordered).toBe(true);
+    expect(session.dropIndicator).toBeDefined();
+
+    const parentNode = doc.children[0] as any;
+    expect(parentNode.children.map((c: any) => c.id)).toEqual(["c2", "c1", "c3"]);
+  });
+
+  it("displaces all subsequent siblings when dragged further right", () => {
+    const doc = makeDoc(
+      frame("parent", 600, 200, [
+        rect("c1", 100, 80),
+        rect("c2", 100, 80),
+        rect("c3", 100, 80)
+      ], { layout: "horizontal", gap: 20 } as any)
+    );
+    const tree = layoutDocument(doc);
+    const session: DragSession = {
+      nodeId: "c1",
+      startWorld: { x: 50, y: 40 },
+      currentWorld: { x: 50, y: 40 },
+      initialNodeX: 0,
+      initialNodeY: 0,
+      worldOffset: { x: 0, y: 0 },
+      dimensions: { width: 100, height: 80 }
+    };
+
+    // Drag c1 past c3's midpoint (cursor at x: 300)
+    handleDragMove(doc, session, { x: 300, y: 40 }, tree, undefined, 1);
+
+    expect(session.insertIndex).toBe(2);
+    expect(session.reordered).toBe(true);
+    expect(session.dropIndicator).toBeDefined();
+
+    const parentNode = doc.children[0] as any;
+    expect(parentNode.children.map((c: any) => c.id)).toEqual(["c2", "c3", "c1"]);
+  });
+
+  it("bypasses auto-layout nesting when Spacebar is held", () => {
+    const doc = makeDoc(
+      frame("autoFrame", 400, 400, [rect("c1", 100, 80)], { layout: "vertical" } as any),
+      rect("looseWidget", 80, 80, { x: 500, y: 100 } as any)
+    );
+    const tree = layoutDocument(doc);
+    const session: DragSession = {
+      nodeId: "looseWidget",
+      startWorld: { x: 540, y: 140 },
+      currentWorld: { x: 540, y: 140 },
+      initialNodeX: 500,
+      initialNodeY: 100,
+      worldOffset: { x: 500, y: 100 },
+      dimensions: { width: 80, height: 80 }
+    };
+
+    // Drag over autoFrame at world (200, 200) with Spacebar held
+    handleDragMove(doc, session, { x: 200, y: 200 }, tree, undefined, 1, true);
+    expect(session.targetContainerId).toBeUndefined();
+
+    // Without Spacebar held, it targets autoFrame
+    handleDragMove(doc, session, { x: 200, y: 200 }, tree, undefined, 1, false);
+    expect(session.targetContainerId).toBe("autoFrame");
   });
 });

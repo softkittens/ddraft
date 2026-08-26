@@ -28,7 +28,8 @@ import {
   checkTextClipping,
   checkTracking,
   checkProseMeasure,
-  checkScaleDiscipline
+  checkScaleDiscipline,
+  checkRawEscapeSequences
 } from "./rules/typography";
 import {
   checkContrast,
@@ -133,7 +134,8 @@ const AUDIT_RULES: AuditRuleRunner[] = [
   checkSiblingCardActionConsistency,
   checkFormInputAlignment,
   checkStrayOrphanCharacters,
-  checkSegmentedPillDistribution
+  checkSegmentedPillDistribution,
+  checkRawEscapeSequences
 ];
 
 /* ------------------------------------------------------------------ *

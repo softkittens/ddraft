@@ -114,12 +114,13 @@ export function restoreRecord(raw: any): PersistedSession | null {
   if (!raw || typeof raw !== "object" || raw.version !== SCHEMA_VERSION) return null;
 
   const parsed = documentSchema.safeParse(raw.doc);
-  if (!parsed.success) return null;
+  const doc = parsed.success ? (parsed.data as Document) : (raw.doc && Array.isArray(raw.doc.children) ? (raw.doc as Document) : null);
+  if (!doc) return null;
 
   return {
     version: SCHEMA_VERSION,
     savedAt: typeof raw.savedAt === "string" ? raw.savedAt : new Date().toISOString(),
-    doc: parsed.data as Document,
+    doc,
     camera: validCamera(raw.camera),
     chat: validChat(raw.chat),
     activePageId: typeof raw.activePageId === "string" && raw.activePageId.trim() ? raw.activePageId : undefined

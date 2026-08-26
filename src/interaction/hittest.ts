@@ -126,6 +126,28 @@ export function hitTestSceneWorld(
 }
 
 /**
+ * Resolves the hit target using Figma's top-down hierarchical selection model:
+ * 1. Deep select (Cmd/Ctrl held): directly select the innermost leaf node.
+ * 2. If nothing in the path is selected: select the top-level root frame (path[0]).
+ * 3. If an ancestor is already selected: drill down 1 level deeper into its child.
+ */
+export function resolveFigmaClickTarget(
+  path: LayoutNode[],
+  currentSelection: Set<string>,
+  deepSelect = false
+): LayoutNode {
+  if (path.length === 0) return path[0];
+  if (deepSelect || path.length === 1) return path[path.length - 1];
+
+  const selectedIndex = path.findIndex((node) => currentSelection.has(node.id));
+  if (selectedIndex === -1) {
+    return path[0];
+  }
+
+  return path[Math.min(path.length - 1, selectedIndex + 1)];
+}
+
+/**
  * Finds the topmost node under a world-space point.
  * Walks in reverse painter order (front-to-back, leaf children first).
  */

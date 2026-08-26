@@ -240,7 +240,11 @@ export function normalizeNodeTree(node: any, report: NormalizeReport, variables?
         continue;
       }
     }
-    out[target] = value;
+    let val = value;
+    if (target === "content" && typeof val === "string") {
+      val = val.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+    }
+    out[target] = val;
   }
 
   for (const [key, table] of Object.entries(VALUE_ALIASES)) {

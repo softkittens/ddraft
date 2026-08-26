@@ -71,6 +71,7 @@ export const CanvasView: Component = () => {
       selectedIds: selectedIds(),
       hoveredId: hoveredId(),
       dragSession: pointer.dragSession(),
+      resizeGuides: pointer.resizeSession()?.guides,
       isAltHeld: keyboard.isAltHeld(),
       shapeStart: pointer.shapeStart(),
       shapeCurrent: pointer.shapeCurrent(),
@@ -107,10 +108,15 @@ export const CanvasView: Component = () => {
     requestRender();
   });
 
+  const preventGesture = (e: Event) => e.preventDefault();
+
   onMount(() => {
     setImageInvalidator(() => {
       requestRender();
     });
+
+    document.addEventListener("gesturestart", preventGesture, { passive: false });
+    document.addEventListener("gesturechange", preventGesture, { passive: false });
 
     if (canvasRef) {
       canvasRef.addEventListener("wheel", pointer.handleWheel, { passive: false });
@@ -133,6 +139,8 @@ export const CanvasView: Component = () => {
   });
 
   onCleanup(() => {
+    document.removeEventListener("gesturestart", preventGesture);
+    document.removeEventListener("gesturechange", preventGesture);
     setImageInvalidator(null);
     if (canvasRef) {
       canvasRef.removeEventListener("wheel", pointer.handleWheel);

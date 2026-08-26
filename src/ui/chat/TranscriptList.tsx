@@ -69,7 +69,12 @@ const DisplayRow: Component<{
               {(item) => <NoticeBubble item={item() as NoteEntry} />}
             </Match>
             <Match when={entry().kind === "review" ? entry() : null}>
-              {(item) => <ReviewCard entry={item() as ReviewEntry} providers={props.providers} />}
+              {(item) => (
+                <ReviewCard
+                  entry={item() as ReviewEntry}
+                  providers={props.providers}
+                />
+              )}
             </Match>
             <Match when={isUserMessage(entry()) ? entry() : null}>
               {(item) => (

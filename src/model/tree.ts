@@ -54,6 +54,25 @@ export function findParent(nodes: PenNode[], targetId: string): PenNode | null {
   return null;
 }
 
+/**
+ * Returns all ancestor nodes from root to the immediate parent of the target node.
+ */
+export function findAncestorsOfNode(nodes: PenNode[], targetId: string): PenNode[] {
+  const path: PenNode[] = [];
+  function search(list: PenNode[]): boolean {
+    for (const node of list) {
+      if (node.id === targetId) return true;
+      path.push(node);
+      if (search(childrenOf(node))) return true;
+      path.pop();
+    }
+    return false;
+  }
+  search(nodes);
+  return path;
+}
+
+
 export function cloneDocument(doc: Document): Document {
   return structuredClone(doc);
 }

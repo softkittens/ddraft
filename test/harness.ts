@@ -6,7 +6,7 @@ import { indexDocument, cloneDocument } from "../src/model/tree";
 import { parseDocument } from "../src/model/parse";
 import { resolveInstances } from "../src/model/instance";
 import { createCamera, screenToWorld, zoomAtScreenPoint, panCamera, type Camera } from "../src/interaction/camera";
-import { hitTestScene } from "../src/interaction/hittest";
+import { hitTestScene, hitTestSceneWorld, findNodeWorldBox, resolveFigmaClickTarget } from "../src/interaction/hittest";
 import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../src/interaction/drag";
 import { duplicateNode } from "../src/model/edit";
 import { createHistory, pushDocument, undo as undoDoc, redo as redoDoc, type HistoryState } from "../src/model/history";
@@ -162,7 +162,7 @@ export class EditorDriver {
   camera: Camera;
   selectedIds: Set<string>;
   hoveredId: string | null = null;
-  history: HistoryState;
+  history: HistoryState<Document>;
   toolMode: ToolMode = "select";
 
   private pendingPress: DragSession | null = null;
@@ -185,27 +185,29 @@ export class EditorDriver {
     return indexDocument(this.doc);
   }
 
-  // Pointer Gestures (in Screen Pixel Coordinates)
   pointerDown(screenX: number, screenY: number, modifiers: { alt?: boolean; meta?: boolean } = {}) {
     const world = screenToWorld({ x: screenX, y: screenY }, this.camera);
-    const hit = hitTestScene(this.layoutTree, world);
+    const hitResult = hitTestSceneWorld(this.layoutTree, world, this.nodeMap);
 
-    if (hit) {
+    if (hitResult) {
+      const targetNode = resolveFigmaClickTarget(hitResult.path, this.selectedIds, modifiers.meta);
+      const targetWorld = findNodeWorldBox(this.layoutTree, targetNode.id);
+
       if (modifiers.meta) {
-        if (this.selectedIds.has(hit.id)) this.selectedIds.delete(hit.id);
-        else this.selectedIds.add(hit.id);
+        if (this.selectedIds.has(targetNode.id)) this.selectedIds.delete(targetNode.id);
+        else this.selectedIds.add(targetNode.id);
       } else {
-        this.selectedIds = new Set([hit.id]);
+        this.selectedIds = new Set([targetNode.id]);
       }
 
       this.pendingPress = {
-        nodeId: hit.id,
+        nodeId: targetNode.id,
         startWorld: world,
         currentWorld: world,
-        initialNodeX: hit.box.x,
-        initialNodeY: hit.box.y,
-        worldOffset: { x: hit.box.x, y: hit.box.y },
-        dimensions: { width: hit.box.width, height: hit.box.height }
+        initialNodeX: targetWorld?.x ?? targetNode.box.x,
+        initialNodeY: targetWorld?.y ?? targetNode.box.y,
+        worldOffset: targetWorld ? { x: targetWorld.x, y: targetWorld.y } : { x: hitResult.worldX, y: hitResult.worldY },
+        dimensions: { width: targetNode.box.width, height: targetNode.box.height }
       };
     } else {
       this.selectedIds.clear();
@@ -278,7 +280,7 @@ export class EditorDriver {
     if (res) {
       this.history = res.history;
       this.doc = cloneDocument(res.doc);
-      this.selectedIds.clear();
+      this.selectedIds = new Set(res.selectedIds);
     }
   }
 
@@ -287,7 +289,7 @@ export class EditorDriver {
     if (res) {
       this.history = res.history;
       this.doc = cloneDocument(res.doc);
-      this.selectedIds.clear();
+      this.selectedIds = new Set(res.selectedIds);
     }
   }
 

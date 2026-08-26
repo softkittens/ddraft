@@ -55,6 +55,7 @@ export type AuditRule =
   | "inconsistent_card_actions"
   | "repeated_primary_action"
   | "supporting_image_wall"
+  | "raw_escape_sequence"
   | "catalog_row";
 
 export type AuditSeverity = "blocker" | "warning" | "info";

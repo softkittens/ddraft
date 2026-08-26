@@ -42,8 +42,8 @@ describe("System prompt carries rules, not a design", () => {
     expect(prompt).toContain("Anti-Box-in-Box Nesting");
     expect(prompt).toContain("Do not put an eyebrow or kicker above a heading");
     expect(prompt).toContain("at most two visible roles per screen");
-    expect(prompt).toContain("Unless supplied by the brief, do not invent addresses");
-    expect(prompt).toContain("fictional brand and clearly illustrative product names or prices are allowed");
+    expect(prompt).toContain("Concrete Prototype Copy");
+    expect(prompt).toContain("fictional brand names, realistic hours");
   });
 
   it("tells the model it can name an icon without looking it up first", () => {
@@ -143,26 +143,22 @@ describe("System prompt carries rules, not a design", () => {
   });
 
   it("dynamically composes rules tailored to the user request intent", () => {
-    // 1. Mobile Food Ordering request
-    const foodPrompt = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Create mobile app for ordering matcha cakes");
-    expect(foodPrompt).toContain("MOBILE SCREEN COMPOSITION");
-    expect(foodPrompt).toContain("E-COMMERCE & FOOD / CONSUMER ORDERING CAPABILITIES");
-    expect(foodPrompt).toContain("Do not automatically produce header + search + dark hero");
-    expect(foodPrompt).not.toContain("strictly follow this mobile hierarchy");
-    expect(foodPrompt).not.toContain("SITE & LANDING PAGE COMPOSITION");
-    expect(foodPrompt).not.toContain("OPERATIONAL TOOL & DASHBOARD COMPOSITION");
+    // 1. Mobile request
+    const mobilePrompt = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Create mobile app for ordering matcha cakes");
+    expect(mobilePrompt).toContain("MOBILE SCREEN COMPOSITION");
+    expect(mobilePrompt).not.toContain("SITE & LANDING PAGE COMPOSITION");
+    expect(mobilePrompt).not.toContain("OPERATIONAL TOOL & DASHBOARD COMPOSITION");
 
     // 2. Desktop Landing Page request
     const sitePrompt = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Landing page for Lisbon coworking space");
     expect(sitePrompt).toContain("SITE & LANDING PAGE COMPOSITION");
+    expect(sitePrompt).toContain("8 Universal Spatial Layout Families");
     expect(sitePrompt).not.toContain("MOBILE SCREEN COMPOSITION");
-    expect(sitePrompt).not.toContain("E-COMMERCE & FOOD");
 
     // 3. Operational Dashboard request
     const dashPrompt = agentSystemPrompt(makeDoc(), [], "test-model", 0, [], "Kubernetes cluster monitoring dashboard");
     expect(dashPrompt).toContain("OPERATIONAL TOOL & DASHBOARD COMPOSITION");
     expect(dashPrompt).not.toContain("SITE & LANDING PAGE COMPOSITION");
-    expect(dashPrompt).not.toContain("E-COMMERCE & FOOD");
   });
 
   it("switches to focused revision order-of-work on incremental edit requests", () => {
@@ -186,14 +182,13 @@ describe("System prompt carries rules, not a design", () => {
     const editPrompt = agentSystemPrompt(doc, [], "test-model", 0, [], "change the title text to italic and fix padding");
     expect(editPrompt).toContain("ORDER OF WORK — REVISION & INCREMENTAL EDITS");
     expect(editPrompt).not.toContain("ORDER OF WORK — DESIGN REQUESTS ONLY");
-    expect(editPrompt).toContain("batch_set_properties, set_property, or insert_node");
+    expect(editPrompt).toContain("batch_set_properties, set_property, replace_node, or insert_node");
     expect(editPrompt).not.toContain(", set_properties");
 
     // A focused revision instruction loses to a blueprint telling the model to
     // stack eight narrative bands, so the blueprints do not ship with it.
     expect(editPrompt).not.toContain("SITE & LANDING PAGE COMPOSITION");
     expect(editPrompt).not.toContain("OPERATIONAL TOOL & DASHBOARD COMPOSITION");
-    expect(editPrompt).not.toContain("E-COMMERCE & FOOD");
     // The surface blueprint stays: its ergonomics and token rules apply to any edit.
     expect(editPrompt).toContain("MOBILE SCREEN COMPOSITION");
   });
@@ -222,9 +217,9 @@ describe("System prompt carries rules, not a design", () => {
     );
     expect(p).not.toContain("If the look is guessable");
     expect(p).not.toContain("Neobrutalism");
-    expect(p).toContain("Four Distinct Hero Topologies");
+    expect(p).toContain("Hero Topologies");
     expect(p).toContain("AVOID THE ROBOTIC 6-BAND CLONE");
-    expect(p).toContain("Horizontal Toolbars & Filters");
+    expect(p).toContain("Turn-1 Self-Planning Protocol");
   });
 
   it("supplies the style and composition catalog when a review reports a direction or style mismatch", () => {

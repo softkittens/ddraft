@@ -349,12 +349,6 @@ export function useChatSession() {
               { kind: "message", message: { role: "tool", content: event.result }, tool: event.name }
             ]);
             const decision = decideAgentDocument(doc(), expectedDoc, event.doc);
-            if (decision.action === "abort") {
-              controller.abort();
-              failure = "The canvas changed, so the agent stopped before overwriting it.";
-              note(failure, "error");
-              return { finished, edited, messages: finalMessages, failure, toolsCalled };
-            }
             if (decision.action === "accept") {
               edited = true;
               expectedDoc = decision.expected;
@@ -385,6 +379,9 @@ export function useChatSession() {
             break;
           case "error":
             failure = event.message;
+            if (event.messages && event.messages.length > 0) {
+              finalMessages = event.messages.filter((m) => m.role !== "system");
+            }
             setPending(null);
             setStreamReasoning("");
             setStreamText("");
@@ -528,20 +525,29 @@ export function useChatSession() {
           }
         }
 
-        if (result.failure) break;
+        if (result.failure) {
+          if (result.messages && result.messages.length > 0) {
+            context = result.messages;
+            setAgentMessages(context);
+          }
+          break;
+        }
         if (!result.finished || !result.edited) break;
 
-        const isSubstantiveDesign =
+        const isInitialBuildOrRedesign =
           initialScreenCount === 0 ||
-          result.toolsCalled.some((t) =>
-            ["create_screen", "set_style", "insert_node", "replace_node", "generate_image"].includes(t)
-          ) ||
-          result.toolsCalled.length >= 3;
+          result.toolsCalled.includes("create_screen") ||
+          result.toolsCalled.includes("set_style") ||
+          /\b(review|audit|critique|redesign)\b/i.test(text);
 
-        if (!isSubstantiveDesign) {
+        if (!isInitialBuildOrRedesign) {
           break;
         }
         producedDesign = true;
+
+        if (pass >= AUTO_REVIEW_REVISIONS) {
+          break;
+        }
 
         const reviewed = await runReview(sessionId, targetedNodes, targetPageId);
         if (reviewed.error) {
@@ -573,20 +579,25 @@ export function useChatSession() {
           verdict: finalReview.verdict,
           hasReview: true
         });
-        switch (next) {
-          case "stop":
-            break;
-          case "revise":
-            targetedNodes = finalReview.issues.flatMap((iss) => iss.nodeIds || []);
-            instruction = applyReviewMessage(lastBrief(), finalReview, doc());
-            continue;
-          default: {
-            const _exhaustive: never = next;
-            void _exhaustive;
-            break;
+        if (next === "stop") {
+          if (finalReview.verdict === "refine") {
+            setEntries((prev) => [
+              ...prev,
+              {
+                kind: "message",
+                message: {
+                  role: "assistant",
+                  content: "Auto-review has reached its limit of 3 revisions and some visual refinement items remain. Would you like me to continue the auto-review process?"
+                }
+              }
+            ]);
           }
+          break;
         }
-        break;
+
+        targetedNodes = finalReview.issues.flatMap((iss) => iss.nodeIds || []);
+        instruction = applyReviewMessage(lastBrief(), finalReview, doc());
+        continue;
       }
     } finally {
       endEdit();

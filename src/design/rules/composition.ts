@@ -1747,3 +1747,4 @@ export function checkSegmentedPillDistribution(ctx: AuditContext): AuditFinding[
 
   return findings;
 }
+

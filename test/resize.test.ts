@@ -4,6 +4,7 @@ import {
   handleAtScreenPoint,
   resizeBox,
   applyResize,
+  computeResizeSnap,
   cursorForHandle,
   type ResizeHandle
 } from "../src/interaction/resize";
@@ -235,5 +236,92 @@ describe("Writing an alt-resize", () => {
     const next = resizeBox({ x: 50, y: 40, width: 100, height: 60 }, "e", 20, 0);
     const node = findNode(applyResize(doc(), "box", "e", next).children, "box")!;
     expect(node.x).toBe(50);
+  });
+});
+
+describe("Resize alignment snapping and guides", () => {
+  const tree = [
+    {
+      id: "root",
+      type: "frame" as const,
+      box: { x: 0, y: 0, width: 800, height: 600 },
+      children: [
+        {
+          id: "cardA",
+          type: "frame" as const,
+          box: { x: 50, y: 50, width: 200, height: 150 },
+          children: []
+        },
+        {
+          id: "cardB",
+          type: "frame" as const,
+          box: { x: 300, y: 50, width: 180, height: 100 },
+          children: []
+        }
+      ]
+    }
+  ];
+
+  it("snaps east edge to sibling right edge and generates vertical guide", () => {
+    // cardB at x: 300, start width: 180 (right = 480).
+    // Target: root at width 800 or cardA right edge at 250.
+    // If cardB is resized east by -48 (right becomes 432), or towards 480.
+    // Let's test resizing cardA east towards cardB left edge (300):
+    // cardA start: x: 50, width: 200 (right = 250). Dragging east by 48px -> rawRight = 298.
+    // Sibling cardB starts at x: 300.
+    // Within 6px threshold, so cardA right edge should snap to 300 (width: 250).
+    const res = computeResizeSnap(
+      tree,
+      "cardA",
+      "e",
+      { x: 50, y: 50, width: 200, height: 150 },
+      48,
+      0,
+      {},
+      1
+    );
+
+    expect(res.box.width).toBe(250); // 50 + 250 = 300 (snapped to cardB.x)
+    expect(res.guides.length).toBeGreaterThan(0);
+    expect(res.guides[0].type).toBe("vertical");
+    expect(res.guides[0].position).toBe(300);
+  });
+
+  it("snaps south edge to sibling bottom edge and generates horizontal guide", () => {
+    // cardB at y: 50, height: 100 (bottom = 150).
+    // Sibling cardA bottom is at y + height = 50 + 150 = 200.
+    // Dragging cardB south by 48px -> rawBottom = 50 + 100 + 48 = 198.
+    // Within 6px threshold of cardA.bottom (200), so cardB height should snap to 150 (bottom = 200).
+    const res = computeResizeSnap(
+      tree,
+      "cardB",
+      "s",
+      { x: 300, y: 50, width: 180, height: 100 },
+      0,
+      48,
+      {},
+      1
+    );
+
+    expect(res.box.height).toBe(150); // 50 + 150 = 200 (snapped to cardA.bottom)
+    expect(res.guides.length).toBeGreaterThan(0);
+    expect(res.guides[0].type).toBe("horizontal");
+    expect(res.guides[0].position).toBe(200);
+  });
+
+  it("suspends snapping when snapDisabled is true", () => {
+    const res = computeResizeSnap(
+      tree,
+      "cardA",
+      "e",
+      { x: 50, y: 50, width: 200, height: 150 },
+      48,
+      0,
+      { snapDisabled: true },
+      1
+    );
+
+    expect(res.box.width).toBe(248); // No snapping (200 + 48)
+    expect(res.guides).toEqual([]);
   });
 });

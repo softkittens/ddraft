@@ -1,7 +1,8 @@
-import type { Box } from "../layout/types";
+import type { Box, LayoutNode } from "../layout/types";
 import type { Document, TextNode } from "../model/types";
 import { cloneDocument, findNode } from "../model/tree";
 import type { Point } from "./camera";
+import { snapTargetBoxes, type AlignmentGuide } from "./drag";
 
 /**
  * Dragging a selection's edges and corners.
@@ -207,4 +208,162 @@ export function applyResize(
   }
 
   return next;
+}
+
+export interface ResizeSnapResult {
+  box: Box;
+  guides: AlignmentGuide[];
+}
+
+/**
+ * Computes alignment snapping and guide lines when resizing a node handle against
+ * the edges and centers of candidate layout boundaries.
+ */
+export function computeResizeSnap(
+  layoutTree: LayoutNode[],
+  nodeId: string,
+  handle: ResizeHandle,
+  startBox: Box,
+  rawDx: number,
+  rawDy: number,
+  options: ResizeOptions & { snapDisabled?: boolean } = {},
+  zoom = 1
+): ResizeSnapResult {
+  const rawBox = resizeBox(startBox, handle, rawDx, rawDy, options);
+  if (options.snapDisabled) {
+    return { box: rawBox, guides: [] };
+  }
+
+  const targets = snapTargetBoxes(layoutTree, nodeId);
+  if (targets.length === 0) {
+    return { box: rawBox, guides: [] };
+  }
+
+  const threshold = 6 / zoom;
+  const min = options.min ?? 1;
+  const west = handle.includes("w");
+  const east = handle.includes("e");
+  const north = handle.includes("n");
+  const south = handle.includes("s");
+
+  const snappedBox = { ...rawBox };
+  const guides: AlignmentGuide[] = [];
+
+  // X-axis alignment snap
+  if (west) {
+    let bestSnap: { targetPos: number; diff: number; target: Box } | null = null;
+    for (const t of targets) {
+      for (const pos of [t.x, t.x + t.width / 2, t.x + t.width]) {
+        const diff = Math.abs(pos - rawBox.x);
+        if (diff <= threshold && (!bestSnap || diff < bestSnap.diff)) {
+          bestSnap = { targetPos: pos, diff, target: t };
+        }
+      }
+    }
+    if (bestSnap) {
+      const newWidth = Math.max(min, startBox.x + startBox.width - bestSnap.targetPos);
+      snappedBox.x = startBox.x + startBox.width - newWidth;
+      snappedBox.width = newWidth;
+      const marks = [
+        snappedBox.y,
+        snappedBox.y + snappedBox.height,
+        bestSnap.target.y,
+        bestSnap.target.y + bestSnap.target.height
+      ];
+      guides.push({
+        type: "vertical",
+        position: bestSnap.targetPos,
+        start: Math.min(...marks),
+        end: Math.max(...marks),
+        points: [...new Set(marks)].sort((a, b) => a - b)
+      });
+    }
+  } else if (east) {
+    const rawRight = rawBox.x + rawBox.width;
+    let bestSnap: { targetPos: number; diff: number; target: Box } | null = null;
+    for (const t of targets) {
+      for (const pos of [t.x, t.x + t.width / 2, t.x + t.width]) {
+        const diff = Math.abs(pos - rawRight);
+        if (diff <= threshold && (!bestSnap || diff < bestSnap.diff)) {
+          bestSnap = { targetPos: pos, diff, target: t };
+        }
+      }
+    }
+    if (bestSnap) {
+      snappedBox.width = Math.max(min, bestSnap.targetPos - snappedBox.x);
+      const marks = [
+        snappedBox.y,
+        snappedBox.y + snappedBox.height,
+        bestSnap.target.y,
+        bestSnap.target.y + bestSnap.target.height
+      ];
+      guides.push({
+        type: "vertical",
+        position: bestSnap.targetPos,
+        start: Math.min(...marks),
+        end: Math.max(...marks),
+        points: [...new Set(marks)].sort((a, b) => a - b)
+      });
+    }
+  }
+
+  // Y-axis alignment snap
+  if (north) {
+    let bestSnap: { targetPos: number; diff: number; target: Box } | null = null;
+    for (const t of targets) {
+      for (const pos of [t.y, t.y + t.height / 2, t.y + t.height]) {
+        const diff = Math.abs(pos - rawBox.y);
+        if (diff <= threshold && (!bestSnap || diff < bestSnap.diff)) {
+          bestSnap = { targetPos: pos, diff, target: t };
+        }
+      }
+    }
+    if (bestSnap) {
+      const newHeight = Math.max(min, startBox.y + startBox.height - bestSnap.targetPos);
+      snappedBox.y = startBox.y + startBox.height - newHeight;
+      snappedBox.height = newHeight;
+      const marks = [
+        snappedBox.x,
+        snappedBox.x + snappedBox.width,
+        bestSnap.target.x,
+        bestSnap.target.x + bestSnap.target.width
+      ];
+      guides.push({
+        type: "horizontal",
+        position: bestSnap.targetPos,
+        start: Math.min(...marks),
+        end: Math.max(...marks),
+        points: [...new Set(marks)].sort((a, b) => a - b)
+      });
+    }
+  } else if (south) {
+    const rawBottom = rawBox.y + rawBox.height;
+    let bestSnap: { targetPos: number; diff: number; target: Box } | null = null;
+    for (const t of targets) {
+      for (const pos of [t.y, t.y + t.height / 2, t.y + t.height]) {
+        const diff = Math.abs(pos - rawBottom);
+        if (diff <= threshold && (!bestSnap || diff < bestSnap.diff)) {
+          bestSnap = { targetPos: pos, diff, target: t };
+        }
+      }
+    }
+    if (bestSnap) {
+      snappedBox.height = Math.max(min, bestSnap.targetPos - snappedBox.y);
+      const marks = [
+        snappedBox.x,
+        snappedBox.x + snappedBox.width,
+        bestSnap.target.x,
+        bestSnap.target.x + bestSnap.target.width
+      ];
+      guides.push({
+        type: "horizontal",
+        position: bestSnap.targetPos,
+        start: Math.min(...marks),
+        end: Math.max(...marks),
+        points: [...new Set(marks)].sort((a, b) => a - b)
+      });
+    }
+  }
+
+  return { box: snappedBox, guides };
 }

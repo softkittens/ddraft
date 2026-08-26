@@ -37,7 +37,7 @@ export type AgentEvent =
   | { type: "tool_start"; name: string; detail?: string }
   | { type: "tool"; name: string; result: string; doc?: Document }
   | { type: "done"; messages: Message[]; doc: Document }
-  | { type: "error"; message: string; code: AgentErrorCode };
+  | { type: "error"; message: string; code: AgentErrorCode; messages?: Message[]; doc?: Document };
 
 export function isAbortError(err: unknown, signal?: AbortSignal): boolean {
   if (signal) return signal.aborted;
@@ -369,7 +369,13 @@ export async function* runSession(
 
       if (turnEval.action === "error") {
         recordOutcome(opts.trace, session.doc, watchdog.getMetrics(turnEval.reason));
-        yield { type: "error", code: "budget", message: turnEval.message };
+        yield {
+          type: "error",
+          code: "budget",
+          message: turnEval.message,
+          messages: sanitizeSessionMessages(out, internal),
+          doc: session.doc
+        };
         return;
       }
 
@@ -380,15 +386,33 @@ export async function* runSession(
     }
   } catch (err) {
     if (isAbortError(err, opts.signal)) {
-      yield { type: "error", code: "aborted", message: err instanceof Error ? err.message : "aborted" };
+      yield {
+        type: "error",
+        code: "aborted",
+        message: err instanceof Error ? err.message : "aborted",
+        messages: sanitizeSessionMessages(out, internal),
+        doc: session.doc
+      };
       return;
     }
-    yield { type: "error", code: classifyError(err), message: err instanceof Error ? err.message : String(err) };
+    yield {
+      type: "error",
+      code: classifyError(err),
+      message: err instanceof Error ? err.message : String(err),
+      messages: sanitizeSessionMessages(out, internal),
+      doc: session.doc
+    };
     return;
   }
 
   if (opts.signal?.aborted) {
-    yield { type: "error", code: "aborted", message: "aborted" };
+    yield {
+      type: "error",
+      code: "aborted",
+      message: "aborted",
+      messages: sanitizeSessionMessages(out, internal),
+      doc: session.doc
+    };
     return;
   }
 

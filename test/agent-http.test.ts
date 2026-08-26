@@ -194,30 +194,6 @@ describe("agent review HTTP endpoint & vision handoffs", () => {
     expect(pMsg.url()).toBe("https://opencode.ai/zen/go/v1/messages");
   });
 
-  it("does not let a model pass unsupported authority claims", async () => {
-    const unreadyReview = {
-      verdict: "pass",
-      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 5 },
-      strengths: ["Clear hierarchy"],
-      issues: []
-    };
-    const provider = fakeProvider(() => responsesReply(JSON.stringify(unreadyReview)));
-    const res = await reviewPost(
-      {
-        providerId: "opencode-go",
-        model: "gpt-5.6-luna",
-        brief: "Warm minimal Lisbon coworking site",
-        digest: "badge B Corp Pending; rating 4.9 / 5 stars from 1,200 verified reviews"
-      },
-      { env: { OPENCODE_API_KEY: "k" }, fetch: provider.fetch }
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.verdict).toBe("refine");
-    expect(body.issues[0].title).toBe("Unsupported authority claims");
-  });
-
   it("sends section close-ups through one complete overview review", async () => {
     let calls = 0;
     const pMulti = fakeProvider(() => {

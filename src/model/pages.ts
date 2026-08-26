@@ -201,7 +201,8 @@ export function setPageOf(doc: Document, nodeId: string, pageId: string | undefi
   const index = children.findIndex((node) => node.id === nodeId);
   if (index === -1) return doc;
 
-  const next = pageId?.trim() || undefined;
+  const raw = pageId?.trim();
+  const next = raw && raw !== IMPLICIT_PAGE_ID ? raw : undefined;
   if (pageIdOf(children[index]) === next) return doc;
 
   const newDoc = cloneDocument(doc);

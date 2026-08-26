@@ -51,6 +51,8 @@ export interface DragSession {
   snapOffset?: Point;
   /** Held modifier that suspends snapping for this move, as ⌘ does in Figma. */
   snapDisabled?: boolean;
+  /** Set to true when auto-layout children are reordered live during drag. */
+  reordered?: boolean;
 }
 
 export function findNodeContext(
@@ -110,7 +112,7 @@ function dropTargetFrame(
  * only ever offers what is on the same surface, which is why its guides read as
  * an explanation rather than a surprise.
  */
-function snapTargetBoxes(roots: LayoutNode[], nodeId: string, containerId?: string): Box[] {
+export function snapTargetBoxes(roots: LayoutNode[], nodeId: string, containerId?: string): Box[] {
   const boxOf = (n: LayoutNode, ox: number, oy: number): Box => ({
     x: ox + n.box.x,
     y: oy + n.box.y,
@@ -407,8 +409,8 @@ export function computeSmartGuides(
 }
 
 /**
- * Calculates the pending drop slot, target container highlight, and dashed insertion line.
- * Defers actual tree mutation to mouseup to prevent layout jitter.
+ * Calculates the pending drop slot, target container highlight, and insertion line.
+ * Keeps AST immutable during drag to ensure stable calculations and prevent layout jitter.
  */
 export function handleDragMove(
   doc: Document,
@@ -416,7 +418,8 @@ export function handleDragMove(
   currentWorld: Point,
   layoutTree?: LayoutNode[],
   nodeMap?: Map<string, PenNode>,
-  zoom = 1
+  zoom = 1,
+  isSpaceHeld = false
 ): void {
   session.currentWorld = currentWorld;
   session.targetContainerId = undefined;
@@ -439,7 +442,7 @@ export function handleDragMove(
   const ghostCenterX = session.worldOffset.x + dx + session.dimensions.width / 2;
   const ghostCenterY = session.worldOffset.y + dy + session.dimensions.height / 2;
 
-  if (layoutTree) {
+  if (layoutTree && !isSpaceHeld) {
     const frameHit = dropTargetFrame(layoutTree, { x: ghostCenterX, y: ghostCenterY }, session.nodeId, nodeMap);
 
     if (frameHit && frameHit.node.id !== session.nodeId) {
@@ -459,20 +462,6 @@ export function handleDragMove(
         const targetLayout = targetNode.type === "frame" ? targetNode.layout || "horizontal" : "none";
 
         if (targetLayout === "none") {
-          /*
-           * A frame that positions its children by hand is the one place
-           * alignment guides are the whole job, and this returned before
-           * computing any. Snapping reached only the branch below, which runs
-           * when the pointer is over bare canvas — so it worked for screens
-           * lining up against screens and went silent the moment anything was
-           * dragged inside one. Both tests covering guides dragged a top-level
-           * screen, so nothing said so.
-           *
-           * The move is applied live only while the node stays in the container
-           * it already belongs to, because x and y are written in that
-           * container's coordinates. Carrying it into a different frame still
-           * gets guides and a snapped ghost; the position lands on drop.
-           */
           applySmartMove(session, node, dx, dy, layoutTree, zoom, parent?.id === frameHit.node.id);
           return;
         }
@@ -493,17 +482,70 @@ export function handleDragMove(
         }
         session.insertIndex = insertIdx;
 
-        if (siblings.length > 0) {
-          const ref = siblings[Math.min(insertIdx, siblings.length - 1)];
-          const lineLocal = isHoriz
-            ? (insertIdx >= siblings.length ? ref.box.x + ref.box.width + 4 : ref.box.x - 4)
-            : (insertIdx >= siblings.length ? ref.box.y + ref.box.height + 4 : ref.box.y - 4);
+        // Dynamic auto-layout displacement:
+        // Update the AST so siblings slide aside smoothly to open space for the dragged item
+        if (targetNode.children) {
+          const currentIdx = targetNode.children.findIndex((c) => c.id === session.nodeId);
+          if (currentIdx !== -1) {
+            if (currentIdx !== insertIdx) {
+              targetNode.children.splice(currentIdx, 1);
+              targetNode.children.splice(insertIdx, 0, node);
+              session.reordered = true;
+            }
+          } else {
+            // Dragged into this auto-layout frame from another container or canvas
+            if (parent && isParentNode(parent) && parent.children) {
+              const pIdx = parent.children.findIndex((c) => c.id === session.nodeId);
+              if (pIdx !== -1) parent.children.splice(pIdx, 1);
+            } else {
+              const rIdx = doc.children.findIndex((c) => c.id === session.nodeId);
+              if (rIdx !== -1) doc.children.splice(rIdx, 1);
+            }
+            delete node.x;
+            delete node.y;
+            targetNode.children.splice(insertIdx, 0, node);
+            session.reordered = true;
+          }
+        }
+
+        // Calculate Figma-style blue insertion line indicator
+        if (siblings.length === 0) {
           const a = isHoriz
-            ? frameLocalToWorld({ x: lineLocal, y: 4 }, frameHit)
-            : frameLocalToWorld({ x: 4, y: lineLocal }, frameHit);
+            ? frameLocalToWorld({ x: 8, y: 4 }, frameHit)
+            : frameLocalToWorld({ x: 4, y: 8 }, frameHit);
           const b = isHoriz
-            ? frameLocalToWorld({ x: lineLocal, y: frameHit.node.box.height - 4 }, frameHit)
-            : frameLocalToWorld({ x: frameHit.node.box.width - 4, y: lineLocal }, frameHit);
+            ? frameLocalToWorld({ x: 8, y: frameHit.node.box.height - 4 }, frameHit)
+            : frameLocalToWorld({ x: frameHit.node.box.width - 4, y: 8 }, frameHit);
+          session.dropIndicator = { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+        } else if (isHoriz) {
+          let lineLocalX: number;
+          if (insertIdx === 0) {
+            lineLocalX = siblings[0].box.x - 2;
+          } else if (insertIdx >= siblings.length) {
+            const last = siblings[siblings.length - 1];
+            lineLocalX = last.box.x + last.box.width + 2;
+          } else {
+            const prev = siblings[insertIdx - 1];
+            const next = siblings[insertIdx];
+            lineLocalX = (prev.box.x + prev.box.width + next.box.x) / 2;
+          }
+          const a = frameLocalToWorld({ x: lineLocalX, y: 4 }, frameHit);
+          const b = frameLocalToWorld({ x: lineLocalX, y: frameHit.node.box.height - 4 }, frameHit);
+          session.dropIndicator = { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+        } else {
+          let lineLocalY: number;
+          if (insertIdx === 0) {
+            lineLocalY = siblings[0].box.y - 2;
+          } else if (insertIdx >= siblings.length) {
+            const last = siblings[siblings.length - 1];
+            lineLocalY = last.box.y + last.box.height + 2;
+          } else {
+            const prev = siblings[insertIdx - 1];
+            const next = siblings[insertIdx];
+            lineLocalY = (prev.box.y + prev.box.height + next.box.y) / 2;
+          }
+          const a = frameLocalToWorld({ x: 4, y: lineLocalY }, frameHit);
+          const b = frameLocalToWorld({ x: frameHit.node.box.width - 4, y: lineLocalY }, frameHit);
           session.dropIndicator = { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
         }
         return;
@@ -556,12 +598,12 @@ function applySmartMove(
 }
 
 /**
- * Commits the drop operation on mouseup.
+ * Commits the drop operation on mouseup atomically.
  */
 export function commitDragDrop(doc: Document, session: DragSession): void {
   const ctx = findNodeContext(doc, session.nodeId);
   if (!ctx) return;
-  const { node, parent, index } = ctx;
+  const { node, parent, index: srcIndex } = ctx;
 
   const dx = session.currentWorld.x - session.startWorld.x + (session.snapOffset?.x || 0);
   const dy = session.currentWorld.y - session.startWorld.y + (session.snapOffset?.y || 0);
@@ -569,25 +611,25 @@ export function commitDragDrop(doc: Document, session: DragSession): void {
   if (session.targetContainerId) {
     const targetCtx = findNodeContext(doc, session.targetContainerId);
     if (targetCtx && isParentNode(targetCtx.node)) {
-      const targetChildren = targetCtx.node.children ?? [];
-      targetCtx.node.children = targetChildren;
-      if (parent && isParentNode(parent) && parent.children) {
-        parent.children.splice(index, 1);
-      } else {
-        const rIdx = doc.children.findIndex((c) => c.id === node.id);
-        if (rIdx !== -1) doc.children.splice(rIdx, 1);
-      }
-
-      const targetLayout = targetCtx.node.type === "frame" ? targetCtx.node.layout || "horizontal" : "none";
+      const targetNode = targetCtx.node;
+      const targetLayout = targetNode.type === "frame" ? targetNode.layout || "horizontal" : "none";
 
       if (targetLayout === "none") {
+        // Remove from current location
+        if (parent && isParentNode(parent) && parent.children) {
+          parent.children.splice(srcIndex, 1);
+        } else {
+          const rIdx = doc.children.findIndex((c) => c.id === node.id);
+          if (rIdx !== -1) doc.children.splice(rIdx, 1);
+        }
+
         const dropWorld = { x: session.worldOffset.x + dx, y: session.worldOffset.y + dy };
         if (session.targetHit) {
           const local = worldPointToFrameLocal(dropWorld, session.targetHit);
           node.x = Math.round(local.x);
           node.y = Math.round(local.y);
         } else {
-          const origin = session.targetContainerWorldPos || { x: targetCtx.node.x ?? 0, y: targetCtx.node.y ?? 0 };
+          const origin = session.targetContainerWorldPos || { x: targetNode.x ?? 0, y: targetNode.y ?? 0 };
           node.x = Math.round(dropWorld.x - origin.x);
           node.y = Math.round(dropWorld.y - origin.y);
         }
@@ -597,20 +639,48 @@ export function commitDragDrop(doc: Document, session: DragSession): void {
         if (typeof node.height === "string" || node.height === undefined) {
           node.height = Math.round(session.dimensions.height);
         }
-        targetChildren.push(node);
-      } else {
-        delete node.x;
-        delete node.y;
-        const insertAt = session.insertIndex !== undefined ? Math.min(session.insertIndex, targetChildren.length) : targetChildren.length;
-        targetChildren.splice(insertAt, 0, node);
+        if (!targetNode.children) targetNode.children = [];
+        targetNode.children.push(node);
+        return;
       }
+
+      // Auto-layout container drop
+      delete node.x;
+      delete node.y;
+      if (node.layoutPosition === "absolute") delete node.layoutPosition;
+
+      if (parent && parent.id === targetNode.id) {
+        // Reordering within the same auto-layout container
+        const children = targetNode.children ?? [];
+        if (srcIndex !== -1 && srcIndex < children.length) {
+          children.splice(srcIndex, 1);
+        }
+        const targetIdx = session.insertIndex !== undefined ? Math.min(session.insertIndex, children.length) : children.length;
+        children.splice(targetIdx, 0, node);
+        targetNode.children = children;
+        return;
+      }
+
+      // Moving from another container/canvas into target auto-layout container
+      if (parent && isParentNode(parent) && parent.children) {
+        parent.children.splice(srcIndex, 1);
+      } else {
+        const rIdx = doc.children.findIndex((c) => c.id === node.id);
+        if (rIdx !== -1) doc.children.splice(rIdx, 1);
+      }
+
+      const children = targetNode.children ?? [];
+      const targetIdx = session.insertIndex !== undefined ? Math.min(session.insertIndex, children.length) : children.length;
+      children.splice(targetIdx, 0, node);
+      targetNode.children = children;
       return;
     }
   }
 
+  // Dropping onto root canvas
   if (parent !== null) {
     if (isParentNode(parent) && parent.children) {
-      parent.children.splice(index, 1);
+      parent.children.splice(srcIndex, 1);
     }
     node.x = Math.round(session.worldOffset.x + dx);
     node.y = Math.round(session.worldOffset.y + dy);

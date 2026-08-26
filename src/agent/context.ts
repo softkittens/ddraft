@@ -35,13 +35,6 @@ const APP_ARTIFACT_PATTERNS = /\b(app|apps|application|deck|player)\b/i;
 const DATA_DOMAIN_PATTERNS = /\b(telemetry|metrics|analytics|ops|logs|monitoring|charts|gauges)\b/i;
 const EDITORIAL_PATTERNS = /\b(editorial|magazine|article|story|journal|retreat|luxury|boutique|architectural)\b/i;
 
-const COMMERCE_STRONG = /\b(order|orders|ordering|cart|checkout|shop|shops|store|stores|storefront|buy|retail|ecommerce|menu|menus)\b/i;
-const COMMERCE_WEAK = /\b(cake|cakes|bakery|food|foods|restaurant|restaurants|cafe|cafes|coffee|drop|drops)\b/i;
-const SWIPE_STRONG = /\b(tinder|swipe|swipes|swiping|dating|match|matches|matching|adopt|adoption)\b/i;
-const SWIPE_WEAK = /\b(discovery|pet|pets|cat|cats|dog|dogs)\b/i;
-
-const DATA_VIZ_PATTERNS = /\b(chart|charts|gauge|gauges|telemetry|metric|metrics|graph|graphs|kpi|series|plot)\b/i;
-
 const EXPLICIT_NEW_BUILD_PATTERNS =
   /\b(create|creates|creating|build|builds|building|generate|generates|start over|from scratch)\b|^\s*design\s+(a|an|the|new|another)\s+(\w+\s+)?(screen|companion|app|site|dashboard|console|page|portfolio|website|version|landing)\b|\bdesign\s+(a|an|new|another)\s+(\w+\s+)?(screen|companion|app|site|dashboard|console|page|portfolio|website|version|landing)\b/i;
 const COMPANION_SCREEN_PATTERNS = /\b(companion screen|another screen|new screen|additional screen|mobile version|desktop version)\b/i;
@@ -139,13 +132,6 @@ export function resolvePromptContext(
   }
 
   // Resolve Archetype
-  //
-  // Strict precedence:
-  // 1. Explicit site artifact (landing page, website, portfolio) beats a tool noun describing the product
-  // 2. Explicit tool artifact (dashboard, console, workbench) beats surface words (desktop, web)
-  // 3. Mobile surface or app artifact -> app
-  // 4. Direction metadata
-  // 5. Desktop surface -> site
   let archetype: ProductArchetype = "unspecified";
   if (matchesSiteArtifact) {
     archetype = "site";
@@ -166,29 +152,12 @@ export function resolvePromptContext(
     archetype = "site";
   }
 
-  // Resolve Domain Traits.
-  const namesOwnArtifact = matchesSiteArtifact || matchesToolArtifact || matchesAppArtifact;
-  const traitText = namesOwnArtifact ? query : fullText;
+  // Resolve Traits
   const traits: DomainTrait[] = [];
-
-  const commerceStrong = COMMERCE_STRONG.test(traitText);
-  const swipeStrong = SWIPE_STRONG.test(traitText);
-  const commerceAny = commerceStrong || COMMERCE_WEAK.test(traitText);
-  const swipeAny = swipeStrong || SWIPE_WEAK.test(traitText);
-  if (commerceStrong !== swipeStrong) {
-    traits.push(commerceStrong ? "commerce_ordering" : "swipe_discovery");
-  } else if (commerceAny !== swipeAny) {
-    traits.push(commerceAny ? "commerce_ordering" : "swipe_discovery");
-  } else if (commerceAny) {
-    // Both, or neither, named their capability. A transaction is the more
-    // concrete of the two, and it is the one a shop that also browses needs.
-    traits.push("commerce_ordering");
-  }
-
-  if (DATA_VIZ_PATTERNS.test(traitText) || DATA_DOMAIN_PATTERNS.test(traitText) || archetype === "tool") {
+  if (DATA_DOMAIN_PATTERNS.test(fullText) || archetype === "tool") {
     traits.push("data_visualization");
   }
-  if (EDITORIAL_PATTERNS.test(traitText) || (archetype === "site" && !traits.includes("commerce_ordering"))) {
+  if (EDITORIAL_PATTERNS.test(fullText) || archetype === "site") {
     traits.push("editorial");
   }
 

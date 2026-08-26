@@ -35,7 +35,7 @@ export interface PendingStep {
 export const SETUP_NOTICE =
   "No provider key found. Add VERCEL_API_KEY, OPENCODE_GO_API_KEY, GEMINI_API_KEY, or DASHSCOPE_API_KEY to your .env file and restart. Keys stay on your local agent server.";
 
-export const AUTO_REVIEW_REVISIONS = 1;
+export const AUTO_REVIEW_REVISIONS = 3;
 
 export function renderMessageText(content: MessageContent | unknown): string {
   if (typeof content === "string") return content;

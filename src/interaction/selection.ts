@@ -122,7 +122,18 @@ export function paintSelectionOverlay(
       ctx.setLineDash([]);
     }
 
-    ctx.strokeRect(0, 0, w, h);
+    const isText = layoutNode.type === "text" || nodeMap?.get(layoutNode.id)?.type === "text";
+    if (isHovered && isText) {
+      // In Figma, hovering a text node renders only an underline indicator without the surrounding frame
+      ctx.strokeStyle = themeColor;
+      ctx.lineWidth = 1.5 / zoom;
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      ctx.lineTo(w, h);
+      ctx.stroke();
+    } else {
+      ctx.strokeRect(0, 0, w, h);
+    }
 
     if (isSelected) {
       const handleSize = 6 / zoom;

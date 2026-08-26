@@ -318,13 +318,13 @@ export function screenSizeError(
     if (value === width) return undefined;
     return `error: ${id} is a ${kind} screen. Width stays ${width}px. Grow height if the page scrolls.`;
   }
-  if (typeof value === "number" && Number.isFinite(value) && value >= height && value <= MAX_SCREEN_HEIGHT) {
+  if (value === "fit_content" || (typeof value === "number" && Number.isFinite(value) && value >= height && value <= MAX_SCREEN_HEIGHT)) {
     return undefined;
   }
   if (typeof value === "number" && value > MAX_SCREEN_HEIGHT) {
     return `error: ${id} height ${value}px is above ${MAX_SCREEN_HEIGHT}px. Shorten the page or split it across screens.`;
   }
-  return `error: ${id} is a ${kind} screen. Height is at least ${height}px (the first viewport). Pass ${height} or taller for a scrolling page.`;
+  return `error: ${id} is a ${kind} screen. Height is at least ${height}px (the first viewport) or 'fit_content'. Pass ${height} or taller for a scrolling page.`;
 }
 
 export function digestId(doc: Document, id: unknown): string | undefined {

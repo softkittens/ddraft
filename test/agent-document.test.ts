@@ -29,11 +29,17 @@ describe("stale agent snapshots must not overwrite user edits", () => {
     expect(decideAgentDocument(sent, sent, clone)).toEqual({ action: "accept", expected: clone });
   });
 
-  it("aborts when the canvas moved off the expected document", () => {
+  it("seamlessly merges user edits and agent updates without aborting", () => {
     const sent = makeDoc(frame("f", 100, 100));
     const userEdit = setProperty(sent, "f", "width", 80);
     const agentDoc = setProperty(sent, "f", "height", 200);
-    expect(decideAgentDocument(userEdit, sent, agentDoc)).toEqual({ action: "abort" });
+    const decision = decideAgentDocument(userEdit, sent, agentDoc);
+    expect(decision.action).toBe("accept");
+    if (decision.action === "accept") {
+      const mergedNode = findNode(decision.expected.children, "f");
+      expect(mergedNode?.width).toBe(80); // Preserved user's width edit
+      expect(mergedNode?.height).toBe(200); // Applied agent's height edit
+    }
   });
 
   it("accepts a later tool document after the previous one was applied", () => {

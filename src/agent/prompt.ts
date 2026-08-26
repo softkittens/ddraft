@@ -85,10 +85,10 @@ export function composeRuleBlocks(ctx: ResolvedContext): string[] {
   }
 
   // A revision works inside a composition that already exists. Handing it the
-  // full site, tool and domain blueprints puts "stack 6-8 narrative bands" in
-  // the same prompt as "change the hero colour", and the larger instruction is
-  // the one that wins. The surface blueprint stays, because its ergonomics and
-  // token rules apply to any edit.
+  // full site and tool blueprints puts "stack 6-8 narrative bands" in the same
+  // prompt as "change the hero colour", and the larger instruction is the one
+  // that wins. The surface blueprint stays, because its ergonomics and token
+  // rules apply to any edit.
   if (ctx.lifecycle === "revision_edit") return blocks;
 
   // 2. Archetype Guidelines. Both are 1440-wide compositions, so neither ships
@@ -104,14 +104,6 @@ export function composeRuleBlocks(ctx: ResolvedContext): string[] {
     }
   }
 
-  // 3. Domain Traits
-  if (ctx.traits.includes("commerce_ordering")) {
-    blocks.push(rules("trait-commerce"));
-  }
-  if (ctx.traits.includes("swipe_discovery")) {
-    blocks.push(rules("trait-swipe"));
-  }
-
   return blocks;
 }
 
@@ -120,22 +112,24 @@ function orderOfWork(ctx: ResolvedContext): string[] {
     return [
       "ORDER OF WORK — REVISION & INCREMENTAL EDITS",
       "  1. Inspect the selection and document digest to locate target nodes.",
-      "  2. Apply precise edits with batch_set_properties, set_property, or insert_node.",
-      "  3. Maintain existing style tokens ($surface-*, $foreground-*, $accent-*, $radius-*) and alignment.",
-      "  4. Only call set_style if the user explicitly requested a redesign, new color palette, or theme change. Otherwise, keep existing styles.",
-      "  5. Keep edits focused directly on the user request without rebuilding unrelated screens."
+      "  2. Apply precise edits with batch_set_properties, set_property, replace_node, or insert_node.",
+      "  3. Single-Turn Execution: Execute the requested edit in 1–2 focused tool calls and finish immediately. Never modify unrelated sections or run exhaustive read/measure loops across unaffected parts of the page.",
+      "  4. Maintain existing style tokens ($surface-*, $foreground-*, $accent-*, $radius-*) and alignment.",
+      "  5. Only call set_style if the user explicitly requested a redesign, new color palette, or theme change. Otherwise, keep existing styles.",
+      "  6. Keep edits strictly focused on the user request."
     ];
   }
   return [
     "ORDER OF WORK — DESIGN REQUESTS ONLY",
-    "  1. Decide SITE (persuade) vs TOOL (operate) from the surface, not the product.",
-    "     A landing page is still SITE. Write THESIS, OWN-WORLD and FIRST VIEWPORT.",
-    "     FIRST VIEWPORT names the focal subject, hierarchy and visible first action. Describe only what a static canvas can show; do not promise sticky, persistent or animated behavior.",
+    "  1. Turn-1 Self-Planning Protocol (Write in your response text before calling set_style):",
+    "     - THESIS: One-sentence brand identity & core emotional/functional promise.",
+    "     - ENTITY ROSTER: 3–6 concrete offerings with realistic specs, photography concepts, and pricing.",
+    "     - SECTION BLUEPRINT: Purposeful sections designed uniquely for THIS product's story and COMPOSITION archetype (e.g. Centered Panoramic Showcase / Monumental Typography / 3-Column Matrix / Ground-Shift Story / Tabular Spec Ledger). Do what is right for the context!",
     "  2. set_style — commit to a COMPOSITION archetype, palette, roundness, elevation, and typography.",
     "  3. Screen creation discipline:",
     "     - SINGLE-SCREEN DEFAULT: Build ONE primary screen per request (Desktop 1440 for websites, web tools, dashboards, and landing pages; Mobile 390 for mobile-only apps). Do NOT build a companion mobile screen unless the user explicitly requests mobile or responsive in their brief.",
     "     - When mobile alone is explicitly requested, build mobile only. When responsive or both desktop and mobile are requested, build Desktop first and then reuse its image fills and copy for Mobile.",
-    "  4. Insert whole subtrees. Fill the slots create_screen returned. Site photography belongs in main. Build a substantive narrative across 4–6 purposeful bands (e.g. Proposition Hero, Social Proof / Philosophy, Concrete Entity Showcase, Inclusions / Spec Ledger, Location / Story, and Grounded Action Dock). Avoid generic marketing filler like fake testimonials or forced 3-tier pricing tables.",
+    "  4. Insert whole subtrees section-by-section according to your Turn-1 Blueprint. Fill the slots create_screen returned. Site photography belongs in main.",
     "     Tool: fill only the slots needed. Empty is better than costume. Mobile: content or bleed.",
     "  5. Finish once the screens hold the product. An unused desktop slot is allowed."
   ];

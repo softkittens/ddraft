@@ -124,6 +124,9 @@ export function normalizePropertyValue(
   property: string,
   value: unknown
 ): { value: unknown; note: string } {
+  if (property === "content" && typeof value === "string") {
+    value = value.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+  }
   if (typeof value !== "string") return { value, note: "" };
   const mapped = VALUE_ALIASES[property]?.[value];
   if (mapped && mapped !== value) {

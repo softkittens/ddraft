@@ -1,6 +1,6 @@
 import { createSignal, createMemo, createRoot, createEffect, on } from "solid-js";
 import type { Document } from "../model/types";
-import { createHistory, pushDocument, undo as undoDoc, redo as redoDoc, type HistoryState } from "../model/history";
+import { createHistory, pushHistory, undo as undoDoc, redo as redoDoc, type HistoryState } from "../model/history";
 import { removeNode, duplicateNode } from "../model/edit";
 import { applyProperty, type ApplyPropertyResult } from "../model/properties";
 import {
@@ -17,8 +17,15 @@ import {
 import { copyNodes, pasteNodes, type ClipboardContents } from "../model/clipboard";
 import { layoutResolvedDocument } from "../layout/layout";
 import { resolveInstances, setInstanceProperty, splitInstanceId } from "../model/instance";
-import { createCamera, zoomAtScreenPoint, calculateFitCamera, type Camera } from "../interaction/camera";
-import { indexDocument } from "../model/tree";
+import {
+  createCamera,
+  zoomAtScreenPoint,
+  calculateFitCamera,
+  worldToScreen,
+  type Camera
+} from "../interaction/camera";
+import { findNodeWorldBox } from "../interaction/hittest";
+import { indexDocument, findAncestorsOfNode } from "../model/tree";
 import { createDefaultDocument } from "../model/defaultDocument";
 import {
   IMPLICIT_PAGE_ID,
@@ -26,6 +33,7 @@ import {
   nextPageId,
   pageScopedDocument,
   pagesOf,
+  pageOfNode,
   removePage as removePageFromDoc,
   renamePage as renamePageInDoc,
   setPageOf
@@ -35,11 +43,63 @@ import { loadSession, saveSession, clearSession, flushSession, type ChatSnapshot
 
 export type ToolMode = "select" | "frame" | "rect" | "text";
 
+export interface EditorSnapshot {
+  doc: Document;
+  selectedIds: string[];
+}
+
+function sameSnapshot(a: EditorSnapshot, b: EditorSnapshot): boolean {
+  if (a.doc !== b.doc) return false;
+  if (a.selectedIds.length !== b.selectedIds.length) return false;
+  const bSet = new Set(b.selectedIds);
+  return a.selectedIds.every((id) => bSet.has(id));
+}
+
 const initialDoc = createDefaultDocument();
+const initialSnapshot: EditorSnapshot = { doc: initialDoc, selectedIds: [] };
 
 export const [doc, setDocState] = createSignal<Document>(initialDoc);
-export const [historyState, setHistoryState] = createSignal<HistoryState>(createHistory(initialDoc));
-export const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set<string>());
+export const [selectedIds, setSelectedIdsRaw] = createSignal<Set<string>>(new Set<string>());
+export const [historyState, setHistoryState] = createSignal<HistoryState<EditorSnapshot>>(
+  createHistory(initialSnapshot)
+);
+
+export function commitSnapshot(nextDoc = doc(), nextSelection = selectedIds()): void {
+  const snapshot: EditorSnapshot = {
+    doc: nextDoc,
+    selectedIds: Array.from(nextSelection)
+  };
+
+  setDocState(nextDoc);
+  setSelectedIdsRaw(new Set(nextSelection));
+
+  if (liveEdit) {
+    liveEdit.dirty = true;
+    return;
+  }
+
+  setHistoryState((prev) => pushHistory(prev, snapshot, sameSnapshot));
+}
+
+export function setSelectedIds(
+  next: Set<string> | ((prev: Set<string>) => Set<string>),
+  options: { recordHistory?: boolean } = {}
+): void {
+  const current = selectedIds();
+  const resolved = typeof next === "function" ? next(current) : next;
+
+  if (resolved.size === current.size && [...resolved].every((id) => current.has(id))) {
+    return;
+  }
+
+  if (options.recordHistory === false) {
+    setSelectedIdsRaw(resolved);
+    return;
+  }
+
+  commitSnapshot(doc(), resolved);
+}
+
 export const [hoveredId, setHoveredId] = createSignal<string | null>(null);
 export const [camera, setCamera] = createSignal<Camera>(createCamera(40, 40, 1));
 export const [toolMode, setToolMode] = createSignal<ToolMode>("select");
@@ -193,12 +253,7 @@ let liveEdit: { dirty: boolean } | null = null;
  */
 export function updateDoc(newDoc: Document) {
   if (newDoc === doc()) return;
-  setDocState(newDoc);
-  if (liveEdit) {
-    liveEdit.dirty = true;
-    return;
-  }
-  setHistoryState((prev) => pushDocument(prev, newDoc));
+  commitSnapshot(newDoc, selectedIds());
 }
 
 /**
@@ -228,7 +283,11 @@ export function endEdit(): void {
   // session, which is a far worse failure than a lost step.
   liveEdit = null;
   if (!edit?.dirty) return;
-  setHistoryState((prev) => pushDocument(prev, doc()));
+  const snapshot: EditorSnapshot = {
+    doc: doc(),
+    selectedIds: Array.from(selectedIds())
+  };
+  setHistoryState((prev) => pushHistory(prev, snapshot, sameSnapshot));
 }
 
 export function isEditing(): boolean {
@@ -399,7 +458,8 @@ export async function hydrateSession(): Promise<void> {
     if (saved) {
       restored = true;
       setDocState(saved.doc);
-      setHistoryState(createHistory(saved.doc));
+      setSelectedIdsRaw(new Set<string>());
+      setHistoryState(createHistory({ doc: saved.doc, selectedIds: [] }));
       if (saved.camera) setCamera(saved.camera);
       if (saved.chat) setRestoredChat(saved.chat);
       if (saved.activePageId) setActivePageId(saved.activePageId);
@@ -417,6 +477,14 @@ export async function hydrateSession(): Promise<void> {
 export function persistChat(snapshot: ChatSnapshot): void {
   if (!hydrated()) return;
   saveSession({ chat: snapshot });
+}
+
+export async function initStorage(): Promise<void> {
+  await hydrateSession();
+  window.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") void flushSession();
+  });
+  window.addEventListener("pagehide", () => void flushSession());
 }
 
 createRoot(() => {
@@ -453,8 +521,8 @@ export async function resetCanvas(): Promise<void> {
   liveEdit = null;
   const fresh = createDefaultDocument();
   setDocState(fresh);
-  setHistoryState(createHistory(fresh));
-  setSelectedIds(new Set<string>());
+  setSelectedIdsRaw(new Set<string>());
+  setHistoryState(createHistory({ doc: fresh, selectedIds: [] }));
   setHoveredId(null);
   setEditingTextId(null);
   setCamera(createCamera(40, 40, 1));
@@ -465,14 +533,12 @@ export async function resetCanvas(): Promise<void> {
 }
 
 export function handleUndo() {
-  // An edit still open is a step the user has finished making, whatever the
-  // control forgot to say. Close it, then undo it.
   endEdit();
   const res = undoDoc(historyState());
   if (res) {
     setHistoryState(res.history);
-    setDocState(res.doc);
-    setSelectedIds(new Set<string>());
+    setDocState(res.value.doc);
+    setSelectedIdsRaw(new Set(res.value.selectedIds));
   }
 }
 
@@ -481,8 +547,8 @@ export function handleRedo() {
   const res = redoDoc(historyState());
   if (res) {
     setHistoryState(res.history);
-    setDocState(res.doc);
-    setSelectedIds(new Set<string>());
+    setDocState(res.value.doc);
+    setSelectedIdsRaw(new Set(res.value.selectedIds));
   }
 }
 
@@ -634,6 +700,73 @@ export function toggleLayerCollapse(id: string) {
     else next.add(id);
     return next;
   });
+}
+
+/**
+ * Expand all collapsed ancestor groups/frames for a node so it becomes visible in the layer tree.
+ */
+export function uncollapseAncestors(nodeId: string): void {
+  const currentDoc = resolvedDoc();
+  const ancestors = findAncestorsOfNode(currentDoc.children, nodeId);
+  if (ancestors.length === 0) return;
+
+  setLayersCollapsed((prev) => {
+    let changed = false;
+    const next = new Set(prev);
+    for (const a of ancestors) {
+      if (next.has(a.id)) {
+        next.delete(a.id);
+        changed = true;
+      }
+    }
+    return changed ? next : prev;
+  });
+}
+
+/**
+ * Focus the canvas view on a node unless it is already comfortably in shot.
+ */
+export function focusNodeOnCanvas(nodeId: string, options: { animate?: boolean } = {}): void {
+  const targetPage = pageOfNode(doc(), nodeId);
+  const currentActive = activePage()?.id;
+  if (targetPage !== undefined && targetPage !== currentActive) {
+    setActivePageId(targetPage === IMPLICIT_PAGE_ID ? undefined : targetPage);
+  }
+
+  const box = findNodeWorldBox(layoutTree(), nodeId);
+  if (!box) return;
+
+  const cam = camera();
+  const tl = worldToScreen({ x: box.x, y: box.y }, cam);
+  const br = worldToScreen({ x: box.x + box.width, y: box.y + box.height }, cam);
+
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1440;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 900;
+  const isChatOpen = chatVisible() && chatExpanded();
+  const leftPad = isChatOpen ? Math.min(410, vw * 0.35) : 60;
+  const rightPad = layersVisible() ? 380 : (inspectorVisible() ? 280 : 60);
+
+  const inShot = tl.x >= leftPad && tl.y >= 60 && br.x <= vw - rightPad && br.y <= vh - 60;
+  if (inShot) return;
+
+  const target = calculateFitCamera(
+    box,
+    {
+      width: vw,
+      height: vh,
+      leftPadding: leftPad,
+      rightPadding: rightPad,
+      topPadding: 70,
+      bottomPadding: 60
+    },
+    cam.zoom
+  );
+
+  if (options.animate !== false) {
+    animateCameraTo(target);
+  } else {
+    setCamera(target);
+  }
 }
 
 export function selectNode(id: string, multi = false) {

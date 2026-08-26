@@ -8,9 +8,7 @@ import {
 import {
   CRITIC_PROMPT,
   criticMessages,
-  enforceSourceGrounding,
-  parseDesignReview,
-  sourceGroundingIssue
+  parseDesignReview
 } from "../src/agent/critic";
 import { reviewLoopNext } from "../src/ui/chat/reviewLoop";
 import type { Document } from "../src/model/types";
@@ -58,73 +56,25 @@ describe("design review contract", () => {
     expect(Array.isArray(messages[1].content)).toBe(true);
   });
 
-  it("injects domain-specific review criteria based on the design brief", () => {
-    const foodMessages = criticMessages({
-      brief: "Playful ordering app for matcha cakes",
-      screenshotDataUrl: "data:image/png;base64,xx",
-      digest: "title Home"
-    });
-    expect(String(foodMessages[0].content)).toContain("E-COMMERCE & FOOD ORDERING APP");
-    expect(String(foodMessages[0].content)).toContain("capabilities, not template compliance");
-    expect(String(foodMessages[0].content)).toContain("Product specificity");
-    expect(String(foodMessages[0].content)).toContain("action shape is a design choice");
-
-    const swipeMessages = criticMessages({
-      brief: "Mobile cat adoption swipe cards app",
-      screenshotDataUrl: "data:image/png;base64,xx",
-      digest: "title Home"
-    });
-    expect(String(swipeMessages[0].content)).toContain("CARD SWIPE / SOCIAL DISCOVERY");
-    expect(String(swipeMessages[0].content)).toContain("Single-Viewport Ceiling");
-
+  it("injects archetype-specific review criteria based on the design brief", () => {
     const opsMessages = criticMessages({
       brief: "Telemetry ops dashboard for server clusters",
       screenshotDataUrl: "data:image/png;base64,xx",
       digest: "title Home"
     });
     expect(String(opsMessages[0].content)).toContain("DASHBOARD & OPERATIONS CONSOLE");
+    expect(String(opsMessages[0].content)).toContain("Judge capabilities, not template compliance");
 
     const siteMessages = criticMessages({
       brief: "Warm booking site for a Lisbon coworking house",
       screenshotDataUrl: "data:image/png;base64,xx",
       digest: "title Home"
     });
-    expect(String(siteMessages[0].content)).toContain("Source Grounding");
+    expect(String(siteMessages[0].content)).toContain("MARKETING SITE & LANDING PAGE");
+    expect(String(siteMessages[0].content)).toContain("Copy Conciseness & Fit");
     expect(String(siteMessages[0].content)).toContain("Conversion Proportionality");
     expect(String(siteMessages[0].content)).toContain("GESTALT GATE");
     expect(String(siteMessages[0].content)).toContain("qualityGate.distinctive");
-  });
-
-  it("deterministically flags unsupported high-risk authority claims", () => {
-    const digest = [
-      'badge "B Corp Pending"',
-      'rating "4.9 / 5 stars based on 1,200 verified reviews"'
-    ].join("\n");
-    const issue = sourceGroundingIssue("Warm booking site for a Lisbon coworking house", digest);
-    expect(issue?.title).toBe("Unsupported authority claims");
-    expect(issue?.reason).toContain("B Corp Pending");
-
-    const unready: DesignReview = {
-      verdict: "pass",
-      scores: { specificity: 5, hierarchy: 5, usability: 5, craft: 5 },
-      strengths: [],
-      issues: []
-    };
-    const enforced = enforceSourceGrounding(unready, "Warm booking site for Lisbon", digest);
-    expect(enforced.verdict).toBe("refine");
-    expect(enforced.issues[0].title).toBe("Unsupported authority claims");
-  });
-
-  it("accepts concrete business facts that the user supplied", () => {
-    const brief = "Show that the company is B Corp Pending.";
-    const digest = 'badge "B Corp Pending"';
-    expect(sourceGroundingIssue(brief, digest)).toBeUndefined();
-  });
-
-  it("allows standard fictional mockup content like hours, availability, and policies", () => {
-    const digest = 'status "Live"\nhours "08:30–20:00 weekdays"\npolicy "Instant confirmation · No booking fee · Cancel anytime"\naccess "24/7 access"';
-    const issue = sourceGroundingIssue("Warm Lisbon coworking site", digest);
-    expect(issue).toBeUndefined();
   });
 
   it("judges against the context the builder used, not one re-derived from the brief", () => {

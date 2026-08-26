@@ -1,4 +1,4 @@
-import { Component, For, Show, createSignal, onCleanup } from "solid-js";
+import { Component, For, Show, createSignal, createEffect, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import {
   ChevronDown,
@@ -31,6 +31,8 @@ import {
   selectNode,
   layersCollapsed,
   toggleLayerCollapse,
+  uncollapseAncestors,
+  focusNodeOnCanvas,
   setLayersVisible,
   deleteNodeById
 } from "./store";
@@ -84,10 +86,34 @@ const MovePageMenu: Component<{ nodeId: string; at: { x: number; y: number }; on
 );
 
 const NodeRow: Component<{ node: PenNode; depth: number }> = (props) => {
+  let rowRef: HTMLDivElement | undefined;
   const [moveMenuAt, setMoveMenuAt] = createSignal<{ x: number; y: number } | null>(null);
   const isSelected = () => selectedIds().has(props.node.id);
   const isCollapsed = () => layersCollapsed().has(props.node.id);
   const hasChildren = () => childrenOf(props.node).length > 0;
+
+  createEffect(() => {
+    if (isSelected() && rowRef) {
+      const container = rowRef.closest(".overflow-y-auto") as HTMLElement | null;
+      if (!container) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const rowRect = rowRef.getBoundingClientRect();
+      const rowHeight = rowRect.height || 28;
+      const offset5 = 5 * rowHeight;
+
+      const isAbove = rowRect.top < containerRect.top;
+      const isBelow = rowRect.bottom > containerRect.bottom;
+
+      if (isAbove) {
+        const relTop = rowRect.top - containerRect.top;
+        container.scrollTop = Math.max(0, container.scrollTop + relTop - offset5);
+      } else if (isBelow) {
+        const relBottom = rowRect.bottom - containerRect.bottom;
+        container.scrollTop = Math.max(0, container.scrollTop + relBottom + offset5);
+      }
+    }
+  });
 
   const getNodeIcon = () => {
     switch (props.node.type) {
@@ -121,7 +147,11 @@ const NodeRow: Component<{ node: PenNode; depth: number }> = (props) => {
   return (
     <div>
       <div
-        onClick={(e) => selectNode(props.node.id, e.metaKey || e.ctrlKey)}
+        ref={rowRef}
+        onClick={(e) => {
+          selectNode(props.node.id, e.metaKey || e.ctrlKey);
+          focusNodeOnCanvas(props.node.id);
+        }}
         style={{ "padding-left": `${props.depth * 14 + 10}px` }}
         class={`group flex items-center justify-between h-7 pr-2 text-xs cursor-pointer transition select-none ${
           isSelected()
@@ -308,6 +338,12 @@ function clamp(n: number, min: number, max: number): number {
 export const LayersPanel: Component = () => {
   const [resizing, setResizing] = createSignal(false);
 
+  createEffect(() => {
+    for (const id of selectedIds()) {
+      uncollapseAncestors(id);
+    }
+  });
+
   const startResize = (axisX: boolean, axisY: boolean) => (e: PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -393,3 +429,4 @@ export const LayersPanel: Component = () => {
     </div>
   );
 };
+

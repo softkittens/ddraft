@@ -5,12 +5,10 @@ import { DIRECTION_METADATA_KEY } from "../src/design/styleSystem";
 import type { FrameNode } from "../src/model/types";
 
 describe("Context Resolution Subsystem", () => {
-  it("resolves mobile surface and consumer ordering trait from prompt", () => {
+  it("resolves mobile surface and app archetype from mobile prompt", () => {
     const ctx = resolvePromptContext("Create mobile app for ordering matcha cakes");
     expect(ctx.surface).toBe("mobile");
     expect(ctx.archetype).toBe("app");
-    expect(ctx.traits).toContain("commerce_ordering");
-    expect(ctx.traits).not.toContain("swipe_discovery");
     expect(ctx.lifecycle).toBe("initial_build");
   });
 
@@ -19,7 +17,6 @@ describe("Context Resolution Subsystem", () => {
     expect(ctx.surface).toBe("desktop");
     expect(ctx.archetype).toBe("site");
     expect(ctx.traits).toContain("editorial");
-    expect(ctx.traits).not.toContain("commerce_ordering");
     expect(ctx.lifecycle).toBe("initial_build");
   });
 
@@ -28,16 +25,13 @@ describe("Context Resolution Subsystem", () => {
     expect(ctx.surface).toBe("desktop");
     expect(ctx.archetype).toBe("tool");
     expect(ctx.traits).toContain("data_visualization");
-    expect(ctx.traits).not.toContain("commerce_ordering");
     expect(ctx.lifecycle).toBe("initial_build");
   });
 
-  it("resolves swipe discovery trait for dating and pet adoption apps", () => {
+  it("resolves mobile app archetype for mobile discovery apps", () => {
     const ctx = resolvePromptContext("Mobile app tinder for cat adoption");
     expect(ctx.surface).toBe("mobile");
     expect(ctx.archetype).toBe("app");
-    expect(ctx.traits).toContain("swipe_discovery");
-    expect(ctx.traits).not.toContain("commerce_ordering");
   });
 
   it("prioritizes canvas ground truth over ambiguous prompt text", () => {
@@ -129,11 +123,11 @@ describe("Context Resolution Subsystem", () => {
     expect(ctx.surface).toBe("mobile");
   });
 
-  it("maintains domain trait continuity across multi-turn session history", () => {
+  it("maintains lifecycle continuity across multi-turn session history", () => {
     const doc = makeDoc();
     // Turn 1 was "Create matcha cake bakery ordering app", Turn 2 is "make button darker"
     const ctx = resolvePromptContext("make the button darker", doc, [], "Create matcha cake bakery ordering app");
-    expect(ctx.traits).toContain("commerce_ordering");
+    expect(ctx.lifecycle).toBe("initial_build");
   });
 });
 
@@ -174,16 +168,16 @@ describe("Prompt behaviour corpus", () => {
     expect(ctx.traits).toContain("data_visualization");
   });
 
-  it("does not deal commerce and swipe templates to the same screen", () => {
+  it("resolves mobile app for consumer ordering apps", () => {
     const ctx = resolvePromptContext("Pet shop ordering app");
-    expect(ctx.traits).toContain("commerce_ordering");
-    expect(ctx.traits).not.toContain("swipe_discovery");
+    expect(ctx.surface).toBe("mobile");
+    expect(ctx.archetype).toBe("app");
   });
 
-  it("still reads swipe discovery when that is the actual request", () => {
+  it("resolves mobile app for discovery apps", () => {
     const ctx = resolvePromptContext("Swipe app for dog adoption");
-    expect(ctx.traits).toContain("swipe_discovery");
-    expect(ctx.traits).not.toContain("commerce_ordering");
+    expect(ctx.surface).toBe("mobile");
+    expect(ctx.archetype).toBe("app");
   });
 
   it("lets a new brief reset the archetype an earlier turn established", () => {

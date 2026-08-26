@@ -1,12 +1,13 @@
 import { createSignal, onMount, onCleanup, type Accessor } from "solid-js";
 import { screenToWorld, panCamera, applyWheelToCamera, type Point } from "../../interaction/camera";
-import { hitTestScene, hitTestSceneWorld, findNodeWorldBox, findNodesInMarquee } from "../../interaction/hittest";
-import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession } from "../../interaction/drag";
+import { hitTestSceneWorld, findNodeWorldBox, findNodesInMarquee, resolveFigmaClickTarget } from "../../interaction/hittest";
+import { handleDragMove, commitDragDrop, pastDragThreshold, type DragSession, type AlignmentGuide } from "../../interaction/drag";
+import { snapshotPositions, trackLayoutTransitionsFromSnapshot } from "../../interaction/animate";
 import {
   applyResize,
+  computeResizeSnap,
   cursorForHandle,
   handleAtScreenPoint,
-  resizeBox,
   type ResizeHandle
 } from "../../interaction/resize";
 import { duplicateNode, getNextNodeId } from "../../model/edit";
@@ -77,6 +78,7 @@ export function useCanvasPointer(opts: {
     handle: ResizeHandle;
     startWorld: Point;
     startBox: Box;
+    guides?: AlignmentGuide[];
   }
   const [resizeSession, setResizeSession] = createSignal<ResizeSession | null>(null);
 
@@ -110,9 +112,29 @@ export function useCanvasPointer(opts: {
     if (!current) return;
     const stopDrag = telemetry.startSpan("interaction:drag");
     const updated = { ...current, snapDisabled };
-    handleDragMove(doc(), updated, world, layoutTree(), nodeMap(), camera().zoom);
+    const oldPositions = snapshotPositions(layoutTree());
+    const workingDoc = cloneDocument(doc());
+    handleDragMove(workingDoc, updated, world, layoutTree(), nodeMap(), camera().zoom, opts.isSpace());
+    if (updated.reordered) {
+      updated.reordered = false;
+      updateDoc(workingDoc);
+      trackLayoutTransitionsFromSnapshot(oldPositions, layoutTree(), 200);
+    }
     stopDrag();
     setDragSession(updated);
+  }
+
+  function updateHoverAt(world: Point, isDeepSelect: boolean) {
+    const stopHit = telemetry.startSpan("interaction:hittest");
+    const hitResult = hitTestSceneWorld(layoutTree(), world, nodeMap());
+    const hit = hitResult
+      ? resolveFigmaClickTarget(hitResult.path, selectedIds(), isDeepSelect)
+      : null;
+    stopHit();
+    const newHover = hit ? hit.id : null;
+    if (newHover !== hoveredId()) {
+      setHoveredId(newHover);
+    }
   }
 
   const handleMouseDown = (e: MouseEvent) => {
@@ -155,22 +177,34 @@ export function useCanvasPointer(opts: {
     const hitResult = hitTestSceneWorld(layoutTree(), world, nodeMap());
     stopHit();
 
-    const isMultiKey = e.metaKey || e.ctrlKey || e.shiftKey;
+    const isShiftHeld = e.shiftKey;
+    const isDeepSelect = e.metaKey || e.ctrlKey;
 
     if (hitResult) {
-      const hit = hitResult.node;
-      const instanceTarget = splitInstanceId(doc(), hit.id);
-      const targetId = instanceTarget?.refId ?? hit.id;
-      const targetHit = instanceTarget
-        ? hitResult.path.find((node) => node.id === targetId) ?? hit
-        : hit;
-      const targetWorld = instanceTarget ? findNodeWorldBox(layoutTree(), targetId) : null;
-      const alreadySelected = selectedIds().has(targetId);
-      if (!alreadySelected || isMultiKey) {
-        selectNode(targetId, isMultiKey);
+      // Figma selection: single click selects top-level frame; clicking inside selects child; Cmd+click deep selects
+      const targetNode = resolveFigmaClickTarget(hitResult.path, selectedIds(), isDeepSelect);
+      const instanceTarget = splitInstanceId(doc(), targetNode.id);
+      const targetId = instanceTarget?.refId ?? targetNode.id;
+      const targetDoc = nodeMap().get(targetId);
+      const isTextNode = targetDoc?.type === "text" || targetNode.type === "text";
+
+      if (isDeepSelect && isTextNode) {
+        // Holding Cmd + clicking a text node enters inline text edit mode (Figma behavior)
+        selectNode(targetId, false);
+        setEditingTextId(targetId);
+        return;
       }
 
-      const targetDoc = nodeMap().get(targetId);
+      const targetHit = instanceTarget
+        ? hitResult.path.find((node) => node.id === targetId) ?? targetNode
+        : targetNode;
+      const targetWorld = instanceTarget ? findNodeWorldBox(layoutTree(), targetId) : null;
+
+      const alreadySelected = selectedIds().has(targetId);
+      if (!alreadySelected || isShiftHeld) {
+        selectNode(targetId, isShiftHeld);
+      }
+
       pendingPress = {
         nodeId: targetId,
         startWorld: world,
@@ -183,7 +217,7 @@ export function useCanvasPointer(opts: {
         dimensions: { width: targetHit.box.width, height: targetHit.box.height }
       };
     } else {
-      if (!isMultiKey) {
+      if (!isShiftHeld) {
         setSelectedIds(new Set<string>());
       }
       setMarqueeStart(world);
@@ -211,17 +245,21 @@ export function useCanvasPointer(opts: {
 
     const resizing = resizeSession();
     if (resizing) {
-      const next = resizeBox(
-        resizing.startBox,
+      const snapResult = computeResizeSnap(
+        layoutTree(),
+        resizing.nodeId,
         resizing.handle,
+        resizing.startBox,
         world.x - resizing.startWorld.x,
         world.y - resizing.startWorld.y,
-        { fromCenter: e.altKey, aspect: e.shiftKey, min: 1 }
+        { fromCenter: e.altKey, aspect: e.shiftKey, min: 1, snapDisabled },
+        camera().zoom
       );
+      setResizeSession({ ...resizing, guides: snapResult.guides });
       // Written through the document rather than drawn as a preview, so an
       // auto-layout parent reflows and text rewraps while the edge is moving —
       // the drag ghost approach can only show the box that is being dragged.
-      updateDoc(applyResize(doc(), resizing.nodeId, resizing.handle, next, { fromCenter: e.altKey }));
+      updateDoc(applyResize(doc(), resizing.nodeId, resizing.handle, snapResult.box, { fromCenter: e.altKey }));
       return;
     }
 
@@ -242,15 +280,16 @@ export function useCanvasPointer(opts: {
       const hitIds = findNodesInMarquee(layoutTree(), mBox, nodeMap());
       const isMultiKey = e.metaKey || e.ctrlKey || e.shiftKey;
       if (isMultiKey) {
-        setSelectedIds(new Set([...initialMarqueeSelection, ...hitIds]));
+        setSelectedIds(new Set([...initialMarqueeSelection, ...hitIds]), { recordHistory: false });
       } else {
-        setSelectedIds(new Set(hitIds));
+        setSelectedIds(new Set(hitIds), { recordHistory: false });
       }
       return;
     }
 
     if (pendingPress && !dragSession()) {
       if (pastDragThreshold(pendingPress.startWorld, world)) {
+        beginEdit();
         setDragSession(pendingPress);
         pendingPress = null;
         canvas.style.cursor = opts.isAltHeld() ? "copy" : "grabbing";
@@ -266,13 +305,7 @@ export function useCanvasPointer(opts: {
       const overHandle = toolMode() === "select" ? handleUnderPointer(screenPt) : null;
       canvas.style.cursor = overHandle ? cursorForHandle(overHandle.handle) : "default";
 
-      const stopHit = telemetry.startSpan("interaction:hittest");
-      const hit = hitTestScene(layoutTree(), world, nodeMap());
-      stopHit();
-      const newHover = hit ? hit.id : null;
-      if (newHover !== hoveredId()) {
-        setHoveredId(newHover);
-      }
+      updateHoverAt(world, e.metaKey || e.ctrlKey);
     }
   };
 
@@ -345,6 +378,7 @@ export function useCanvasPointer(opts: {
       setMarqueeStart(null);
       setMarqueeCurrent(null);
       initialMarqueeSelection.clear();
+      setSelectedIds((prev) => new Set(prev));
       return;
     }
 
@@ -363,6 +397,7 @@ export function useCanvasPointer(opts: {
         commitDragDrop(nextDoc, current);
         updateDoc(nextDoc);
       }
+      endEdit();
 
       setDragSession(null);
       if (canvas) canvas.style.cursor = "default";
@@ -391,6 +426,10 @@ export function useCanvasPointer(opts: {
       endEdit();
       setResizeSession(null);
     }
+    if (dragSession()) {
+      endEdit();
+      setDragSession(null);
+    }
     isPanning = false;
     pendingPress = null;
     setMarqueeStart(null);
@@ -409,7 +448,19 @@ export function useCanvasPointer(opts: {
       if (textNode) {
         setEditingTextId(textNode.id);
         setSelectedIds(new Set([textNode.id]));
+        return;
       }
+
+      // Double-click jumps straight into the clicked child element
+      const instanceTarget = splitInstanceId(doc(), hit.node.id);
+      const targetId = instanceTarget?.refId ?? hit.node.id;
+      selectNode(targetId, false);
+    }
+  };
+
+  const handleKeyModifier = (e: KeyboardEvent) => {
+    if ((e.key === "Meta" || e.key === "Control") && lastWorldMouse && !dragSession()) {
+      updateHoverAt(lastWorldMouse, e.type === "keydown");
     }
   };
 
@@ -417,6 +468,8 @@ export function useCanvasPointer(opts: {
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
     window.addEventListener("dblclick", handleDoubleClick);
+    window.addEventListener("keydown", handleKeyModifier);
+    window.addEventListener("keyup", handleKeyModifier);
     window.addEventListener("blur", handleBlur);
     window.addEventListener("resize", invalidateCanvasRect);
   });
@@ -425,6 +478,8 @@ export function useCanvasPointer(opts: {
     window.removeEventListener("mousemove", handleMouseMove);
     window.removeEventListener("mouseup", handleMouseUp);
     window.removeEventListener("dblclick", handleDoubleClick);
+    window.removeEventListener("keydown", handleKeyModifier);
+    window.removeEventListener("keyup", handleKeyModifier);
     window.removeEventListener("blur", handleBlur);
     window.removeEventListener("resize", invalidateCanvasRect);
   });

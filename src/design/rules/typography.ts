@@ -245,3 +245,24 @@ export function checkScaleDiscipline(ctx: AuditContext): AuditFinding[] {
 
   return findings;
 }
+
+export function checkRawEscapeSequences(ctx: AuditContext): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  walkEnabled(ctx.doc.children, (node) => {
+    if (node.type === "text") {
+      const text = node as TextNode;
+      const content = text.content ?? "";
+      if (content.includes("\\n") || content.includes("\\t")) {
+        findings.push(
+          blocker(
+            "raw_escape_sequence",
+            node.id,
+            `"${node.name ?? node.id}" contains raw unescaped '\\n' or '\\t' sequence in content ("${content.slice(0, 30)}...").`,
+            "Replace '\\n' with a real newline in the text content string."
+          )
+        );
+      }
+    }
+  });
+  return findings;
+}

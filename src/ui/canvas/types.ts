@@ -1,7 +1,7 @@
 import type { Document, PenNode } from "../../model/types";
 import type { LayoutNode } from "../../layout/types";
 import type { Camera, Point } from "../../interaction/camera";
-import type { DragSession } from "../../interaction/drag";
+import type { AlignmentGuide, DragSession } from "../../interaction/drag";
 import { hitTestSceneWorld, nearestFrameHit, worldPointToFrameLocal } from "../../interaction/hittest";
 import { insertChild } from "../../model/edit";
 import { cloneDocument } from "../../model/tree";
@@ -15,6 +15,7 @@ export interface CanvasRenderState {
   selectedIds: Set<string>;
   hoveredId: string | null;
   dragSession: DragSession | null;
+  resizeGuides?: AlignmentGuide[];
   isAltHeld: boolean;
   shapeStart: Point | null;
   shapeCurrent: Point | null;

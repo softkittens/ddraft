@@ -57,6 +57,7 @@ export function renderScene(
     selectedIds,
     hoveredId,
     dragSession,
+    resizeGuides,
     isAltHeld,
     shapeStart,
     shapeCurrent,
@@ -156,8 +157,10 @@ export function renderScene(
     const { x1, y1, x2, y2 } = dragSession.dropIndicator;
     ctx.save();
     ctx.strokeStyle = "#0d99ff";
-    ctx.lineWidth = 2 / camera.zoom;
-    ctx.setLineDash([4 / camera.zoom, 4 / camera.zoom]);
+    ctx.fillStyle = "#0d99ff";
+    ctx.lineWidth = 2.5 / camera.zoom;
+    ctx.lineCap = "round";
+    ctx.setLineDash([]);
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
@@ -206,6 +209,11 @@ export function renderScene(
     if (dragSession.distanceGuides && dragSession.distanceGuides.length > 0) {
       paintDistanceGuides(ctx, dragSession.distanceGuides, camera.zoom);
     }
+  }
+
+  // Figma-style smart alignment reference guides for resizing
+  if (resizeGuides && resizeGuides.length > 0) {
+    paintSmartGuides(ctx, resizeGuides, camera.zoom);
   }
 
   // Shape drawing preview

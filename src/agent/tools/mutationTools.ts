@@ -1,7 +1,7 @@
 import type { PenNode } from "../../model/types";
 import { insertChild, moveNode, removeNode, replaceNode, setProperty, duplicateNode, getNextNodeId } from "../../model/edit";
 import { childrenOf, findNode, maxNumericId } from "../../model/tree";
-import { pageScopedDocument, setPageOf } from "../../model/pages";
+import { pageScopedDocument, setPageOf, IMPLICIT_PAGE_ID } from "../../model/pages";
 import { digest, digestSubtree } from "../../digest/digest";
 import { buildScreen, type ScreenSpec, type TabSpec } from "../../design/scaffold";
 import { insertionNote } from "../../design/evaluator";
@@ -111,7 +111,7 @@ export const createScreenTool: DocumentToolDefinition = {
     }
     (scaffold.node as any).x = siblings.length > 0 ? maxX + 80 : 0;
     (scaffold.node as any).y = siblings[0]?.y ?? 0;
-    if (ctx.pageId) {
+    if (ctx.pageId && ctx.pageId !== IMPLICIT_PAGE_ID) {
       (scaffold.node as any).metadata = {
         ...((scaffold.node as any).metadata ?? {}),
         page: ctx.pageId

@@ -1,5 +1,5 @@
 import type { Document } from "../model/types";
-import { pageScopedDocument } from "../model/pages";
+import { pageScopedDocument, IMPLICIT_PAGE_ID } from "../model/pages";
 import { findNode } from "../model/tree";
 import type { FetchFn, Tool } from "./provider";
 // Registers the full icon catalog. Without it every name outside the
@@ -87,7 +87,7 @@ export function createDocumentTools(
     },
     pageId,
     offPage(id: string | undefined) {
-      if (!pageId || !id) return undefined;
+      if (!pageId || pageId === IMPLICIT_PAGE_ID || !id) return undefined;
       // Unknown ids are not this guard's business. The tools already report a
       // missing node in their own words, and answering "not on this page" for
       // a typo would send the model looking for a page problem it does not have.
